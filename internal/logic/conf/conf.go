@@ -83,6 +83,7 @@ type Config struct {
 	RPCServer  *RPCServer
 	HTTPServer *HTTPServer
 	Kafka      *Kafka
+	MQ         *MQ // optional: when set, MQ abstraction replaces direct Kafka calls
 	Redis      *Redis
 	Node       *Node
 	Backoff    *Backoff
@@ -142,6 +143,19 @@ type Kafka struct {
 	RoomTopic string // topic for room broadcast messages
 	AllTopic  string // topic for global broadcast messages
 	ACKTopic  string // topic for ACK callbacks
+}
+
+// MQ is the abstract message queue configuration.
+// When set, the MQ Producer interface is used instead of raw Kafka producer.
+// When nil (no [MQ] section in config), all code falls through to legacy Kafka paths.
+type MQ struct {
+	Type          string // "kafka" (default), "redis", "nats"
+	Brokers       []string
+	PushTopic     string // per-user push topic
+	RoomTopic     string // room broadcast topic
+	AllTopic      string // global broadcast topic
+	ACKTopic      string // ACK event topic
+	ConsumerGroup string // consumer group name for Delivery Worker
 }
 
 // RPCClient is RPC client config.

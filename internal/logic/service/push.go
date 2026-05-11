@@ -53,6 +53,12 @@ func (s *PushService) SetIDGenerator(gen IDGenerator) {
 	s.idGen = gen
 }
 
+// DirectPush pushes a message directly to specific sessions via gRPC.
+// Exported for use by SyncService and other external callers.
+func (s *PushService) DirectPush(ctx context.Context, sessions []*Session, op int32, body []byte) error {
+	return s.directPush(ctx, sessions, op, body)
+}
+
 // PushToUser pushes a message to a specific user using dual-channel architecture.
 func (s *PushService) PushToUser(ctx context.Context, msgID string, toUID int64, op int32, body []byte, seq int64) error {
 	// Auto-generate msgID if empty

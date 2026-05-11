@@ -33,11 +33,3 @@ type PushDAO interface {
 	BroadcastMsg(ctx context.Context, op, speed int32, msg []byte) error
 	PublishACK(ctx context.Context, msgID string, uid int64, status string) error
 }
-
-// RetryDAO is the interface for retry queue operations.
-type RetryDAO interface {
-	EnqueueRetry(ctx context.Context, msgID string, uid int64, score float64) error
-	DequeueRetry(ctx context.Context, minScore, maxScore float64, limit int) ([]string, error)
-	IncrRetryCount(ctx context.Context, msgID string) (int, error)
-	RemoveRetry(ctx context.Context, msgID string, uid int64) error
-}

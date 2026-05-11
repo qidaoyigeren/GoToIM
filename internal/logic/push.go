@@ -56,10 +56,11 @@ func (l *Logic) PushMids(c context.Context, op int32, mids []int64, msg []byte) 
 
 // PushRoom push a message by room.
 func (l *Logic) PushRoom(c context.Context, op int32, typ, room string, msg []byte) (err error) {
-	return l.dao.BroadcastRoomMsg(c, op, model.EncodeRoomKey(typ, room), msg)
+	roomKey := model.EncodeRoomKey(typ, room)
+	return l.router.RouteByRoom(c, op, roomKey, msg)
 }
 
 // PushAll push a message to all.
 func (l *Logic) PushAll(c context.Context, op, speed int32, msg []byte) (err error) {
-	return l.dao.BroadcastMsg(c, op, speed, msg)
+	return l.router.RouteBroadcast(c, op, speed, msg)
 }

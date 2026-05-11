@@ -11,6 +11,7 @@ import (
 	"github.com/Terry-Mao/goim/internal/logic/dao"
 	"github.com/Terry-Mao/goim/internal/logic/model"
 	"github.com/Terry-Mao/goim/internal/logic/service"
+	"github.com/Terry-Mao/goim/internal/router"
 	log "github.com/Terry-Mao/goim/pkg/log"
 	"github.com/Terry-Mao/goim/pkg/snowflake"
 	"github.com/bilibili/discovery/naming"
@@ -40,11 +41,9 @@ type Logic struct {
 	locationMap  map[string]string // IP prefix -> province
 	// services
 	sessionMgr  *service.SessionManager
-	ackSvc      *service.AckService
-	pushSvc     *service.PushService
 	syncSvc     *service.SyncService
-	retryWkr    *service.RetryWorker
 	cometPusher *CometPusher
+	router      *router.DispatchEngine // Phase 2: Message Router
 	idGen       *snowflake.Snowflake
 }
 
@@ -71,7 +70,6 @@ func New(c *conf.Config) (l *Logic) {
 	// Initialize services
 	sessionTTL := time.Duration(c.Redis.Expire)
 	l.sessionMgr = service.NewSessionManager(l.dao, sessionTTL)
-	l.ackSvc = service.NewAckService(l.dao, l.dao)
 	l.cometPusher = NewCometPusher()
 	l.sessionMgr.SetKicker(l.cometPusher)
 	l.sessionMgr.SetOnKick(func(ctx context.Context, uid int64, key, server string) {
@@ -79,18 +77,22 @@ func New(c *conf.Config) (l *Logic) {
 			log.Warningf("kick legacy mapping cleanup failed: uid=%d key=%s server=%s err=%v", uid, key, server, err)
 		}
 	})
-	l.pushSvc = service.NewPushService(l.dao, l.dao, l.sessionMgr, l.ackSvc, l.cometPusher)
+
+	// Phase 2: Message Router replaces PushService/AckService for push routing
+	l.router = router.NewDispatchEngine(l.dao, l.dao, l.sessionMgr, l.cometPusher)
 	if l.idGen != nil {
-		l.pushSvc.SetIDGenerator(l.idGen)
+		l.router.SetIDGenerator(l.idGen)
 	}
-	l.syncSvc = service.NewSyncService(l.dao, l.sessionMgr, l.pushSvc)
-	l.retryWkr = service.NewRetryWorker(l.ackSvc, l.pushSvc, l.dao, l.dao)
+	if l.dao.MQProducer() != nil {
+		l.router.SetMQProducer(l.dao.MQProducer())
+	}
+
+	l.syncSvc = service.NewSyncService(l.dao, l.sessionMgr, l.router)
 
 	l.initRegions()
 	l.initNodes()
 	_ = l.loadOnline()
 	go l.onlineproc()
-	l.retryWkr.Start()
 	return l
 }
 
@@ -102,7 +104,6 @@ func (l *Logic) Ping(c context.Context) (err error) {
 // Close close resources.
 func (l *Logic) Close() {
 	l.cancel()
-	l.retryWkr.Stop()
 	l.cometPusher.Close()
 	l.dao.Close()
 }
@@ -206,9 +207,9 @@ func (l *Logic) onlineproc() {
 	}
 }
 
-// PushToUser pushes a message to a specific user via the dual-channel push service.
+// PushToUser pushes a message to a specific user via the Message Router (Phase 2).
 func (l *Logic) PushToUser(c context.Context, msgID string, toUID int64, op int32, body []byte, seq int64) error {
-	return l.pushSvc.PushToUser(c, msgID, toUID, op, body, seq)
+	return l.router.RouteByUser(c, msgID, toUID, op, body, seq)
 }
 
 // GetOfflineMessages returns offline messages for a user since lastSeq.

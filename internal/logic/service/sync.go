@@ -10,19 +10,24 @@ import (
 	log "github.com/Terry-Mao/goim/pkg/log"
 )
 
+// DirectPusher pushes messages directly to specific sessions via gRPC.
+type DirectPusher interface {
+	DirectPush(ctx context.Context, sessions []*Session, op int32, body []byte) error
+}
+
 // SyncService handles offline message synchronization and multi-device sync.
 type SyncService struct {
 	dao     dao.MessageDAO
 	sessMgr *SessionManager
-	pushSvc *PushService
+	pusher  DirectPusher
 }
 
 // NewSyncService creates a new SyncService.
-func NewSyncService(d dao.MessageDAO, sessMgr *SessionManager, pushSvc *PushService) *SyncService {
+func NewSyncService(d dao.MessageDAO, sessMgr *SessionManager, pusher DirectPusher) *SyncService {
 	return &SyncService{
 		dao:     d,
 		sessMgr: sessMgr,
-		pushSvc: pushSvc,
+		pusher:  pusher,
 	}
 }
 
@@ -101,7 +106,7 @@ func (s *SyncService) OnUserOnline(ctx context.Context, uid int64, lastSeq int64
 			if sess == nil {
 				continue
 			}
-			s.pushSvc.directPush(ctx, []*Session{sess}, protocol.OpSyncReply, syncBytes)
+			s.pusher.DirectPush(ctx, []*Session{sess}, protocol.OpSyncReply, syncBytes)
 		}
 	}
 

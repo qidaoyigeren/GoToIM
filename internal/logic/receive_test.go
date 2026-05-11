@@ -9,6 +9,7 @@ import (
 
 	"github.com/Terry-Mao/goim/api/protocol"
 	"github.com/Terry-Mao/goim/internal/logic/service"
+	"github.com/Terry-Mao/goim/internal/router"
 )
 
 // ============ minimal mocks for Receive tests ============
@@ -263,15 +264,12 @@ func newTestLogicForP0() (*Logic, *recvMockMessageDAO, *recvMockPushDAO, *recvMo
 	pusher := &recvMockCometPusher{}
 
 	sessMgr := service.NewSessionManager(sessDAO, 10*time.Minute)
-	ackSvc := service.NewAckService(msgDAO, pushDAO)
-	pushSvc := service.NewPushService(pushDAO, msgDAO, sessMgr, ackSvc, pusher)
-	syncSvc := service.NewSyncService(msgDAO, sessMgr, pushSvc)
+	syncSvc := service.NewSyncService(msgDAO, sessMgr, nil) // pusher set below
 
 	l := &Logic{}
-	l.ackSvc = ackSvc
 	l.syncSvc = syncSvc
 	l.sessionMgr = sessMgr
-	l.pushSvc = pushSvc
+	l.router = router.NewDispatchEngine(pushDAO, msgDAO, sessMgr, pusher)
 	return l, msgDAO, pushDAO, sessDAO, pusher
 }
 

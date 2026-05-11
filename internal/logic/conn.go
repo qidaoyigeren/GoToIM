@@ -143,7 +143,7 @@ func (l *Logic) Receive(c context.Context, mid int64, p *protocol.Proto) (err er
 			log.Errorf("unmarshal ack body error(%v)", err)
 			return err
 		}
-		if err := l.ackSvc.HandleAck(c, mid, ack.MsgID); err != nil {
+		if err := l.router.HandleACK(c, mid, ack.MsgID); err != nil {
 			log.Errorf("handle ack error(%v) mid:%d msg_id:%s", err, mid, ack.MsgID)
 			return err
 		}

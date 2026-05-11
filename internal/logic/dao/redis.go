@@ -24,8 +24,6 @@ const (
 	_prefixMsgStatus     = "msg:%s"               // msg_id -> message status
 	_prefixUserSeq       = "user_seq:%d"          // uid -> monotonic seq
 	_prefixOfflineQueue  = "offline:%d"           // uid -> ZSET of msg_id:seq
-	_prefixRetryQueue    = "retry_queue"          // global ZSET of "msg_id:uid" -> retry_time_ms
-	_prefixRetryCount    = "retry_cnt:%s"         // msg_id -> retry count
 	_prefixKeySession    = "key_sid:%s"           // connection key -> sid (reverse index for O(1) heartbeat)
 )
 
@@ -63,14 +61,6 @@ func keyUserSeq(uid int64) string {
 
 func keyOfflineQueue(uid int64) string {
 	return fmt.Sprintf(_prefixOfflineQueue, uid)
-}
-
-func keyRetryQueue() string {
-	return _prefixRetryQueue
-}
-
-func keyRetryCount(msgID string) string {
-	return fmt.Sprintf(_prefixRetryCount, msgID)
 }
 
 func keyKeySession(key string) string {
@@ -628,56 +618,3 @@ func (d *Dao) GetOfflineQueueSize(c context.Context, uid int64) (size int64, err
 }
 
 // ============ Retry Queue Operations ============
-
-// Ensure Dao satisfies the RetryDAO interface at compile time.
-var _ RetryDAO = (*Dao)(nil)
-
-// EnqueueRetry adds a message to the retry queue with a scheduled retry time as score.
-func (d *Dao) EnqueueRetry(c context.Context, msgID string, uid int64, score float64) error {
-	conn := d.redis.Get()
-	defer conn.Close()
-	member := fmt.Sprintf("%s:%d", msgID, uid)
-	if _, err := conn.Do("ZADD", keyRetryQueue(), score, member); err != nil {
-		log.Errorf("conn.Do(ZADD retry_queue %s) error(%v)", member, err)
-		return err
-	}
-	return nil
-}
-
-// DequeueRetry returns members from the retry queue with score between min and max.
-func (d *Dao) DequeueRetry(c context.Context, minScore, maxScore float64, limit int) ([]string, error) {
-	conn := d.redis.Get()
-	defer conn.Close()
-	members, err := redis.Strings(conn.Do("ZRANGEBYSCORE", keyRetryQueue(),
-		minScore, maxScore, "LIMIT", 0, limit))
-	if err != nil && err != redis.ErrNil {
-		log.Errorf("conn.Do(ZRANGEBYSCORE retry_queue) error(%v)", err)
-		return nil, err
-	}
-	return members, nil
-}
-
-// IncrRetryCount increments the retry count for a message.
-func (d *Dao) IncrRetryCount(c context.Context, msgID string) (int, error) {
-	conn := d.redis.Get()
-	defer conn.Close()
-	cnt, err := redis.Int(conn.Do("INCR", keyRetryCount(msgID)))
-	if err != nil {
-		log.Errorf("conn.Do(INCR retry_cnt:%s) error(%v)", msgID, err)
-		return 0, err
-	}
-	conn.Do("EXPIRE", keyRetryCount(msgID), 7*24*3600)
-	return cnt, nil
-}
-
-// RemoveRetry removes a message from the retry queue.
-func (d *Dao) RemoveRetry(c context.Context, msgID string, uid int64) error {
-	conn := d.redis.Get()
-	defer conn.Close()
-	member := fmt.Sprintf("%s:%d", msgID, uid)
-	if _, err := conn.Do("ZREM", keyRetryQueue(), member); err != nil {
-		log.Errorf("conn.Do(ZREM retry_queue %s) error(%v)", member, err)
-		return err
-	}
-	return nil
-}

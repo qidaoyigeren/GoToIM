@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/Terry-Mao/goim/internal/logic/conf"
+	"github.com/Terry-Mao/goim/internal/mq"
+	mqkafka "github.com/Terry-Mao/goim/internal/mq/kafka"
 	"github.com/gomodule/redigo/redis"
 	kafka "gopkg.in/Shopify/sarama.v1"
 )
@@ -13,6 +15,7 @@ import (
 type Dao struct {
 	c           *conf.Config
 	kafkaPub    kafka.SyncProducer
+	mqProducer  mq.Producer // optional: MQ abstraction (nil when not configured)
 	redis       *redis.Pool
 	redisExpire int32
 }
@@ -24,6 +27,13 @@ func New(c *conf.Config) *Dao {
 		kafkaPub:    newKafkaPub(c.Kafka),
 		redis:       newRedis(c.Redis),
 		redisExpire: int32(time.Duration(c.Redis.Expire) / time.Second),
+	}
+	if c.MQ != nil {
+		pub, err := mqkafka.NewProducer(c.MQ.Brokers, c.MQ.PushTopic, c.MQ.RoomTopic, c.MQ.AllTopic, c.MQ.ACKTopic, c.Kafka.Topic)
+		if err != nil {
+			panic(err)
+		}
+		d.mqProducer = pub
 	}
 	return d
 }
@@ -65,10 +75,18 @@ func (d *Dao) Close() error {
 	if d.kafkaPub != nil {
 		d.kafkaPub.Close()
 	}
+	if d.mqProducer != nil {
+		d.mqProducer.Close()
+	}
 	return d.redis.Close()
 }
 
 // Ping dao ping.
 func (d *Dao) Ping(c context.Context) error {
 	return d.pingRedis(c)
+}
+
+// MQProducer returns the MQ abstraction producer, or nil if not configured.
+func (d *Dao) MQProducer() mq.Producer {
+	return d.mqProducer
 }
