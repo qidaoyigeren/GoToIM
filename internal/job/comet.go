@@ -13,6 +13,7 @@ import (
 
 	log "github.com/Terry-Mao/goim/pkg/log"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -36,7 +37,7 @@ func newCometClient(addr string) (*grpc.ClientConn, comet.CometClient, error) {
 	defer cancel()
 	conn, err := grpc.DialContext(ctx, addr,
 		[]grpc.DialOption{
-			grpc.WithInsecure(),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithInitialWindowSize(grpcInitialWindowSize),
 			grpc.WithInitialConnWindowSize(grpcInitialConnWindowSize),
 			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(grpcMaxCallMsgSize)),
@@ -176,7 +177,7 @@ func (c *Comet) process(pushChan chan *comet.PushMsgReq, roomChan chan *comet.Br
 
 // Close close the resources.
 func (c *Comet) Close() (err error) {
-	finish := make(chan bool)
+	finish := make(chan bool, 1)
 	go func() {
 		for {
 			n := len(c.broadcastChan)

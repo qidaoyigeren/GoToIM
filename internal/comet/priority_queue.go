@@ -85,10 +85,9 @@ func (pq *PriorityQueue) Len() int {
 	return len(pq.high) + len(pq.normal)
 }
 
-// Close drains both channels and sends ProtoFinish.
+// Close signals the consumer to stop by sending ProtoFinish.
+// Blocks until the high channel has room, since a dropped ProtoFinish
+// would leak the dispatch goroutine.
 func (pq *PriorityQueue) Close() {
-	select {
-	case pq.high <- protocol.ProtoFinish:
-	default:
-	}
+	pq.high <- protocol.ProtoFinish
 }

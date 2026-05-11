@@ -2,7 +2,7 @@ package http
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -19,7 +19,7 @@ func (s *Server) pushKeys(c *gin.Context) {
 		return
 	}
 	// read message
-	msg, err := ioutil.ReadAll(c.Request.Body)
+	msg, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		errors(c, RequestErr, err.Error())
 		return
@@ -41,7 +41,7 @@ func (s *Server) pushMids(c *gin.Context) {
 		return
 	}
 	// read message
-	msg, err := ioutil.ReadAll(c.Request.Body)
+	msg, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		errors(c, RequestErr, err.Error())
 		return
@@ -54,7 +54,7 @@ func (s *Server) pushMids(c *gin.Context) {
 }
 
 // pushOffline stores a message in the offline queue for later sync retrieval.
-// POST /goim/push/offline?mid=1001 with message body
+// POST /goim/push/offline?mid=1001&seq=42 with message body
 func (s *Server) pushOffline(c *gin.Context) {
 	midStr := c.Query("mid")
 	mid, err := strconv.ParseInt(midStr, 10, 64)
@@ -62,15 +62,17 @@ func (s *Server) pushOffline(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid mid"})
 		return
 	}
-	msg, err := ioutil.ReadAll(c.Request.Body)
+	msg, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	opStr := c.DefaultQuery("op", "10")
 	op, _ := strconv.ParseInt(opStr, 10, 32)
+	seqStr := c.DefaultQuery("seq", "0")
+	seq, _ := strconv.ParseInt(seqStr, 10, 64)
 	msgID := s.logic.GenerateMsgID()
-	if err := s.logic.PushToUser(context.TODO(), msgID, mid, int32(op), msg, 1); err != nil {
+	if err := s.logic.PushToUser(context.TODO(), msgID, mid, int32(op), msg, seq); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -88,7 +90,7 @@ func (s *Server) pushRoom(c *gin.Context) {
 		return
 	}
 	// read message
-	msg, err := ioutil.ReadAll(c.Request.Body)
+	msg, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		errors(c, RequestErr, err.Error())
 		return
@@ -109,7 +111,7 @@ func (s *Server) pushAll(c *gin.Context) {
 		errors(c, RequestErr, err.Error())
 		return
 	}
-	msg, err := ioutil.ReadAll(c.Request.Body)
+	msg, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		errors(c, RequestErr, err.Error())
 		return

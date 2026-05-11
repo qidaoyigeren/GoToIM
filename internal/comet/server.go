@@ -10,6 +10,7 @@ import (
 	log "github.com/Terry-Mao/goim/pkg/log"
 	"github.com/zhenjl/cityhash"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -31,7 +32,7 @@ func newLogicClient(c *conf.RPCClient) logic.LogicClient {
 	defer cancel()
 	conn, err := grpc.DialContext(ctx, "discovery://default/goim.logic",
 		[]grpc.DialOption{
-			grpc.WithInsecure(),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithInitialWindowSize(grpcInitialWindowSize),
 			grpc.WithInitialConnWindowSize(grpcInitialConnWindowSize),
 			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(grpcMaxCallMsgSize)),
@@ -44,7 +45,7 @@ func newLogicClient(c *conf.RPCClient) logic.LogicClient {
 			}),
 		}...)
 	if err != nil {
-		panic(err)
+		log.Fatalf("newLogicClient failed: %v", err)
 	}
 	return logic.NewLogicClient(conn)
 }

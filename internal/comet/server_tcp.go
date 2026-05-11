@@ -2,9 +2,9 @@ package comet
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
-	"strings"
 	"time"
 
 	"github.com/Terry-Mao/goim/api/protocol"
@@ -16,6 +16,11 @@ import (
 	"github.com/Terry-Mao/goim/pkg/ratelimit"
 	xtime "github.com/Terry-Mao/goim/pkg/time"
 )
+
+// isClosedError returns true if the error indicates a closed network connection.
+func isClosedError(err error) bool {
+	return errors.Is(err, net.ErrClosed)
+}
 
 const (
 	maxInt = 1<<31 - 1
@@ -219,7 +224,7 @@ func (s *Server) ServeTCP(conn *net.TCPConn, rp, wp *bytes.Pool, tr *xtime.Timer
 	if white {
 		whitelist.Printf("key: %s server tcp error(%v)\n", ch.Key, err)
 	}
-	if err != nil && err != io.EOF && !strings.Contains(err.Error(), "closed") {
+	if err != nil && err != io.EOF && !isClosedError(err) {
 		log.Errorf("key: %s server tcp failed error(%v)", ch.Key, err)
 	}
 	b.Del(ch)

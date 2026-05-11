@@ -90,14 +90,6 @@ func NewLoadBalancer() *LoadBalancer {
 	return lb
 }
 
-// Size return node size.
-func (lb *LoadBalancer) Size() int {
-	lb.nodesMutex.Lock()
-	n := len(lb.nodes)
-	lb.nodesMutex.Unlock()
-	return n
-}
-
 func (lb *LoadBalancer) weightedNodes(region string, regionWeight float64) (nodes []*weightedNode) {
 	for _, n := range lb.nodes {
 		var gainWeight = float64(1.0)

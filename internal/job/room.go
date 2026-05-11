@@ -2,6 +2,7 @@ package job
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/Terry-Mao/goim/api/protocol"
@@ -11,7 +12,7 @@ import (
 )
 
 var (
-	// ErrComet commet error.
+	// ErrComet comet error.
 	ErrComet = errors.New("comet rpc is not available")
 	// ErrCometFull comet chan full.
 	ErrCometFull = errors.New("comet proto chan full")
@@ -23,10 +24,11 @@ var (
 
 // Room room.
 type Room struct {
-	c     *conf.Room
-	job   *Job
-	id    string
-	proto chan *protocol.Proto
+	c         *conf.Room
+	job       *Job
+	id        string
+	proto     chan *protocol.Proto
+	closeOnce sync.Once
 }
 
 // NewRoom new a room struct, store channel room info.
@@ -39,6 +41,13 @@ func NewRoom(job *Job, id string, c *conf.Room) (r *Room) {
 	}
 	go r.pushproc(c.Batch, time.Duration(c.Signal))
 	return
+}
+
+// CloseProto safely closes the proto channel exactly once.
+func (r *Room) CloseProto() {
+	r.closeOnce.Do(func() {
+		close(r.proto)
+	})
 }
 
 // Push push msg to the room, if chan full discard it.

@@ -4,7 +4,7 @@ package goim.logic;
 
 option go_package = "github.com/Terry-Mao/goim/api/logic;logic";
 
-import "github.com/Terry-Mao/goim/api/protocol/protocol.proto";
+import "api/protocol/protocol.proto";
 
 message PushMsg {
     enum Type {

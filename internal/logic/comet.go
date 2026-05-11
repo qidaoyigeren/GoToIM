@@ -12,6 +12,7 @@ import (
 	log "github.com/Terry-Mao/goim/pkg/log"
 	"github.com/bilibili/discovery/naming"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -105,30 +106,6 @@ func (p *CometPusher) UpdateNodes(nodes []*naming.Instance) {
 	}
 }
 
-// ConnectDirect directly connects to a Comet gRPC server by address (bypasses Discovery).
-// Use this as a fallback when Discovery is unavailable.
-func (p *CometPusher) ConnectDirect(addr string) {
-	p.mu.RLock()
-	for _, client := range p.clients {
-		if client != nil {
-			p.mu.RUnlock()
-			return // already have a connection
-		}
-	}
-	p.mu.RUnlock()
-
-	conn, client, err := dialCometClient(addr)
-	if err != nil {
-		log.Errorf("comet pusher: direct dial %s error(%v)", addr, err)
-		return
-	}
-	p.mu.Lock()
-	p.clients["direct:"+addr] = client
-	p.conns["direct:"+addr] = conn
-	p.mu.Unlock()
-	log.Infof("comet pusher: direct connected to %s", addr)
-}
-
 // KickConnection sends a kick signal to a Comet server to close a specific connection.
 func (p *CometPusher) KickConnection(ctx context.Context, server, key string) error {
 	p.mu.RLock()
@@ -175,7 +152,7 @@ func dialCometClient(addr string) (*grpc.ClientConn, comet.CometClient, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	conn, err := grpc.DialContext(ctx, addr,
-		grpc.WithInsecure(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithInitialWindowSize(1<<24),
 		grpc.WithInitialConnWindowSize(1<<24),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1<<24)),

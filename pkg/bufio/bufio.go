@@ -18,7 +18,7 @@ const (
 )
 
 var (
-	// ErrInvalidUnreadByte invalid use of UnreadByete
+	// ErrInvalidUnreadByte invalid use of UnreadByte
 	ErrInvalidUnreadByte = errors.New("bufio: invalid use of UnreadByte")
 	// ErrInvalidUnreadRune invalid use of UnreadRune
 	ErrInvalidUnreadRune = errors.New("bufio: invalid use of UnreadRune")

@@ -51,7 +51,7 @@ func (l *Logic) nodeAddrs(c context.Context, clientIP string) (domains, addrs []
 	var (
 		region string
 	)
-	province, err := l.location(c, clientIP)
+	province, err := l.location(clientIP)
 	if err == nil {
 		region = l.regions[province]
 	}
@@ -60,7 +60,7 @@ func (l *Logic) nodeAddrs(c context.Context, clientIP string) (domains, addrs []
 }
 
 // location find a geolocation of an IP address including province, region and country.
-func (l *Logic) location(c context.Context, clientIP string) (province string, err error) {
+func (l *Logic) location(clientIP string) (province string, err error) {
 	if l.locationMap == nil || clientIP == "" {
 		return
 	}

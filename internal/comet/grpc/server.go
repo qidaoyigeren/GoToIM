@@ -10,6 +10,8 @@ import (
 	"github.com/Terry-Mao/goim/internal/comet"
 	"github.com/Terry-Mao/goim/internal/comet/conf"
 	"github.com/Terry-Mao/goim/internal/comet/errors"
+	log "github.com/Terry-Mao/goim/pkg/log"
+	"github.com/golang/protobuf/proto"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -28,11 +30,11 @@ func New(c *conf.RPCServer, s *comet.Server) *grpc.Server {
 	pb.RegisterCometServer(srv, &server{s})
 	lis, err := net.Listen(c.Network, c.Addr)
 	if err != nil {
-		panic(err)
+		log.Fatalf("comet grpc net.Listen(%s, %s) error(%v)", c.Network, c.Addr, err)
 	}
 	go func() {
 		if err := srv.Serve(lis); err != nil {
-			panic(err)
+			log.Fatalf("comet grpc srv.Serve error(%v)", err)
 		}
 	}()
 	return srv
@@ -76,15 +78,20 @@ func (s *server) Broadcast(ctx context.Context, req *pb.BroadcastReq) (*pb.Broad
 	if req.Proto == nil {
 		return nil, errors.ErrBroadCastArg
 	}
+	// Deep-copy proto since the goroutine outlives this RPC handler and
+	// the gRPC framework may reuse the request message.
+	p := proto.Clone(req.Proto).(*protocol.Proto)
+	op := req.ProtoOp
+	speed := req.Speed
 	// TODO use broadcast queue
 	go func() {
 		srvCtx := s.srv.Context()
 		for _, bucket := range s.srv.Buckets() {
-			bucket.Broadcast(req.GetProto(), req.ProtoOp)
-			if req.Speed > 0 {
+			bucket.Broadcast(p, op)
+			if speed > 0 {
 				count := bucket.ChannelCount()
 				if count > 0 {
-					t := count / int(req.Speed)
+					t := count / int(speed)
 					if t > 0 {
 						select {
 						case <-time.After(time.Duration(t) * time.Second):

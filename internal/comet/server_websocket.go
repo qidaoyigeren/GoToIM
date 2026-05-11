@@ -302,7 +302,7 @@ func (s *Server) ServeWebsocket(conn net.Conn, rp, wp *bytes.Pool, tr *xtime.Tim
 	if white {
 		whitelist.Printf("key: %s server tcp error(%v)\n", ch.Key, err)
 	}
-	if err != nil && err != io.EOF && err != websocket.ErrMessageClose && !strings.Contains(err.Error(), "closed") {
+	if err != nil && err != io.EOF && err != websocket.ErrMessageClose && !isClosedError(err) {
 		log.Errorf("key: %s server ws failed error(%v)", ch.Key, err)
 	}
 	b.Del(ch)

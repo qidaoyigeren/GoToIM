@@ -36,6 +36,9 @@ func InitWhitelist(c *conf.Whitelist) (err error) {
 
 // Contains whitelist contains a mid or not.
 func (w *Whitelist) Contains(mid int64) (ok bool) {
+	if w == nil {
+		return
+	}
 	if mid > 0 {
 		_, ok = w.list[mid]
 	}
@@ -44,6 +47,9 @@ func (w *Whitelist) Contains(mid int64) (ok bool) {
 
 // Printf calls l.Output to print to the logger.
 func (w *Whitelist) Printf(format string, v ...interface{}) {
+	if w == nil {
+		return
+	}
 	w.log.Printf(format, v...)
 }
 

@@ -8,6 +8,7 @@ import (
 	pb "github.com/Terry-Mao/goim/api/logic"
 	"github.com/Terry-Mao/goim/internal/logic"
 	"github.com/Terry-Mao/goim/internal/logic/conf"
+	log "github.com/Terry-Mao/goim/pkg/log"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -29,11 +30,11 @@ func New(c *conf.RPCServer, l *logic.Logic) *grpc.Server {
 	pb.RegisterLogicServer(srv, &server{l})
 	lis, err := net.Listen(c.Network, c.Addr)
 	if err != nil {
-		panic(err)
+		log.Fatalf("logic grpc net.Listen(%s, %s) error(%v)", c.Network, c.Addr, err)
 	}
 	go func() {
 		if err := srv.Serve(lis); err != nil {
-			panic(err)
+			log.Fatalf("logic grpc srv.Serve error(%v)", err)
 		}
 	}()
 	return srv
@@ -63,7 +64,7 @@ func (s *server) Disconnect(ctx context.Context, req *pb.DisconnectReq) (*pb.Dis
 	return &pb.DisconnectReply{Has: has}, nil
 }
 
-// Heartbeat beartbeat a conn.
+// Heartbeat heartbeat a conn.
 func (s *server) Heartbeat(ctx context.Context, req *pb.HeartbeatReq) (*pb.HeartbeatReply, error) {
 	if err := s.srv.Heartbeat(ctx, req.Mid, req.Key, req.Server); err != nil {
 		return &pb.HeartbeatReply{}, err

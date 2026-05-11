@@ -44,7 +44,7 @@ func newKafkaSub(c *conf.Kafka) *cluster.Consumer {
 	config.Group.Return.Notifications = true
 	consumer, err := cluster.NewConsumer(c.Brokers, c.Group, topics, config)
 	if err != nil {
-		panic(err)
+		log.Fatalf("newKafkaSub failed: %v", err)
 	}
 	return consumer
 }
@@ -83,12 +83,19 @@ func (j *Job) Close() error {
 	j.cometServers = nil
 	j.cometsMutex.Unlock()
 
+	// Collect rooms under lock, then close channels outside lock
+	// to avoid deadlock: pushproc → delRoom tries to acquire roomsMutex.
 	j.roomsMutex.Lock()
+	rooms := make([]*Room, 0, len(j.rooms))
 	for _, r := range j.rooms {
-		close(r.proto)
+		rooms = append(rooms, r)
 	}
 	j.rooms = nil
 	j.roomsMutex.Unlock()
+
+	for _, r := range rooms {
+		r.CloseProto()
+	}
 
 	if j.consumer != nil {
 		return j.consumer.Close()
@@ -117,11 +124,14 @@ func (j *Job) Consume() {
 				j.consumer.MarkOffset(msg, "")
 				continue
 			}
-			if err := j.push(context.Background(), pushMsg); err != nil {
-				log.Errorf("j.push(%v) error(%v)", pushMsg, err)
+			pushCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if pushErr := j.push(pushCtx, pushMsg); pushErr != nil {
+				cancel()
+				log.Errorf("j.push(%v) error(%v)", pushMsg, pushErr)
 				// Don't mark offset on failure - message will be re-consumed
 				continue
 			}
+			cancel()
 			// Mark offset only after successful processing
 			j.consumer.MarkOffset(msg, "")
 			log.Infof("consume: %s/%d/%d\t%s\t%+v", msg.Topic, msg.Partition, msg.Offset, msg.Key, pushMsg)
@@ -136,11 +146,11 @@ func (j *Job) watchComet(c *naming.Config) {
 	select {
 	case _, ok := <-event:
 		if !ok {
-			panic("watchComet init failed")
+			log.Fatal("watchComet init failed")
 		}
 		if ins, ok := resolver.Fetch(); ok {
 			if err := j.newAddress(ins.Instances); err != nil {
-				panic(err)
+				log.Fatalf("watchComet init newAddress error(%v)", err)
 			}
 			log.Infof("watchComet init newAddress:%+v", ins)
 		}

@@ -13,8 +13,6 @@ type Ring struct {
 	rp   uint64
 	num  uint64
 	mask uint64
-	// TODO split cacheline, many cpu cache line size is 64
-	// pad [40]byte
 	// write
 	wp   uint64
 	data []protocol.Proto
@@ -80,9 +78,10 @@ func (r *Ring) SetAdv() {
 }
 
 // Reset reset ring.
+// Must only be called when no concurrent producers or consumers are active
+// on this ring (typically after the owning channel has been removed from all
+// dispatch loops). Calling concurrently with Get/Set is a data race.
 func (r *Ring) Reset() {
 	r.rp = 0
 	r.wp = 0
-	// prevent pad compiler optimization
-	// r.pad = [40]byte{}
 }

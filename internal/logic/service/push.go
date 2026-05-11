@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Terry-Mao/goim/api/protocol"
 	"github.com/Terry-Mao/goim/internal/logic/dao"
 	log "github.com/Terry-Mao/goim/pkg/log"
 	"github.com/Terry-Mao/goim/pkg/metrics"
@@ -152,21 +151,12 @@ func (s *PushService) offlineAndEnqueue(ctx context.Context, msgID string, toUID
 	return nil
 }
 
-// PushToRoom pushes a message to a room (always via Kafka for rooms).
+// PushToRoom pushes a message to a room via Kafka.
 func (s *PushService) PushToRoom(ctx context.Context, op int32, roomKey string, body []byte) error {
 	return s.dao.BroadcastRoomMsg(ctx, op, roomKey, body)
 }
 
-// PushAll broadcasts a message to all connected users.
+// PushAll broadcasts a message to all connected users via Kafka.
 func (s *PushService) PushAll(ctx context.Context, op, speed int32, body []byte) error {
 	return s.dao.BroadcastMsg(ctx, op, speed, body)
-}
-
-// MarshalProto marshals a message body into a protocol Proto.
-func MarshalProto(op int32, body []byte) *protocol.Proto {
-	return &protocol.Proto{
-		Ver:  1,
-		Op:   op,
-		Body: body,
-	}
 }

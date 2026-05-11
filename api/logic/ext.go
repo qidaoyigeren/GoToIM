@@ -102,10 +102,3 @@ func (c *logicClientExt) SyncOffline(ctx context.Context, in *SyncOfflineReq, op
 	}
 	return result, nil
 }
-
-// LogicServerExt extends the Logic server interface with new RPCs.
-type LogicServerExt interface {
-	LogicServer
-	AckMessage(ctx context.Context, req *AckReq) (*AckReply, error)
-	SyncOffline(ctx context.Context, req *SyncOfflineReq) (*SyncOfflineReply, error)
-}
