@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GoIM WebSocket Chat Demo</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; height: 100vh; display: flex; flex-direction: column; }
+.header { background: #1a73e8; color: #fff; padding: 12px 24px; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+.header h1 { font-size: 18px; font-weight: 600; }
+.settings { display: flex; gap: 12px; align-items: center; font-size: 13px; }
+.settings label { opacity: 0.85; }
+.settings input { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 4px 8px; border-radius: 4px; width: 160px; font-size: 13px; }
+.settings input::placeholder { color: rgba(255,255,255,0.5); }
+.container { flex: 1; display: flex; gap: 0; overflow: hidden; }
+.panel { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #ddd; }
+.panel:last-child { border-right: none; }
+.panel-header { padding: 12px 16px; background: #fff; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; gap: 8px; }
+.panel-header .status { width: 10px; height: 10px; border-radius: 50%; background: #ccc; flex-shrink: 0; }
+.panel-header .status.connected { background: #34a853; }
+.panel-header .status.connecting { background: #fbbc04; }
+.panel-header .status.disconnected { background: #ea4335; }
+.panel-header .name { font-weight: 600; font-size: 15px; }
+.panel-header .mid { font-size: 12px; color: #666; }
+.panel-header .connect-btn { margin-left: auto; padding: 4px 12px; border: 1px solid #1a73e8; color: #1a73e8; background: #fff; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.panel-header .connect-btn:hover { background: #e8f0fe; }
+.messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.msg { max-width: 70%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; }
+.msg.sent { align-self: flex-end; background: #1a73e8; color: #fff; border-bottom-right-radius: 4px; }
+.msg.received { align-self: flex-start; background: #fff; color: #333; border-bottom-left-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+.msg .sender { font-size: 11px; opacity: 0.7; margin-bottom: 2px; }
+.msg.system { align-self: center; background: transparent; color: #999; font-size: 12px; padding: 4px 8px; }
+.input-bar { padding: 12px 16px; background: #fff; border-top: 1px solid #e0e0e0; display: flex; gap: 8px; }
+.input-bar input { flex: 1; border: 1px solid #ddd; border-radius: 20px; padding: 8px 16px; font-size: 14px; outline: none; }
+.input-bar input:focus { border-color: #1a73e8; }
+.input-bar button { padding: 8px 20px; background: #1a73e8; color: #fff; border: none; border-radius: 20px; cursor: pointer; font-size: 14px; }
+.input-bar button:hover { background: #1557b0; }
+.input-bar button:disabled { background: #ccc; cursor: default; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>GoIM Chat Demo</h1>
+  <div class="settings">
+    <label>Comet WS:</label>
+    <input id="wsHost" type="text" value="localhost:3102" placeholder="host:port">
+    <label>API:</label>
+    <input id="apiHost" type="text" value="" placeholder="same origin (nginx proxy)">
+  </div>
+</div>
+
+<div class="container">
+  <!-- Alice Panel -->
+  <div class="panel" id="panel-1001">
+    <div class="panel-header">
+      <div class="status" id="status-1001"></div>
+      <span class="name">Alice</span>
+      <span class="mid">mid=1001</span>
+      <button class="connect-btn" id="btn-1001" onclick="toggleConnection(1001)">Connect</button>
+    </div>
+    <div class="messages" id="msgs-1001"></div>
+    <div class="input-bar">
+      <input id="input-1001" type="text" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendMsg(1001)">
+      <button onclick="sendMsg(1001)">Send</button>
+    </div>
+  </div>
+
+  <!-- Bob Panel -->
+  <div class="panel" id="panel-1002">
+    <div class="panel-header">
+      <div class="status" id="status-1002"></div>
+      <span class="name">Bob</span>
+      <span class="mid">mid=1002</span>
+      <button class="connect-btn" id="btn-1002" onclick="toggleConnection(1002)">Connect</button>
+    </div>
+    <div class="messages" id="msgs-1002"></div>
+    <div class="input-bar">
+      <input id="input-1002" type="text" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendMsg(1002)">
+      <button onclick="sendMsg(1002)">Send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const RAW_HEADER_LEN = 16;
+  const OP_HEARTBEAT = 2;
+  const OP_HEARTBEAT_REPLY = 3;
+  const OP_AUTH = 7;
+  const OP_AUTH_REPLY = 8;
+  const OP_RAW = 9;
+
+  const users = {
+    1001: { name: 'Alice', ws: null, status: 'disconnected', seq: 1, heartbeatTimer: null },
+    1002: { name: 'Bob',   ws: null, status: 'disconnected', seq: 1, heartbeatTimer: null }
+  };
+
+  function getWsHost() {
+    return document.getElementById('wsHost').value || 'localhost:3102';
+  }
+
+  function getApiBase() {
+    var api = document.getElementById('apiHost').value;
+    if (api) return 'http://' + api;
+    return window.location.origin;
+  }
+
+  function setStatus(mid, status) {
+    users[mid].status = status;
+    var el = document.getElementById('status-' + mid);
+    el.className = 'status ' + status;
+    var btn = document.getElementById('btn-' + mid);
+    btn.textContent = status === 'connected' ? 'Disconnect' : 'Connect';
+  }
+
+  function addMsg(mid, text, type) {
+    var container = document.getElementById('msgs-' + mid);
+    var div = document.createElement('div');
+    div.className = 'msg ' + type;
+    div.textContent = text;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function addSystemMsg(mid, text) {
+    var container = document.getElementById('msgs-' + mid);
+    var div = document.createElement('div');
+    div.className = 'msg system';
+    div.textContent = text;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  // Build binary protocol packet
+  function buildProto(op, seq, body) {
+    var bodyLen = body ? body.length : 0;
+    var buf = new ArrayBuffer(RAW_HEADER_LEN + bodyLen);
+    var view = new DataView(buf);
+    view.setInt32(0, RAW_HEADER_LEN + bodyLen);  // packLen
+    view.setInt16(4, RAW_HEADER_LEN);             // headerLen
+    view.setInt16(6, 1);                           // ver
+    view.setInt32(8, op);                          // op
+    view.setInt32(12, seq);                        // seq
+    if (body) {
+      new Uint8Array(buf, RAW_HEADER_LEN).set(body);
+    }
+    return buf;
+  }
+
+  // Parse binary protocol packet
+  function parseProto(data) {
+    var view = new DataView(data);
+    return {
+      packLen: view.getInt32(0),
+      headerLen: view.getInt16(4),
+      ver: view.getInt16(6),
+      op: view.getInt32(8),
+      seq: view.getInt32(12),
+      body: data.slice(16)
+    };
+  }
+
+  function connectWs(mid) {
+    var user = users[mid];
+    var host = getWsHost();
+    var ws = new WebSocket('ws://' + host + '/sub');
+    ws.binaryType = 'arraybuffer';
+    user.ws = ws;
+    setStatus(mid, 'connecting');
+
+    ws.onopen = function() {
+      // Send auth
+      var token = JSON.stringify({
+        mid: mid,
+        key: 'demo-' + mid + '-' + Date.now(),
+        room_id: 'live://1000',
+        platform: 'web',
+        device_id: 'demo-web-' + mid,
+        accepts: [OP_RAW]
+      });
+      var encoder = new TextEncoder();
+      var body = encoder.encode(token);
+      ws.send(buildProto(OP_AUTH, user.seq++, body));
+      addSystemMsg(mid, 'Authenticating...');
+    };
+
+    ws.onmessage = function(evt) {
+      var proto = parseProto(evt.data);
+      console.log('WS onmessage mid=' + mid + ' op=' + proto.op + ' bodyLen=' + (proto.body ? proto.body.byteLength : 0));
+      switch (proto.op) {
+        case OP_AUTH_REPLY:
+          setStatus(mid, 'connected');
+          addSystemMsg(mid, 'Connected');
+          // Start heartbeat every 4 minutes
+          user.heartbeatTimer = setInterval(function() {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(buildProto(OP_HEARTBEAT, user.seq++, null));
+            }
+          }, 4 * 60 * 1000);
+          break;
+        case OP_HEARTBEAT_REPLY:
+          // ignore
+          break;
+        case OP_RAW:
+          // Server push message
+          console.log('OP_RAW received mid=' + mid + ' bodyLen=' + (proto.body ? proto.body.byteLength : 0));
+          try {
+            var text = new TextDecoder().decode(proto.body);
+            console.log('OP_RAW text mid=' + mid, text);
+            var msg = JSON.parse(text);
+            var senderName = users[msg.from] ? users[msg.from].name : ('User ' + msg.from);
+            if (msg.from === mid) {
+              addMsg(mid, msg.text, 'sent');
+            } else {
+              addMsg(mid, senderName + ': ' + msg.text, 'received');
+            }
+          } catch (e) {
+            console.error('OP_RAW error mid=' + mid, e);
+            addMsg(mid, '[raw] ' + new TextDecoder().decode(proto.body), 'received');
+          }
+          break;
+        default:
+          try {
+            var bodyText = new TextDecoder().decode(proto.body);
+            addSystemMsg(mid, 'op=' + proto.op + ' ' + bodyText);
+          } catch (e) {
+            addSystemMsg(mid, 'op=' + proto.op);
+          }
+      }
+    };
+
+    ws.onclose = function() {
+      if (user.heartbeatTimer) {
+        clearInterval(user.heartbeatTimer);
+        user.heartbeatTimer = null;
+      }
+      user.ws = null;
+      setStatus(mid, 'disconnected');
+      addSystemMsg(mid, 'Disconnected');
+    };
+
+    ws.onerror = function() {
+      addSystemMsg(mid, 'Connection error');
+    };
+  }
+
+  function disconnectWs(mid) {
+    var user = users[mid];
+    if (user.ws) {
+      user.ws.close();
+      user.ws = null;
+    }
+    if (user.heartbeatTimer) {
+      clearInterval(user.heartbeatTimer);
+      user.heartbeatTimer = null;
+    }
+    setStatus(mid, 'disconnected');
+  }
+
+  window.toggleConnection = function(mid) {
+    if (users[mid].status === 'connected' || users[mid].status === 'connecting') {
+      disconnectWs(mid);
+    } else {
+      connectWs(mid);
+    }
+  };
+
+  window.sendMsg = function(fromMid) {
+    var input = document.getElementById('input-' + fromMid);
+    var text = input.value.trim();
+    if (!text) return;
+
+    var toMid = fromMid === 1001 ? 1002 : 1001;
+    var payload = JSON.stringify({
+      from: fromMid,
+      to: toMid,
+      text: text,
+      ts: Date.now()
+    });
+
+    // Send via HTTP API (through nginx proxy)
+    var apiBase = getApiBase();
+    var url = apiBase + '/goim/push/mids?operation=9&mids=' + toMid;
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload
+    }).then(function(resp) {
+      return resp.json();
+    }).then(function(data) {
+      if (data.code !== 0) {
+        addSystemMsg(fromMid, 'Send failed: ' + (data.message || JSON.stringify(data)));
+      }
+    }).catch(function(err) {
+      addSystemMsg(fromMid, 'Send error: ' + err.message);
+    });
+
+    // Show in sender's chat
+    addMsg(fromMid, text, 'sent');
+    input.value = '';
+  };
+
+  // Auto-connect on load
+  setTimeout(function() { connectWs(1001); }, 500);
+  setTimeout(function() { connectWs(1002); }, 1000);
+})();
+</script>
+</body>
+</html>

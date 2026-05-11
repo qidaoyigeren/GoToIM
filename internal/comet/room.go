@@ -71,6 +71,7 @@ func (r *Room) Push(p *protocol.Proto) {
 	r.rLock.RLock()
 	for ch := r.next; ch != nil; ch = ch.Next {
 		_ = ch.Push(p)
+		ch.Signal()
 	}
 	r.rLock.RUnlock()
 }

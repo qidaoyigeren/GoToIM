@@ -146,14 +146,29 @@ func (s *PushService) offlineAndEnqueue(ctx context.Context, msgID string, toUID
 	}
 
 	// 2. Send to Kafka for async delivery
-	// Use the existing PushMsg DAO method - the Job service will consume and push to Comet
-	server := "" // Will be resolved by Job from session data
-	keys := []string{fmt.Sprintf("uid:%d", toUID)}
+	// Look up the user's Comet server and connection keys from their session
+	server := ""
+	var keys []string
+	if sessions, err := s.sessMgr.GetSessions(ctx, toUID); err == nil && len(sessions) > 0 {
+		for _, sess := range sessions {
+			if sess.Key != "" {
+				keys = append(keys, sess.Key)
+				if server == "" && sess.Server != "" {
+					server = sess.Server
+				}
+			}
+		}
+	}
+	// Fallback for offline users: the message goes to the offline queue
+	// and will be picked up on next sync; Kafka delivery is a best-effort.
+	if len(keys) == 0 {
+		keys = []string{fmt.Sprintf("uid:%d", toUID)}
+	}
 	if err := s.dao.PushMsg(ctx, op, server, keys, body); err != nil {
 		return fmt.Errorf("kafka push failed: %w", err)
 	}
 
-	log.Infof("message enqueued: msg_id=%s uid=%d seq=%d", msgID, toUID, seq)
+	log.Infof("message enqueued: msg_id=%s uid=%d seq=%d server=%s", msgID, toUID, seq, server)
 	return nil
 }
 

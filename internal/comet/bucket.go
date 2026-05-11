@@ -169,6 +169,7 @@ func (b *Bucket) Broadcast(p *protocol.Proto, op int32) {
 			continue
 		}
 		_ = ch.Push(p)
+		ch.Signal()
 	}
 	b.cLock.RUnlock()
 }

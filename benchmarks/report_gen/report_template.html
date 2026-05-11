@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GoIM Benchmark Report</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; padding: 24px; }
+.container { max-width: 1200px; margin: 0 auto; }
+h1 { font-size: 28px; margin-bottom: 8px; }
+.subtitle { color: #666; margin-bottom: 32px; }
+.section { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.section h2 { font-size: 20px; margin-bottom: 16px; color: #1a73e8; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.metric { background: #f8f9fa; border-radius: 8px; padding: 16px; text-align: center; }
+.metric .value { font-size: 32px; font-weight: 700; color: #1a73e8; }
+.metric .label { font-size: 13px; color: #666; margin-top: 4px; }
+.chart-container { position: relative; height: 300px; margin: 16px 0; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 14px; }
+th { background: #f8f9fa; font-weight: 600; }
+.na { color: #999; }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>GoIM Benchmark Report</h1>
+<p class="subtitle">Generated from benchmark data</p>
+
+{{if .conn}}
+<div class="section">
+  <h2>Connection Benchmark</h2>
+  <div class="metrics">
+    <div class="metric">
+      <div class="value">{{index .conn "actual_conns"}}</div>
+      <div class="label">Connected</div>
+    </div>
+    <div class="metric">
+      <div class="value">{{index .conn "failed_conns"}}</div>
+      <div class="label">Failed</div>
+    </div>
+    <div class="metric">
+      <div class="value">{{printf "%.1f" (index .conn "conns_per_sec")}}</div>
+      <div class="label">Conns/sec</div>
+    </div>
+    <div class="metric">
+      <div class="value">{{printf "%.2f" (index .conn "p50_connect_ms")}}ms</div>
+      <div class="label">P50 Latency</div>
+    </div>
+    <div class="metric">
+      <div class="value">{{printf "%.2f" (index .conn "p99_connect_ms")}}ms</div>
+      <div class="label">P99 Latency</div>
+    </div>
+  </div>
+  <div class="chart-container"><canvas id="connChart"></canvas></div>
+</div>
+{{else}}
+<div class="section">
+  <h2>Connection Benchmark</h2>
+  <p class="na">No connection benchmark data provided. Run with -conn=conn_results.json</p>
+</div>
+{{end}}
+
+{{if .push}}
+<div class="section">
+  <h2>Push Benchmark</h2>
+  <div class="metrics">
+    <div class="metric">
+      <div class="value">{{index .push "total_sent"}}</div>
+      <div class="label">Messages Sent</div>
+    </div>
+    <div class="metric">
+      <div class="value">{{index .push "total_received"}}</div>
+      <div class="label">Messages Received</div>
+    </div>
+    <div class="metric">
+      <div class="value">{{printf "%.0f" (index .push "msgs_per_sec")}}</div>
+      <div class="label">QPS</div>
+    </div>
+    <div class="metric">
+      <div class="value">{{printf "%.2f" (index .push "avg_latency_ms")}}ms</div>
+      <div class="label">Avg Latency</div>
+    </div>
+    <div class="metric">
+      <div class="value">{{printf "%.2f" (index .push "p50_latency_ms")}}ms</div>
+      <div class="label">P50 Latency</div>
+    </div>
+    <div class="metric">
+      <div class="value">{{printf "%.2f" (index .push "p99_latency_ms")}}ms</div>
+      <div class="label">P99 Latency</div>
+    </div>
+  </div>
+  <div class="chart-container"><canvas id="pushChart"></canvas></div>
+  <div class="chart-container"><canvas id="latencyChart"></canvas></div>
+</div>
+{{else}}
+<div class="section">
+  <h2>Push Benchmark</h2>
+  <p class="na">No push benchmark data provided. Run with -push=push_results.json</p>
+</div>
+{{end}}
+
+</div>
+
+<script>
+{{if .conn}}
+(function() {
+  var connData = {{.connJSON}};
+  var results = connData.results || [];
+  // Build latency distribution
+  var buckets = [0, 0, 0, 0, 0]; // 0-10, 10-50, 50-100, 100-500, 500+
+  results.forEach(function(r) {
+    if (r.error) return;
+    var ms = (r.connect_ms + r.auth_ms) / 1000000; // ns to ms
+    if (ms < 10) buckets[0]++;
+    else if (ms < 50) buckets[1]++;
+    else if (ms < 100) buckets[2]++;
+    else if (ms < 500) buckets[3]++;
+    else buckets[4]++;
+  });
+  new Chart(document.getElementById('connChart'), {
+    type: 'bar',
+    data: {
+      labels: ['0-10ms', '10-50ms', '50-100ms', '100-500ms', '500ms+'],
+      datasets: [{ label: 'Connection Latency Distribution', data: buckets, backgroundColor: '#1a73e8' }]
+    },
+    options: { responsive: true, maintainAspectRatio: false }
+  });
+})();
+{{end}}
+
+{{if .push}}
+(function() {
+  var pushData = {{.pushJSON}};
+  var results = pushData.results || [];
+  if (results.length === 0) return;
+
+  // Throughput over time (1-second buckets)
+  var firstTs = results[0].send_ts;
+  var buckets = {};
+  results.forEach(function(r) {
+    var sec = Math.floor((r.send_ts - firstTs) / 1000);
+    buckets[sec] = (buckets[sec] || 0) + 1;
+  });
+  var times = Object.keys(buckets).map(Number).sort(function(a,b){return a-b;});
+  var counts = times.map(function(t){ return buckets[t]; });
+
+  new Chart(document.getElementById('pushChart'), {
+    type: 'line',
+    data: {
+      labels: times.map(function(t){ return t + 's'; }),
+      datasets: [{ label: 'Messages/sec', data: counts, borderColor: '#34a853', fill: false, tension: 0.3 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+  });
+
+  // Latency over time
+  var latBuckets = {};
+  results.forEach(function(r) {
+    var sec = Math.floor((r.send_ts - firstTs) / 1000);
+    if (!latBuckets[sec]) latBuckets[sec] = [];
+    latBuckets[sec].push(r.latency_ms);
+  });
+  var latTimes = Object.keys(latBuckets).map(Number).sort(function(a,b){return a-b;});
+  var avgLats = latTimes.map(function(t) {
+    var arr = latBuckets[t];
+    return arr.reduce(function(a,b){return a+b;}, 0) / arr.length;
+  });
+
+  new Chart(document.getElementById('latencyChart'), {
+    type: 'line',
+    data: {
+      labels: latTimes.map(function(t){ return t + 's'; }),
+      datasets: [{ label: 'Avg Latency (ms)', data: avgLats, borderColor: '#ea4335', fill: false, tension: 0.3 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+  });
+})();
+{{end}}
+</script>
+</body>
+</html>

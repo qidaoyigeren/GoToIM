@@ -9,6 +9,7 @@ import (
 
 	"github.com/Terry-Mao/goim/api/comet"
 	"github.com/Terry-Mao/goim/api/protocol"
+	"github.com/Terry-Mao/goim/pkg/bytes"
 	log "github.com/Terry-Mao/goim/pkg/log"
 	"github.com/bilibili/discovery/naming"
 	"google.golang.org/grpc"
@@ -39,14 +40,23 @@ func (p *CometPusher) PushMsg(ctx context.Context, server string, keys []string,
 	if !ok {
 		return fmt.Errorf("comet server %s not found", server)
 	}
+	// Pre-encode body with binary protocol header, matching Job/Worker behavior.
+	// Comet's WriteWebsocket expects OpRaw body to be a full serialized frame
+	// (header + data) and strips the inner header before writing to the client.
+	buf := bytes.NewWriterSize(len(body) + 64)
+	pb := &protocol.Proto{
+		Ver:  1,
+		Op:   op,
+		Body: body,
+	}
+	pb.WriteTo(buf)
+	pb.Body = buf.Buffer()
+	pb.Op = protocol.OpRaw
+
 	_, err := client.PushMsg(ctx, &comet.PushMsgReq{
 		Keys:    keys,
 		ProtoOp: op,
-		Proto: &protocol.Proto{
-			Ver:  1,
-			Op:   op,
-			Body: body,
-		},
+		Proto:   pb,
 	})
 	return err
 }

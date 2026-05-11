@@ -120,11 +120,12 @@ func watchComets(w *worker.DeliveryWorker) {
 				return
 			}
 		case <-time.After(10 * time.Second):
-			log.Error("watchComets init timeout")
+			log.Warningf("watchComets: no event from discovery, retrying fetch...")
 		}
 
 		ins, ok := resolver.Fetch()
 		if !ok {
+			log.Warningf("watchComets: fetch returned no data")
 			continue
 		}
 
@@ -140,7 +141,11 @@ func watchComets(w *worker.DeliveryWorker) {
 			}
 		}
 		w.UpdateComets(addrs)
-		log.Infof("watchComets updated %d comet servers", len(addrs))
+		if len(addrs) == 0 {
+			log.Warningf("watchComets: discovery returned instances but no grpc addresses found")
+		} else {
+			log.Infof("watchComets updated %d comet servers: %v", len(addrs), addrs)
+		}
 	}
 }
 

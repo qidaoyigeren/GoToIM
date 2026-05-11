@@ -51,9 +51,11 @@ func (s *server) PushMsg(ctx context.Context, req *pb.PushMsgReq) (reply *pb.Pus
 	if len(req.Keys) == 0 || req.Proto == nil {
 		return nil, errors.ErrPushMsgArg
 	}
+	log.Infof("PushMsg: keys=%v protoOp=%d bodyLen=%d", req.Keys, req.ProtoOp, len(req.Proto.Body))
 	for _, key := range req.Keys {
 		bucket := s.srv.Bucket(key)
 		if bucket == nil {
+			log.Warningf("PushMsg: bucket nil for key=%s", key)
 			continue
 		}
 		if channel := bucket.Channel(key); channel != nil {
@@ -63,11 +65,18 @@ func (s *server) PushMsg(ctx context.Context, req *pb.PushMsgReq) (reply *pb.Pus
 				continue
 			}
 			if !channel.NeedPush(req.ProtoOp) {
+				log.Warningf("PushMsg: NeedPush=false key=%s op=%d (client did not accept this op)", key, req.ProtoOp)
 				continue
 			}
 			if err = channel.Push(req.Proto); err != nil {
+				log.Warningf("PushMsg: Push failed key=%s err=%v", key, err)
 				return
 			}
+			// Signal the dispatch goroutine to wake up and write the message
+			channel.Signal()
+			log.Infof("PushMsg: delivered key=%s op=%d", key, req.ProtoOp)
+		} else {
+			log.Warningf("PushMsg: channel nil for key=%s", key)
 		}
 	}
 	return &pb.PushMsgReply{}, nil

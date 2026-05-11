@@ -1,0 +1,14 @@
+[discovery]
+    nodes = ["discovery:7171"]
+    env = "dev"
+    region = "sh"
+    zone = "sh001"
+
+[kafka]
+    topic = "goim-push-topic"
+    group = "goim-push-group-job"
+    brokers = ["kafka:9092"]
+    pushTopic = "goim-push-topic"
+    roomTopic = "goim-room-topic"
+    allTopic  = "goim-all-topic"
+    ackTopic  = "goim-ack-topic"

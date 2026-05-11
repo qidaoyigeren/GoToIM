@@ -387,7 +387,9 @@ func (s *Server) dispatchWebsocket(ws *websocket.Conn, wp *bytes.Pool, wb *bytes
 			if white {
 				whitelist.Printf("key: %s start write server proto%v\n", ch.Key, p)
 			}
+			log.Infof("dispatch: writing server push key=%s op=%d bodyLen=%d", ch.Key, p.Op, len(p.Body))
 			if err = p.WriteWebsocket(ws); err != nil {
+				log.Errorf("dispatch: WriteWebsocket failed key=%s err=%v", ch.Key, err)
 				goto failed
 			}
 			if white {
@@ -402,6 +404,7 @@ func (s *Server) dispatchWebsocket(ws *websocket.Conn, wp *bytes.Pool, wb *bytes
 		}
 		// only hungry flush response
 		if err = ws.Flush(); err != nil {
+			log.Errorf("dispatch: Flush failed key=%s err=%v", ch.Key, err)
 			break
 		}
 		if white {

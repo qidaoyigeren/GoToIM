@@ -179,6 +179,29 @@ func (p *Proto) WriteWebsocket(ws *websocket.Conn) (err error) {
 		buf     []byte
 		packLen int
 	)
+	if p.Op == OpRaw {
+		// Body already contains a full serialized proto (header + data)
+		// written by Worker/Job/CometPusher WriteTo. Strip the inner proto
+		// header and send only the data portion, with an outer header.
+		if len(p.Body) > _rawHeaderSize {
+			data := p.Body[_rawHeaderSize:]
+			packLen = _rawHeaderSize + len(data)
+			if err = ws.WriteHeader(websocket.BinaryMessage, packLen); err != nil {
+				return
+			}
+			if buf, err = ws.Peek(_rawHeaderSize); err != nil {
+				return
+			}
+			binary.BigEndian.PutInt32(buf[_packOffset:], int32(packLen))
+			binary.BigEndian.PutInt16(buf[_headerOffset:], int16(_rawHeaderSize))
+			binary.BigEndian.PutInt16(buf[_verOffset:], int16(p.Ver))
+			binary.BigEndian.PutInt32(buf[_opOffset:], p.Op)
+			binary.BigEndian.PutInt32(buf[_seqOffset:], p.Seq)
+			err = ws.WriteBody(data)
+			return
+		}
+		// Fallback: body wasn't pre-encoded, write it directly as raw data
+	}
 	packLen = _rawHeaderSize + len(p.Body)
 	if err = ws.WriteHeader(websocket.BinaryMessage, packLen); err != nil {
 		return
