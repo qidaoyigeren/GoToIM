@@ -1,0 +1,138 @@
+syntax = "proto3";
+
+package goim.logic;
+
+option go_package = "github.com/Terry-Mao/goim/api/logic;logic";
+
+import "github.com/Terry-Mao/goim/api/protocol/protocol.proto";
+
+message PushMsg {
+    enum Type {
+        PUSH = 0;
+        ROOM = 1;
+        BROADCAST = 2;
+    }
+    Type type = 1;
+    int32 operation = 2;
+    int32 speed = 3;
+    string server = 4;
+    string room = 5;
+    repeated string keys = 6;
+    bytes msg = 7;
+}
+
+message ConnectReq {
+    string server = 1;
+    string cookie = 2;
+    bytes token = 3;
+}
+
+message ConnectReply {
+    int64 mid = 1;
+    string key = 2;
+    string roomID = 3;
+    repeated int32 accepts = 4;
+    int64 heartbeat = 5;
+    string sid = 6;         // session ID (new)
+}
+
+message DisconnectReq {
+    int64 mid = 1;
+    string key = 2;
+    string server = 3;
+}
+
+message DisconnectReply {
+    bool has = 1;
+}
+
+message HeartbeatReq {
+    int64 mid = 1;
+    string key = 2;
+    string server = 3;
+}
+
+message HeartbeatReply {
+}
+
+message OnlineReq {
+    string server = 1;
+    map<string, int32> roomCount = 2;
+}
+
+message OnlineReply {
+    map<string, int32> allRoomCount = 1;
+}
+
+message ReceiveReq {
+    int64 mid = 1;
+    goim.protocol.Proto proto = 2;
+}
+
+message ReceiveReply {
+    goim.protocol.Proto proto = 1;
+}
+
+message NodesReq {
+	string platform = 1;
+	string clientIP = 2;
+}
+
+message NodesReply {
+	string domain = 1;
+	int32 tcp_port = 2;
+	int32 ws_port = 3;
+	int32 wss_port = 4;
+	int32 heartbeat = 5;
+	repeated string nodes = 6;
+	Backoff backoff = 7;
+	int32 heartbeat_max = 8;
+}
+
+message Backoff {
+	int32	max_delay = 1;
+	int32	base_delay = 2;
+	float	factor = 3;
+	float	jitter = 4;
+}
+
+message AckReq {
+    int64 mid = 1;
+    string msg_id = 2;
+    int64 seq = 3;
+}
+
+message AckReply {
+}
+
+message SyncOfflineReq {
+    int64 mid = 1;
+    int64 last_seq = 2;
+    int32 limit = 3;
+}
+
+message SyncOfflineReply {
+    int64 current_seq = 1;
+    bool has_more = 2;
+    // messages are sent via Comet push, not in this reply
+    // this reply only tells the client the current state
+}
+
+service Logic {
+    // Connect
+    rpc Connect(ConnectReq) returns (ConnectReply);
+    // Disconnect
+    rpc Disconnect(DisconnectReq) returns (DisconnectReply);
+    // Heartbeat
+    rpc Heartbeat(HeartbeatReq) returns (HeartbeatReply);
+    // RenewOnline
+    rpc RenewOnline(OnlineReq) returns (OnlineReply);
+    // Receive
+    rpc Receive(ReceiveReq) returns (ReceiveReply);
+    //ServerList
+    rpc Nodes(NodesReq) returns (NodesReply);
+    // AckMessage acknowledges a received message
+    rpc AckMessage(AckReq) returns (AckReply);
+    // SyncOffline triggers offline message sync for a user
+    rpc SyncOffline(SyncOfflineReq) returns (SyncOfflineReply);
+}

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"C:\\\\Users\\\\37859\\\\go\\\\pkg\\\\mod\\\\github.com\\\\bilibili\\\\discovery@v1.0.1\\\\naming\\\\grpc\\\\resolver.go\" 2>&1)",
+      "Read(//c/Users/37859/go/pkg/mod/github.com/bilibili/discovery@v1.0.1/naming/grpc/**)",
+      "Bash(go list *)",
+      "Bash(go get *)",
+      "Bash(go build *)",
+      "Bash(go test *)"
+    ]
+  }
+}

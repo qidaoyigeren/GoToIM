@@ -1,0 +1,20 @@
+nodes = ["127.0.0.1:7171"]
+enableprotect=false
+
+[env]
+region = "sh"
+zone = "sh001"
+host = "localhost"
+DeployEnv = "dev"
+
+[httpServer]
+addr = "127.0.0.1:7171"
+timeout="40s"
+
+[httpClient]
+dial = "1s"
+keepAlive = "120s"
+timeout="40s"
+
+[log]
+stdout = true
