@@ -51,15 +51,7 @@ func (l *Logic) Connect(c context.Context, server, cookie string, token []byte) 
 	}
 	if err = l.sessionMgr.Create(c, sess); err != nil {
 		log.Errorf("session create(%d,%s,%s) error(%v)", mid, key, server, err)
-		// Fallback to legacy mapping
-		if err = l.dao.AddMapping(c, mid, key, server); err != nil {
-			log.Errorf("l.dao.AddMapping(%d,%s,%s) error(%v)", mid, key, server, err)
-		}
-	} else {
-		// Also maintain legacy mapping for backward compatibility
-		if err = l.dao.AddMapping(c, mid, key, server); err != nil {
-			log.Errorf("l.dao.AddMapping(%d,%s,%s) error(%v)", mid, key, server, err)
-		}
+		return
 	}
 
 	log.Infof("conn connected key:%s server:%s mid:%d device:%s platform:%s", key, server, mid, params.DeviceID, params.Platform)
@@ -77,41 +69,21 @@ func (l *Logic) Connect(c context.Context, server, cookie string, token []byte) 
 
 // Disconnect disconnect a conn.
 func (l *Logic) Disconnect(c context.Context, mid int64, key, server string) (has bool, err error) {
-	// Remove from session manager (also cleans legacy mapping via onKick callback)
 	if sessErr := l.sessionMgr.Disconnect(c, mid, key, server); sessErr != nil {
 		log.Warningf("session disconnect(%d,%s,%s) error(%v)", mid, key, server, sessErr)
-	} else {
-		has = true
-	}
-	// Also remove legacy mapping (may already be removed by onKick)
-	if has2, delErr := l.dao.DelMapping(c, mid, key, server); delErr != nil {
-		log.Errorf("l.dao.DelMapping(%d,%s,%s) error(%v)", mid, key, server, delErr)
-		err = delErr
+		err = sessErr
 		return
-	} else if has2 {
-		has = true
 	}
+	has = true
 	log.Infof("conn disconnected key:%s server:%s mid:%d", key, server, mid)
 	return
 }
 
 // Heartbeat heartbeat a conn.
 func (l *Logic) Heartbeat(c context.Context, mid int64, key, server string) (err error) {
-	// Refresh session TTL
 	if err = l.sessionMgr.Heartbeat(c, key, mid); err != nil {
 		log.Warningf("session heartbeat(%d,%s,%s) error(%v)", mid, key, server, err)
-	}
-	// Also refresh legacy mapping
-	has, err := l.dao.ExpireMapping(c, mid, key)
-	if err != nil {
-		log.Errorf("l.dao.ExpireMapping(%d,%s,%s) error(%v)", mid, key, server, err)
 		return
-	}
-	if !has {
-		if err = l.dao.AddMapping(c, mid, key, server); err != nil {
-			log.Errorf("l.dao.AddMapping(%d,%s,%s) error(%v)", mid, key, server, err)
-			return
-		}
 	}
 	log.Infof("conn heartbeat key:%s server:%s mid:%d", key, server, mid)
 	return

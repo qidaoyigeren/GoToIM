@@ -72,11 +72,6 @@ func New(c *conf.Config) (l *Logic) {
 	l.sessionMgr = service.NewSessionManager(l.dao, sessionTTL)
 	l.cometPusher = NewCometPusher()
 	l.sessionMgr.SetKicker(l.cometPusher)
-	l.sessionMgr.SetOnKick(func(ctx context.Context, uid int64, key, server string) {
-		if _, err := l.dao.DelMapping(ctx, uid, key, server); err != nil {
-			log.Warningf("kick legacy mapping cleanup failed: uid=%d key=%s server=%s err=%v", uid, key, server, err)
-		}
-	})
 
 	// Phase 2: Message Router replaces PushService/AckService for push routing
 	l.router = router.NewDispatchEngine(l.dao, l.dao, l.sessionMgr, l.cometPusher)

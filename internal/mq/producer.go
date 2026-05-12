@@ -21,6 +21,10 @@ type Producer interface {
 	// EnqueueACK publishes a delivery acknowledgment for async consumers.
 	EnqueueACK(ctx context.Context, msgID string, uid int64, status string) error
 
+	// EnqueueDelayed enqueues a message with a delivery delay.
+	// The message will not be visible to consumers until after delayMs milliseconds.
+	EnqueueDelayed(ctx context.Context, uid int64, msg *Message, delayMs int64) error
+
 	// Close releases producer resources.
 	Close() error
 }

@@ -8,46 +8,54 @@ import (
 	log "github.com/Terry-Mao/goim/pkg/log"
 )
 
-// PushKeys push a message by keys.
+// PushKeys push a message by connection keys.
+// Uses Session system to resolve key -> server mapping.
 func (l *Logic) PushKeys(c context.Context, op int32, keys []string, msg []byte) (err error) {
-	servers, err := l.dao.ServersByKeys(c, keys)
-	if err != nil {
-		return
-	}
 	pushKeys := make(map[string][]string)
-	for i, key := range keys {
-		if i >= len(servers) {
-			break
+	for _, key := range keys {
+		if key == "" {
+			continue
 		}
-		server := servers[i]
-		if server != "" && key != "" {
+		sid, err := l.dao.GetSessionByKey(c, key)
+		if err != nil || sid == "" {
+			log.Warningf("push key:%s session not found: err=%v", key, err)
+			continue
+		}
+		sess, err := l.dao.GetSession(c, sid)
+		if err != nil || len(sess) == 0 {
+			continue
+		}
+		server := sess["server"]
+		if server != "" {
 			pushKeys[server] = append(pushKeys[server], key)
 		}
 	}
-	for server := range pushKeys {
-		if err = l.dao.PushMsg(c, op, server, pushKeys[server], msg); err != nil {
+	for server, skeys := range pushKeys {
+		if err = l.dao.PushMsg(c, op, server, skeys, msg); err != nil {
 			return
 		}
 	}
 	return
 }
 
-// PushMids push a message by mid.
+// PushMids push a message by user IDs.
+// Uses Session system to resolve uid -> server + keys mapping.
 func (l *Logic) PushMids(c context.Context, op int32, mids []int64, msg []byte) (err error) {
-	keyServers, _, err := l.dao.KeysByMids(c, mids)
-	if err != nil {
-		return
-	}
 	keys := make(map[string][]string)
-	for key, server := range keyServers {
-		if key == "" || server == "" {
-			log.Warningf("push key:%s server:%s is empty", key, server)
+	for _, mid := range mids {
+		sessions, err := l.sessionMgr.GetSessions(c, mid)
+		if err != nil || len(sessions) == 0 {
+			log.Warningf("push mid:%d no active sessions", mid)
 			continue
 		}
-		keys[server] = append(keys[server], key)
+		for _, sess := range sessions {
+			if sess.Server != "" && sess.Key != "" {
+				keys[sess.Server] = append(keys[sess.Server], sess.Key)
+			}
+		}
 	}
-	for server, keys := range keys {
-		if err = l.dao.PushMsg(c, op, server, keys, msg); err != nil {
+	for server, skeys := range keys {
+		if err = l.dao.PushMsg(c, op, server, skeys, msg); err != nil {
 			return
 		}
 	}

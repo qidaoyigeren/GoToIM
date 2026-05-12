@@ -2,6 +2,12 @@ package mq
 
 import "context"
 
+// Header keys for message metadata.
+const (
+	// HeaderDelayedUntil stores the Unix timestamp (ms) after which the message becomes deliverable.
+	HeaderDelayedUntil = "goim_delayed_until"
+)
+
 // Message represents a single message envelope in the message queue.
 type Message struct {
 	Topic     string

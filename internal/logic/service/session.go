@@ -37,7 +37,6 @@ type SessionManager struct {
 	local  sync.Map // uid -> []*Session
 	ttl    time.Duration
 	kicker CometKicker
-	onKick func(ctx context.Context, uid int64, key, server string) // called after kick to clean legacy mapping
 }
 
 // NewSessionManager creates a new SessionManager.
@@ -51,11 +50,6 @@ func NewSessionManager(d dao.SessionDAO, ttl time.Duration) *SessionManager {
 // SetKicker sets the Comet kicker for notifying Comet to close connections.
 func (m *SessionManager) SetKicker(k CometKicker) {
 	m.kicker = k
-}
-
-// SetOnKick sets a callback invoked after a session is kicked, for legacy mapping cleanup.
-func (m *SessionManager) SetOnKick(fn func(ctx context.Context, uid int64, key, server string)) {
-	m.onKick = fn
 }
 
 // Create creates a new session. If the same device already has a session, the old one is invalidated.
@@ -175,10 +169,6 @@ func (m *SessionManager) Kick(ctx context.Context, sid string, uid int64, device
 		if err := m.kicker.KickConnection(ctx, sess.Server, sess.Key); err != nil {
 			log.Warningf("kick comet connection failed: server=%s key=%s err=%v", sess.Server, sess.Key, err)
 		}
-	}
-	// Clean up legacy mapping for the kicked session
-	if m.onKick != nil && sess != nil && sess.Key != "" && sess.Server != "" {
-		m.onKick(ctx, uid, sess.Key, sess.Server)
 	}
 	return nil
 }

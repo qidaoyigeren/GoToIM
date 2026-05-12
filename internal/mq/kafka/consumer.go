@@ -2,6 +2,8 @@ package kafka
 
 import (
 	"context"
+	"strconv"
+	"time"
 
 	"github.com/Terry-Mao/goim/internal/mq"
 	"github.com/bsm/sarama-cluster"
@@ -30,6 +32,7 @@ func NewConsumer(brokers []string, group string, topics []string) (*Consumer, er
 // Consume starts the consume loop. Blocks until ctx is cancelled.
 // Messages are delivered to handler one at a time.
 // If handler returns an error, the offset is NOT committed (redelivery).
+// Delayed messages (with goim_delayed_until header) are held until their delivery time.
 func (c *Consumer) Consume(ctx context.Context, handler mq.MessageHandler) error {
 	for {
 		select {
@@ -50,6 +53,26 @@ func (c *Consumer) Consume(ctx context.Context, handler mq.MessageHandler) error
 				Partition: raw.Partition,
 				Offset:    raw.Offset,
 				Timestamp: raw.Timestamp.UnixMilli(),
+			}
+			// Extract headers
+			if len(raw.Headers) > 0 {
+				msg.Headers = make(map[string]string, len(raw.Headers))
+				for _, h := range raw.Headers {
+					msg.Headers[string(h.Key)] = string(h.Value)
+				}
+			}
+			// Check delayed delivery
+			if msg.Headers != nil {
+				if delayedUntil, ok := msg.Headers[mq.HeaderDelayedUntil]; ok {
+					if deliverAt, err := strconv.ParseInt(delayedUntil, 10, 64); err == nil {
+						if time.Now().UnixMilli() < deliverAt {
+							// Not yet time to deliver; skip without committing offset
+							// Kafka will redeliver on next poll
+							time.Sleep(100 * time.Millisecond)
+							continue
+						}
+					}
+				}
 			}
 			if err := handler(ctx, msg); err != nil {
 				log.Errorf("handler error for %s/%d: %v", raw.Topic, raw.Offset, err)

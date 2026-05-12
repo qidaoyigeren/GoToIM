@@ -82,7 +82,7 @@ func TestRedisConnection(t *testing.T) {
 	t.Log("Redis connection OK")
 }
 
-func TestRedisMappingOps(t *testing.T) {
+func TestRedisSessionBasedLookup(t *testing.T) {
 	d := newTestDao(t)
 	defer d.Close()
 	ctx := context.Background()
@@ -90,35 +90,60 @@ func TestRedisMappingOps(t *testing.T) {
 	mid := int64(9001)
 	key := "test-key-chain-1"
 	server := "test-comet-1"
+	sid := "test-sid-9001"
+	deviceID := "test-device-1"
+	platform := "web"
 
-	// Add mapping
-	if err := d.AddMapping(ctx, mid, key, server); err != nil {
-		t.Fatalf("AddMapping failed: %v", err)
+	// AddSession (replaces legacy AddMapping)
+	if err := d.AddSession(ctx, sid, mid, key, deviceID, platform, server); err != nil {
+		t.Fatalf("AddSession failed: %v", err)
 	}
-	t.Log("AddMapping OK")
+	t.Log("AddSession OK")
 
-	// KeysByMids - returns (res map, olMids []int64, err)
-	keyMap, olMids, err := d.KeysByMids(ctx, []int64{mid})
+	// GetSessionByKey (replaces legacy ServersByKeys)
+	gotSID, err := d.GetSessionByKey(ctx, key)
 	if err != nil {
-		t.Fatalf("KeysByMids failed: %v", err)
+		t.Fatalf("GetSessionByKey failed: %v", err)
 	}
-	t.Logf("KeysByMids: keys=%v olMids=%v", keyMap, olMids)
+	if gotSID != sid {
+		t.Errorf("GetSessionByKey: got=%s want=%s", gotSID, sid)
+	}
+	t.Logf("GetSessionByKey: sid=%s", gotSID)
 
-	// ExpireMapping
-	has, err := d.ExpireMapping(ctx, mid, key)
+	// GetSession (get full session details)
+	sess, err := d.GetSession(ctx, sid)
 	if err != nil {
-		t.Errorf("ExpireMapping failed: %v", err)
+		t.Fatalf("GetSession failed: %v", err)
 	}
-	t.Logf("ExpireMapping: has=%v", has)
+	if sess["server"] != server {
+		t.Errorf("GetSession server: got=%s want=%s", sess["server"], server)
+	}
+	t.Logf("GetSession: server=%s key=%s", sess["server"], sess["key"])
 
-	// DelMapping
-	has, err = d.DelMapping(ctx, mid, key, server)
+	// GetUserSessions (replaces legacy KeysByMids)
+	sessions, err := d.GetUserSessions(ctx, mid)
 	if err != nil {
-		t.Errorf("DelMapping failed: %v", err)
+		t.Fatalf("GetUserSessions failed: %v", err)
 	}
-	t.Logf("DelMapping: has=%v", has)
+	if _, ok := sessions[sid]; !ok {
+		t.Errorf("GetUserSessions: sid %s not found", sid)
+	}
+	t.Logf("GetUserSessions: %v", sessions)
 
-	_ = d.DelServerOnline(ctx, server)
+	// DelSession (replaces legacy DelMapping)
+	if err := d.DelSession(ctx, sid, mid, deviceID, key); err != nil {
+		t.Fatalf("DelSession failed: %v", err)
+	}
+	t.Log("DelSession OK")
+
+	// Verify deleted
+	gotSID, err = d.GetSessionByKey(ctx, key)
+	if err != nil {
+		t.Fatalf("GetSessionByKey after delete failed: %v", err)
+	}
+	if gotSID != "" {
+		t.Errorf("GetSessionByKey after delete: got=%s want empty", gotSID)
+	}
 }
 
 func TestRedisMessageOps(t *testing.T) {
@@ -349,7 +374,6 @@ func TestPushServiceChain(t *testing.T) {
 	d.DelSession(ctx, sid, uid, device, key)
 	d.RemoveFromOfflineQueue(ctx, uid, msgID)
 	d.RemoveFromOfflineQueue(ctx, uid, msgID2)
-	d.DelMapping(ctx, uid, key, server)
 }
 
 // ============================================================
@@ -432,8 +456,6 @@ func TestCompleteIMChain(t *testing.T) {
 		d.RemoveFromOfflineQueue(ctx, mid, msgID)
 		d.RemoveFromOfflineQueue(ctx, mid, msgID2)
 	}
-	d.DelMapping(ctx, uidA, keyA, "comet-A")
-	d.DelMapping(ctx, uidB, keyB, "comet-A")
 
 	t.Log("=== COMPLETE IM CHAIN TEST PASSED ===")
 }

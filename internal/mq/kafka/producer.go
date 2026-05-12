@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	pb "github.com/Terry-Mao/goim/api/logic"
 	"github.com/Terry-Mao/goim/internal/mq"
@@ -56,20 +57,20 @@ func (p *Producer) topicFor(pushTopic, specTopic string) string {
 }
 
 // EnqueueToUser enqueues a per-user message via the push topic.
+// Uses uid as the Kafka partition key to guarantee per-user ordering within a partition.
 func (p *Producer) EnqueueToUser(ctx context.Context, uid int64, msg *mq.Message) error {
 	topic := p.topicFor(p.pushTopic, p.pushTopic)
 	km := &sarama.ProducerMessage{
 		Topic: topic,
+		Key:   sarama.StringEncoder(strconv.FormatInt(uid, 10)),
 		Value: sarama.ByteEncoder(msg.Value),
-	}
-	if msg.Key != "" {
-		km.Key = sarama.StringEncoder(msg.Key)
 	}
 	_, _, err := p.pub.SendMessage(km)
 	return err
 }
 
 // EnqueueToUsers enqueues a message to multiple users.
+// Each user's message is sent with their uid as partition key for ordering.
 func (p *Producer) EnqueueToUsers(ctx context.Context, uids []int64, msg *mq.Message) error {
 	topic := p.topicFor(p.pushTopic, p.pushTopic)
 	for _, uid := range uids {
@@ -130,6 +131,32 @@ func (p *Producer) EnqueueACK(ctx context.Context, msgID string, uid int64, stat
 		Value: sarama.ByteEncoder(b),
 	}
 	_, _, err = p.pub.SendMessage(km)
+	return err
+}
+
+// EnqueueDelayed enqueues a message with a delivery delay.
+// Uses a Kafka header (goim_delayed_until) to mark the target delivery time.
+// Consumers should check this header and skip processing until the time arrives.
+func (p *Producer) EnqueueDelayed(ctx context.Context, uid int64, msg *mq.Message, delayMs int64) error {
+	topic := p.topicFor(p.pushTopic, p.pushTopic)
+	deliverAt := time.Now().UnixMilli() + delayMs
+
+	headers := make([]sarama.RecordHeader, 0, len(msg.Headers)+1)
+	for k, v := range msg.Headers {
+		headers = append(headers, sarama.RecordHeader{Key: []byte(k), Value: []byte(v)})
+	}
+	headers = append(headers, sarama.RecordHeader{
+		Key:   []byte(mq.HeaderDelayedUntil),
+		Value: []byte(strconv.FormatInt(deliverAt, 10)),
+	})
+
+	km := &sarama.ProducerMessage{
+		Topic:   topic,
+		Key:     sarama.StringEncoder(strconv.FormatInt(uid, 10)),
+		Value:   sarama.ByteEncoder(msg.Value),
+		Headers: headers,
+	}
+	_, _, err := p.pub.SendMessage(km)
 	return err
 }
 

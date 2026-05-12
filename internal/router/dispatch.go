@@ -124,7 +124,8 @@ func (e *DispatchEngine) reliableEnqueue(ctx context.Context, msgID string, toUI
 	}
 	if e.producer != nil {
 		pushMsg := pushMsgBytes(pbPush, op, server, keys, "", body, 0)
-		return e.producer.EnqueueToUser(ctx, toUID, &mq.Message{Key: keys[0], Value: pushMsg})
+		uidKey := fmt.Sprintf("%d", toUID)
+		return e.producer.EnqueueToUser(ctx, toUID, &mq.Message{Key: uidKey, Value: pushMsg})
 	}
 	return e.dao.PushMsg(ctx, op, server, keys, body)
 }

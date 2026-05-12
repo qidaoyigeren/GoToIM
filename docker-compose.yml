@@ -3,6 +3,9 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    command: redis-server --appendonly yes --save 60 1000 --appendfsync everysec
+    volumes:
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -133,6 +136,10 @@ services:
       - logic
     networks:
       - goim-net
+
+volumes:
+  redis-data:
+    driver: local
 
 networks:
   goim-net:
