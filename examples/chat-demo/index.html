@@ -1,310 +1,1774 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GoIM WebSocket Chat Demo</title>
+<title>GoToIM Console</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; height: 100vh; display: flex; flex-direction: column; }
-.header { background: #1a73e8; color: #fff; padding: 12px 24px; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
-.header h1 { font-size: 18px; font-weight: 600; }
-.settings { display: flex; gap: 12px; align-items: center; font-size: 13px; }
-.settings label { opacity: 0.85; }
-.settings input { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 4px 8px; border-radius: 4px; width: 160px; font-size: 13px; }
-.settings input::placeholder { color: rgba(255,255,255,0.5); }
-.container { flex: 1; display: flex; gap: 0; overflow: hidden; }
-.panel { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #ddd; }
-.panel:last-child { border-right: none; }
-.panel-header { padding: 12px 16px; background: #fff; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; gap: 8px; }
-.panel-header .status { width: 10px; height: 10px; border-radius: 50%; background: #ccc; flex-shrink: 0; }
-.panel-header .status.connected { background: #34a853; }
-.panel-header .status.connecting { background: #fbbc04; }
-.panel-header .status.disconnected { background: #ea4335; }
-.panel-header .name { font-weight: 600; font-size: 15px; }
-.panel-header .mid { font-size: 12px; color: #666; }
-.panel-header .connect-btn { margin-left: auto; padding: 4px 12px; border: 1px solid #1a73e8; color: #1a73e8; background: #fff; border-radius: 4px; cursor: pointer; font-size: 12px; }
-.panel-header .connect-btn:hover { background: #e8f0fe; }
-.messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
-.msg { max-width: 70%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; }
-.msg.sent { align-self: flex-end; background: #1a73e8; color: #fff; border-bottom-right-radius: 4px; }
-.msg.received { align-self: flex-start; background: #fff; color: #333; border-bottom-left-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
-.msg .sender { font-size: 11px; opacity: 0.7; margin-bottom: 2px; }
-.msg.system { align-self: center; background: transparent; color: #999; font-size: 12px; padding: 4px 8px; }
-.input-bar { padding: 12px 16px; background: #fff; border-top: 1px solid #e0e0e0; display: flex; gap: 8px; }
-.input-bar input { flex: 1; border: 1px solid #ddd; border-radius: 20px; padding: 8px 16px; font-size: 14px; outline: none; }
-.input-bar input:focus { border-color: #1a73e8; }
-.input-bar button { padding: 8px 20px; background: #1a73e8; color: #fff; border: none; border-radius: 20px; cursor: pointer; font-size: 14px; }
-.input-bar button:hover { background: #1557b0; }
-.input-bar button:disabled { background: #ccc; cursor: default; }
+:root {
+  color-scheme: light;
+  --bg: #f6f5f2;
+  --panel: #ffffff;
+  --panel-soft: #f9faf8;
+  --ink: #17202a;
+  --muted: #667085;
+  --line: #d8ddd5;
+  --line-strong: #b9c2b6;
+  --teal: #0f766e;
+  --teal-soft: #e6f3f1;
+  --blue: #2563eb;
+  --blue-soft: #eaf0ff;
+  --amber: #b45309;
+  --amber-soft: #fff4dd;
+  --red: #b42318;
+  --red-soft: #fff0ed;
+  --green: #15803d;
+  --shadow: 0 10px 28px rgba(23, 32, 42, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  letter-spacing: 0;
+}
+
+button {
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 8px 11px;
+  cursor: pointer;
+  min-height: 36px;
+}
+
+button:hover {
+  border-color: var(--teal);
+}
+
+button.primary {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: #fff;
+}
+
+button.blue {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+
+button.warn {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: #fff;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  padding: 8px 10px;
+  min-height: 36px;
+  outline: none;
+}
+
+textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.app-shell {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 20px;
+  background: #17202a;
+  color: #fff;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 220px;
+}
+
+.brand-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, #67e8f9 0%, #14b8a6 44%, #f59e0b 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.brand p {
+  margin: 3px 0 0;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 12px;
+}
+
+.status-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+  flex: 1;
+  max-width: 760px;
+}
+
+.status-tile {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.06);
+  min-width: 0;
+}
+
+.status-tile span {
+  display: block;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
+}
+
+.status-tile strong {
+  display: block;
+  margin-top: 3px;
+  color: #fff;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.config-strip {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.1fr) minmax(170px, 1.1fr) minmax(140px, 0.9fr) minmax(150px, 1fr) minmax(130px, 0.7fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.config-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 220px;
+}
+
+.config-actions label {
+  display: flex;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.config-actions input[type="checkbox"] {
+  width: 16px;
+  min-height: 16px;
+  height: 16px;
+  padding: 0;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.75fr) minmax(420px, 1.25fr) minmax(330px, 0.95fr);
+  gap: 14px;
+  padding: 14px;
+  min-height: 0;
+}
+
+.panel {
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-soft);
+}
+
+.panel-title h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.client-list {
+  overflow: auto;
+  padding: 10px;
+  display: grid;
+  gap: 9px;
+}
+
+.client-row {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+
+.client-row[data-status="connected"] {
+  border-color: rgba(21, 128, 61, 0.35);
+  background: #f7fff9;
+}
+
+.client-row[data-status="connecting"] {
+  border-color: rgba(180, 83, 9, 0.35);
+  background: #fffbf1;
+}
+
+.client-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.client-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  flex: 0 0 auto;
+}
+
+.dot.connected {
+  background: var(--green);
+}
+
+.dot.connecting {
+  background: var(--amber);
+}
+
+.dot.disconnected {
+  background: var(--red);
+}
+
+.client-name strong {
+  display: block;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.client-name span,
+.client-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.client-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 8px;
+}
+
+.client-meta code,
+.pill code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.timeline {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background:
+    linear-gradient(180deg, rgba(15, 118, 110, 0.05), transparent 180px),
+    #fbfbf8;
+}
+
+.event {
+  max-width: min(760px, 92%);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 9px 10px;
+  align-self: flex-start;
+}
+
+.event.sent {
+  align-self: flex-end;
+  background: var(--blue-soft);
+  border-color: rgba(37, 99, 235, 0.22);
+}
+
+.event.received {
+  background: var(--teal-soft);
+  border-color: rgba(15, 118, 110, 0.2);
+}
+
+.event.system {
+  align-self: center;
+  max-width: 92%;
+  background: #fff;
+}
+
+.event.error {
+  background: var(--red-soft);
+  border-color: rgba(180, 35, 24, 0.24);
+}
+
+.event-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.event-body {
+  margin-top: 5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.45;
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.9fr) minmax(110px, 0.7fr) minmax(140px, 0.9fr) minmax(180px, 1.3fr) auto;
+  gap: 9px;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  align-items: end;
+}
+
+.ops-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 10px 10px 0;
+}
+
+.tab-btn {
+  min-height: 34px;
+  padding: 7px 8px;
+  color: var(--muted);
+  background: #fff;
+}
+
+.tab-btn.active {
+  color: #fff;
+  background: #17202a;
+  border-color: #17202a;
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: grid;
+  gap: 14px;
+}
+
+.tool-block {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.tool-block:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.tool-block h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.form-grid .span-2 {
+  grid-column: 1 / -1;
+}
+
+.result-box {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #101820;
+  color: #d6f3ee;
+  min-height: 150px;
+  max-height: 300px;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+.small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+@media (max-width: 1180px) {
+  .layout {
+    grid-template-columns: minmax(240px, 0.8fr) minmax(420px, 1.2fr);
+  }
+
+  .ops-panel {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 820px) {
+  .topbar,
+  .config-strip,
+  .layout,
+  .composer {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    display: grid;
+  }
+
+  .status-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: none;
+  }
+
+  .layout {
+    padding: 10px;
+  }
+
+  .config-actions {
+    justify-content: flex-start;
+    min-width: 0;
+  }
+
+  .event {
+    max-width: 100%;
+  }
+}
 </style>
 </head>
 <body>
+<div class="app-shell">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div>
+        <h1>GoToIM 控制台</h1>
+        <p>Comet / Logic / Job</p>
+      </div>
+    </div>
+    <div class="status-strip" aria-live="polite">
+      <div class="status-tile"><span>API</span><strong id="apiStatus">待连接</strong></div>
+      <div class="status-tile"><span>WebSocket</span><strong id="wsStatus">0 在线</strong></div>
+      <div class="status-tile"><span>连接数</span><strong id="connStatus">-</strong></div>
+      <div class="status-tile"><span>当前房间</span><strong id="roomStatus">live://1000</strong></div>
+    </div>
+  </header>
 
-<div class="header">
-  <h1>GoIM Chat Demo</h1>
-  <div class="settings">
-    <label>Comet WS:</label>
-    <input id="wsHost" type="text" value="localhost:3102" placeholder="host:port">
-    <label>API:</label>
-    <input id="apiHost" type="text" value="" placeholder="same origin (nginx proxy)">
-  </div>
-</div>
+  <section class="config-strip">
+    <label>Logic API
+      <input id="apiHost" value="" placeholder="same origin 或 localhost:3111" autocomplete="off">
+    </label>
+    <label>Comet WS
+      <input id="wsHost" value="localhost:3102" placeholder="localhost:3102" autocomplete="off">
+    </label>
+    <label>房间
+      <input id="defaultRoom" value="live://1000" autocomplete="off">
+    </label>
+    <label>订阅 Op
+      <input id="defaultAccepts" value="9,21,1000,1001,1002" autocomplete="off">
+    </label>
+    <label>心跳秒
+      <input id="heartbeatSeconds" type="number" min="10" value="30">
+    </label>
+    <div class="config-actions">
+      <label><input id="autoAck" type="checkbox" checked> 自动 ACK</label>
+      <label><input id="autoConnect" type="checkbox" checked> 自动连接</label>
+      <button id="saveConfig" type="button">保存</button>
+    </div>
+  </section>
 
-<div class="container">
-  <!-- Alice Panel -->
-  <div class="panel" id="panel-1001">
-    <div class="panel-header">
-      <div class="status" id="status-1001"></div>
-      <span class="name">Alice</span>
-      <span class="mid">mid=1001</span>
-      <button class="connect-btn" id="btn-1001" onclick="toggleConnection(1001)">Connect</button>
-    </div>
-    <div class="messages" id="msgs-1001"></div>
-    <div class="input-bar">
-      <input id="input-1001" type="text" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendMsg(1001)">
-      <button onclick="sendMsg(1001)">Send</button>
-    </div>
-  </div>
+  <main class="layout">
+    <aside class="panel clients-panel">
+      <div class="panel-title">
+        <h2>客户端</h2>
+        <div class="button-row">
+          <button id="connectAll" class="primary" type="button">全部连接</button>
+          <button id="disconnectAll" type="button">全部断开</button>
+        </div>
+      </div>
+      <div id="clientList" class="client-list"></div>
+    </aside>
 
-  <!-- Bob Panel -->
-  <div class="panel" id="panel-1002">
-    <div class="panel-header">
-      <div class="status" id="status-1002"></div>
-      <span class="name">Bob</span>
-      <span class="mid">mid=1002</span>
-      <button class="connect-btn" id="btn-1002" onclick="toggleConnection(1002)">Connect</button>
-    </div>
-    <div class="messages" id="msgs-1002"></div>
-    <div class="input-bar">
-      <input id="input-1002" type="text" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendMsg(1002)">
-      <button onclick="sendMsg(1002)">Send</button>
-    </div>
-  </div>
+    <section class="panel conversation-panel">
+      <div class="panel-title">
+        <h2>消息流</h2>
+        <div class="button-row">
+          <button id="refreshOnline" type="button">刷新在线</button>
+          <button id="clearTimeline" type="button">清空</button>
+        </div>
+      </div>
+      <div id="timeline" class="timeline" aria-live="polite"></div>
+      <form id="composer" class="composer">
+        <label>发送方
+          <select id="composerFrom"></select>
+        </label>
+        <label>目标
+          <select id="composerMode">
+            <option value="mids">用户</option>
+            <option value="keys">连接 Key</option>
+            <option value="room">房间</option>
+            <option value="all">全站</option>
+          </select>
+        </label>
+        <label>目标值
+          <input id="composerTarget" value="1002" autocomplete="off">
+        </label>
+        <label>内容
+          <input id="composerText" value="你好，GoToIM" autocomplete="off">
+        </label>
+        <button class="blue" type="submit">发送</button>
+      </form>
+    </section>
+
+    <aside class="panel ops-panel">
+      <div class="panel-title">
+        <h2>后端能力</h2>
+      </div>
+      <div class="tabs" role="tablist">
+        <button class="tab-btn active" type="button" data-tab="push">推送</button>
+        <button class="tab-btn" type="button" data-tab="session">会话</button>
+        <button class="tab-btn" type="button" data-tab="offline">离线</button>
+        <button class="tab-btn" type="button" data-tab="observe">观测</button>
+      </div>
+      <div class="ops-body">
+        <section id="tab-push" class="tab-panel active">
+          <form id="manualPushForm" class="tool-block">
+            <h3>HTTP Push</h3>
+            <div class="form-grid">
+              <label>接口
+                <select id="pushEndpoint">
+                  <option value="mids">/push/mids</option>
+                  <option value="keys">/push/keys</option>
+                  <option value="room">/push/room</option>
+                  <option value="all">/push/all</option>
+                </select>
+              </label>
+              <label>Operation
+                <input id="pushOperation" type="number" value="9">
+              </label>
+              <label id="pushTypeWrap">Type
+                <input id="pushRoomType" value="live" autocomplete="off">
+              </label>
+              <label>目标
+                <input id="pushTarget" value="1002" autocomplete="off">
+              </label>
+              <label>Speed
+                <input id="pushSpeed" type="number" min="0" value="0">
+              </label>
+              <label class="span-2">Body
+                <textarea id="pushBody">{"from":1001,"to":1002,"text":"manual push","ts":0}</textarea>
+              </label>
+            </div>
+            <button class="primary" type="submit">提交推送</button>
+          </form>
+        </section>
+
+        <section id="tab-session" class="tab-panel">
+          <form id="roomForm" class="tool-block">
+            <h3>房间切换</h3>
+            <div class="form-grid">
+              <label>客户端
+                <select id="roomClient"></select>
+              </label>
+              <label>Room ID
+                <input id="roomChangeValue" value="live://1000" autocomplete="off">
+              </label>
+            </div>
+            <button class="primary" type="submit">切换房间</button>
+          </form>
+
+          <form id="watchForm" class="tool-block">
+            <h3>订阅控制</h3>
+            <div class="form-grid">
+              <label>客户端
+                <select id="watchClient"></select>
+              </label>
+              <label>Ops
+                <input id="watchOps" value="9,21,1000,1001,1002" autocomplete="off">
+              </label>
+            </div>
+            <div class="button-row">
+              <button class="primary" type="submit" data-watch-action="sub">订阅</button>
+              <button type="submit" data-watch-action="unsub">取消订阅</button>
+            </div>
+          </form>
+
+          <form id="wsSyncForm" class="tool-block">
+            <h3>WS SyncReq</h3>
+            <div class="form-grid">
+              <label>客户端
+                <select id="wsSyncClient"></select>
+              </label>
+              <label>Last Seq
+                <input id="wsSyncLastSeq" type="number" min="0" value="0">
+              </label>
+              <label>Limit
+                <input id="wsSyncLimit" type="number" min="1" max="200" value="100">
+              </label>
+            </div>
+            <button class="primary" type="submit">发送 SyncReq</button>
+          </form>
+        </section>
+
+        <section id="tab-offline" class="tab-panel">
+          <form id="offlinePushForm" class="tool-block">
+            <h3>离线写入</h3>
+            <div class="form-grid">
+              <label>Mid
+                <input id="offlineMid" type="number" value="1002">
+              </label>
+              <label>Seq
+                <input id="offlineSeq" type="number" min="0" value="1">
+              </label>
+              <label>Op
+                <input id="offlineOp" type="number" value="9">
+              </label>
+              <label class="span-2">Body
+                <textarea id="offlineBody">{"from":1001,"to":1002,"text":"offline message","ts":0}</textarea>
+              </label>
+            </div>
+            <button class="warn" type="submit">写入离线队列</button>
+          </form>
+
+          <form id="httpSyncForm" class="tool-block">
+            <h3>HTTP Sync</h3>
+            <div class="form-grid">
+              <label>Mid
+                <input id="httpSyncMid" type="number" value="1002">
+              </label>
+              <label>Last Seq
+                <input id="httpSyncLastSeq" type="number" min="0" value="0">
+              </label>
+              <label>Limit
+                <input id="httpSyncLimit" type="number" min="1" max="200" value="100">
+              </label>
+            </div>
+            <button class="primary" type="submit">拉取离线消息</button>
+          </form>
+        </section>
+
+        <section id="tab-observe" class="tab-panel">
+          <div class="tool-block">
+            <h3>Online</h3>
+            <div class="form-grid">
+              <label>Type
+                <input id="onlineType" value="live" autocomplete="off">
+              </label>
+              <label>Rooms
+                <input id="onlineRooms" value="1000" autocomplete="off">
+              </label>
+              <label>Top Limit
+                <input id="onlineLimit" type="number" min="1" value="10">
+              </label>
+            </div>
+            <div class="button-row">
+              <button type="button" data-observe="total">总在线</button>
+              <button type="button" data-observe="room">房间在线</button>
+              <button type="button" data-observe="top">热门房间</button>
+            </div>
+          </div>
+
+          <div class="tool-block">
+            <h3>Nodes / Metrics</h3>
+            <div class="form-grid">
+              <label>Platform
+                <input id="nodePlatform" value="web" autocomplete="off">
+              </label>
+            </div>
+            <div class="button-row">
+              <button type="button" data-observe="weighted">Weighted</button>
+              <button type="button" data-observe="instances">Instances</button>
+              <button type="button" data-observe="metrics">Metrics</button>
+            </div>
+          </div>
+          <pre id="resultBox" class="result-box">等待查询...</pre>
+        </section>
+      </div>
+    </aside>
+  </main>
 </div>
 
 <script>
 (function() {
+  "use strict";
+
   const RAW_HEADER_LEN = 16;
   const OP_HEARTBEAT = 2;
   const OP_HEARTBEAT_REPLY = 3;
   const OP_AUTH = 7;
   const OP_AUTH_REPLY = 8;
   const OP_RAW = 9;
+  const OP_CHANGE_ROOM = 12;
+  const OP_CHANGE_ROOM_REPLY = 13;
+  const OP_SUB = 14;
+  const OP_SUB_REPLY = 15;
+  const OP_UNSUB = 16;
+  const OP_UNSUB_REPLY = 17;
+  const OP_SEND_MSG_ACK = 18;
+  const OP_PUSH_MSG_ACK = 19;
+  const OP_SYNC_REQ = 20;
+  const OP_SYNC_REPLY = 21;
 
-  const users = {
-    1001: { name: 'Alice', ws: null, status: 'disconnected', seq: 1, heartbeatTimer: null },
-    1002: { name: 'Bob',   ws: null, status: 'disconnected', seq: 1, heartbeatTimer: null }
+  const opNames = {
+    2: "Heartbeat",
+    3: "HeartbeatReply",
+    7: "Auth",
+    8: "AuthReply",
+    9: "Raw",
+    12: "ChangeRoom",
+    13: "ChangeRoomReply",
+    14: "Sub",
+    15: "SubReply",
+    16: "Unsub",
+    17: "UnsubReply",
+    18: "SendMsgAck",
+    19: "PushMsgAck",
+    20: "SyncReq",
+    21: "SyncReply"
   };
 
-  function getWsHost() {
-    return document.getElementById('wsHost').value || 'localhost:3102';
+  const textEncoder = new TextEncoder();
+  const textDecoder = new TextDecoder();
+
+  const clients = [
+    {
+      id: "aliceWeb",
+      name: "Alice Web",
+      mid: 1001,
+      key: "gotoim-alice-web",
+      deviceId: "web-1001",
+      platform: "web",
+      room: "live://1000",
+      status: "disconnected",
+      seq: 1,
+      ws: null,
+      heartbeatTimer: null,
+      lastSeq: 0,
+      online: "-"
+    },
+    {
+      id: "alicePhone",
+      name: "Alice Phone",
+      mid: 1001,
+      key: "gotoim-alice-phone",
+      deviceId: "phone-1001",
+      platform: "ios",
+      room: "live://1000",
+      status: "disconnected",
+      seq: 1,
+      ws: null,
+      heartbeatTimer: null,
+      lastSeq: 0,
+      online: "-"
+    },
+    {
+      id: "bobWeb",
+      name: "Bob Web",
+      mid: 1002,
+      key: "gotoim-bob-web",
+      deviceId: "web-1002",
+      platform: "web",
+      room: "live://1000",
+      status: "disconnected",
+      seq: 1,
+      ws: null,
+      heartbeatTimer: null,
+      lastSeq: 0,
+      online: "-"
+    }
+  ];
+
+  const $ = (selector) => document.querySelector(selector);
+  const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+
+  function escapeHTML(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function nowTime() {
+    return new Date().toLocaleTimeString("zh-CN", { hour12: false });
+  }
+
+  function compact(value, maxLen) {
+    const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    if (text.length <= maxLen) return text;
+    return text.slice(0, maxLen - 1) + "...";
+  }
+
+  function csvValues(value) {
+    return String(value || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  function getClient(id) {
+    return clients.find((client) => client.id === id);
+  }
+
+  function connectedClients() {
+    return clients.filter((client) => client.status === "connected");
+  }
+
+  function formatStatus(status) {
+    if (status === "connected") return "已连接";
+    if (status === "connecting") return "连接中";
+    return "未连接";
+  }
+
+  function getDefaultAccepts() {
+    return csvValues($("#defaultAccepts").value)
+      .map((item) => Number(item))
+      .filter((item) => Number.isFinite(item));
   }
 
   function getApiBase() {
-    var api = document.getElementById('apiHost').value;
-    if (api) return 'http://' + api;
-    return window.location.origin;
-  }
-
-  function setStatus(mid, status) {
-    users[mid].status = status;
-    var el = document.getElementById('status-' + mid);
-    el.className = 'status ' + status;
-    var btn = document.getElementById('btn-' + mid);
-    btn.textContent = status === 'connected' ? 'Disconnect' : 'Connect';
-  }
-
-  function addMsg(mid, text, type) {
-    var container = document.getElementById('msgs-' + mid);
-    var div = document.createElement('div');
-    div.className = 'msg ' + type;
-    div.textContent = text;
-    container.appendChild(div);
-    container.scrollTop = container.scrollHeight;
-  }
-
-  function addSystemMsg(mid, text) {
-    var container = document.getElementById('msgs-' + mid);
-    var div = document.createElement('div');
-    div.className = 'msg system';
-    div.textContent = text;
-    container.appendChild(div);
-    container.scrollTop = container.scrollHeight;
-  }
-
-  // Build binary protocol packet
-  function buildProto(op, seq, body) {
-    var bodyLen = body ? body.length : 0;
-    var buf = new ArrayBuffer(RAW_HEADER_LEN + bodyLen);
-    var view = new DataView(buf);
-    view.setInt32(0, RAW_HEADER_LEN + bodyLen);  // packLen
-    view.setInt16(4, RAW_HEADER_LEN);             // headerLen
-    view.setInt16(6, 1);                           // ver
-    view.setInt32(8, op);                          // op
-    view.setInt32(12, seq);                        // seq
-    if (body) {
-      new Uint8Array(buf, RAW_HEADER_LEN).set(body);
+    const raw = $("#apiHost").value.trim();
+    if (!raw) {
+      if (window.location.origin && window.location.origin !== "null") {
+        return window.location.origin;
+      }
+      return "http://localhost:3111";
     }
-    return buf;
+    if (/^https?:\/\//i.test(raw)) {
+      return raw.replace(/\/$/, "");
+    }
+    return ("http://" + raw).replace(/\/$/, "");
   }
 
-  // Parse binary protocol packet
+  function getWsUrl() {
+    const raw = ($("#wsHost").value.trim() || "localhost:3102").replace(/\/$/, "");
+    if (/^wss?:\/\//i.test(raw)) {
+      return raw.endsWith("/sub") ? raw : raw + "/sub";
+    }
+    const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+    return scheme + "://" + raw + "/sub";
+  }
+
+  function apiUrl(path, params) {
+    const url = new URL(path, getApiBase());
+    if (params instanceof URLSearchParams) {
+      params.forEach((value, key) => url.searchParams.append(key, value));
+    } else if (params) {
+      Object.keys(params).forEach((key) => {
+        const value = params[key];
+        if (Array.isArray(value)) {
+          value.forEach((item) => url.searchParams.append(key, item));
+        } else if (value !== undefined && value !== null && value !== "") {
+          url.searchParams.set(key, value);
+        }
+      });
+    }
+    return url.toString();
+  }
+
+  async function fetchJSON(path, params) {
+    const response = await fetch(apiUrl(path, params));
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      throw new Error("JSON parse failed: " + compact(text, 180));
+    }
+  }
+
+  async function postRaw(path, params, body) {
+    const response = await fetch(apiUrl(path, params), {
+      method: "POST",
+      headers: { "Content-Type": "application/json;charset=utf-8" },
+      body
+    });
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      return { code: response.ok ? 0 : response.status, message: text };
+    }
+  }
+
+  function assertResult(result) {
+    if (result && result.code === 0) return result;
+    const message = result && (result.message || result.error || JSON.stringify(result));
+    throw new Error(message || "request failed");
+  }
+
+  function appendList(params, name, list) {
+    list.forEach((item) => params.append(name, item));
+  }
+
+  function renderClients() {
+    $("#clientList").innerHTML = clients.map((client) => {
+      const connected = client.status === "connected" || client.status === "connecting";
+      return `
+        <article class="client-row" data-status="${client.status}">
+          <div class="client-head">
+            <div class="client-name">
+              <span class="dot ${client.status}" aria-hidden="true"></span>
+              <div>
+                <strong>${escapeHTML(client.name)}</strong>
+                <span>mid=${client.mid} · ${escapeHTML(formatStatus(client.status))}</span>
+              </div>
+            </div>
+            <button type="button" data-action="${connected ? "disconnect" : "connect"}" data-client="${client.id}">
+              ${connected ? "断开" : "连接"}
+            </button>
+          </div>
+          <div class="client-meta">
+            <span>key <code>${escapeHTML(client.key)}</code></span>
+            <span>device <code>${escapeHTML(client.deviceId)}</code></span>
+            <span>room <code>${escapeHTML(client.room)}</code></span>
+            <span>seq <code>${escapeHTML(client.lastSeq)}</code> · online <code>${escapeHTML(client.online)}</code></span>
+          </div>
+          <div class="pill-row">
+            <span class="pill">platform <code>${escapeHTML(client.platform)}</code></span>
+            <span class="pill">accepts <code>${escapeHTML($("#defaultAccepts").value)}</code></span>
+          </div>
+        </article>
+      `;
+    }).join("");
+
+    $("#wsStatus").textContent = connectedClients().length + " 在线";
+  }
+
+  function renderSelects() {
+    const options = clients.map((client) => {
+      return `<option value="${client.id}">${escapeHTML(client.name)} · mid=${client.mid}</option>`;
+    }).join("");
+    ["#composerFrom", "#roomClient", "#watchClient", "#wsSyncClient"].forEach((selector) => {
+      const current = $(selector).value;
+      $(selector).innerHTML = options;
+      if (current) $(selector).value = current;
+    });
+  }
+
+  function addEvent(kind, title, body, meta) {
+    const timeline = $("#timeline");
+    const item = document.createElement("article");
+    item.className = "event " + kind;
+    const metaText = meta ? " · " + meta : "";
+    item.innerHTML = `
+      <div class="event-title"><span>${escapeHTML(title)}</span><span>${escapeHTML(nowTime() + metaText)}</span></div>
+      <div class="event-body">${escapeHTML(body)}</div>
+    `;
+    timeline.appendChild(item);
+    timeline.scrollTop = timeline.scrollHeight;
+  }
+
+  function setResult(value) {
+    $("#resultBox").textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  }
+
+  function saveConfig() {
+    const config = {
+      apiHost: $("#apiHost").value,
+      wsHost: $("#wsHost").value,
+      defaultRoom: $("#defaultRoom").value,
+      defaultAccepts: $("#defaultAccepts").value,
+      heartbeatSeconds: $("#heartbeatSeconds").value,
+      autoAck: $("#autoAck").checked,
+      autoConnect: $("#autoConnect").checked
+    };
+    localStorage.setItem("gotoim-console-config", JSON.stringify(config));
+    addEvent("system", "配置", "已保存当前前端配置");
+  }
+
+  function loadConfig() {
+    try {
+      const config = JSON.parse(localStorage.getItem("gotoim-console-config") || "{}");
+      Object.keys(config).forEach((key) => {
+        const el = $("#" + key);
+        if (!el) return;
+        if (el.type === "checkbox") {
+          el.checked = Boolean(config[key]);
+        } else {
+          el.value = config[key];
+        }
+      });
+    } catch (err) {
+      addEvent("error", "配置", "读取 localStorage 失败: " + err.message);
+    }
+  }
+
+  function buildProto(op, seq, body) {
+    const bodyBytes = body ? (body instanceof Uint8Array ? body : new Uint8Array(body)) : new Uint8Array();
+    const buffer = new ArrayBuffer(RAW_HEADER_LEN + bodyBytes.byteLength);
+    const view = new DataView(buffer);
+    view.setInt32(0, RAW_HEADER_LEN + bodyBytes.byteLength);
+    view.setInt16(4, RAW_HEADER_LEN);
+    view.setInt16(6, 1);
+    view.setInt32(8, op);
+    view.setInt32(12, seq);
+    new Uint8Array(buffer, RAW_HEADER_LEN).set(bodyBytes);
+    return buffer;
+  }
+
   function parseProto(data) {
-    var view = new DataView(data);
+    const view = new DataView(data);
+    const packLen = view.getInt32(0);
+    const headerLen = view.getInt16(4);
     return {
-      packLen: view.getInt32(0),
-      headerLen: view.getInt16(4),
+      packLen,
+      headerLen,
       ver: view.getInt16(6),
       op: view.getInt32(8),
       seq: view.getInt32(12),
-      body: data.slice(16)
+      body: data.slice(headerLen, packLen)
     };
   }
 
-  function connectWs(mid) {
-    var user = users[mid];
-    var host = getWsHost();
-    var ws = new WebSocket('ws://' + host + '/sub');
-    ws.binaryType = 'arraybuffer';
-    user.ws = ws;
-    setStatus(mid, 'connecting');
+  function readUint64(view, offset) {
+    const high = BigInt(view.getUint32(offset));
+    const low = BigInt(view.getUint32(offset + 4));
+    const value = (high << 32n) + low;
+    return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : value.toString();
+  }
+
+  function writeUint64(view, offset, value) {
+    const text = String(value === undefined || value === null || value === "" ? "0" : value).trim();
+    const big = BigInt(text || "0");
+    view.setUint32(offset, Number((big >> 32n) & 0xffffffffn));
+    view.setUint32(offset + 4, Number(big & 0xffffffffn));
+  }
+
+  function parseMsgBody(buffer) {
+    if (!buffer || buffer.byteLength < 34) throw new Error("too short");
+    const view = new DataView(buffer);
+    const msgIDLen = view.getUint16(0);
+    const minLen = 2 + msgIDLen + 32;
+    if (msgIDLen > 2048 || buffer.byteLength < minLen) throw new Error("not MsgBody");
+    let offset = 2;
+    const msgID = textDecoder.decode(buffer.slice(offset, offset + msgIDLen));
+    offset += msgIDLen;
+    const from = readUint64(view, offset);
+    offset += 8;
+    const to = readUint64(view, offset);
+    offset += 8;
+    const timestamp = readUint64(view, offset);
+    offset += 8;
+    const seq = readUint64(view, offset);
+    offset += 8;
+    const content = buffer.slice(offset);
+    const contentText = textDecoder.decode(content);
+    return { msgID, from, to, timestamp, seq, content, contentText };
+  }
+
+  function parseAckBody(buffer) {
+    const view = new DataView(buffer);
+    const msgIDLen = view.getUint16(0);
+    const msgID = textDecoder.decode(buffer.slice(2, 2 + msgIDLen));
+    const seq = readUint64(view, 2 + msgIDLen);
+    return { msgID, seq };
+  }
+
+  function marshalAckBody(msgID, seq) {
+    const idBytes = textEncoder.encode(msgID);
+    const buffer = new ArrayBuffer(2 + idBytes.byteLength + 8);
+    const view = new DataView(buffer);
+    view.setUint16(0, idBytes.byteLength);
+    new Uint8Array(buffer, 2).set(idBytes);
+    writeUint64(view, 2 + idBytes.byteLength, seq);
+    return new Uint8Array(buffer);
+  }
+
+  function marshalSyncReq(lastSeq, limit) {
+    const buffer = new ArrayBuffer(12);
+    const view = new DataView(buffer);
+    writeUint64(view, 0, lastSeq);
+    view.setUint32(8, Number(limit || 100));
+    return new Uint8Array(buffer);
+  }
+
+  function parseSyncReply(buffer) {
+    if (!buffer || buffer.byteLength < 13) {
+      throw new Error("sync reply too short");
+    }
+    const view = new DataView(buffer);
+    const reply = {
+      currentSeq: readUint64(view, 0),
+      hasMore: view.getUint8(8) === 1,
+      messages: []
+    };
+    const count = view.getUint32(9);
+    let offset = 13;
+    for (let index = 0; index < count; index += 1) {
+      if (offset + 4 > buffer.byteLength) throw new Error("sync message length truncated");
+      const msgLen = view.getUint32(offset);
+      offset += 4;
+      if (offset + msgLen > buffer.byteLength) throw new Error("sync message body truncated");
+      reply.messages.push(parseMsgBody(buffer.slice(offset, offset + msgLen)));
+      offset += msgLen;
+    }
+    return reply;
+  }
+
+  function decodePayload(buffer) {
+    const text = textDecoder.decode(buffer);
+    let json = null;
+    try {
+      json = JSON.parse(text);
+    } catch (err) {
+      json = null;
+    }
+    let msgBody = null;
+    try {
+      msgBody = parseMsgBody(buffer);
+    } catch (err) {
+      msgBody = null;
+    }
+    let msgJson = null;
+    if (msgBody) {
+      try {
+        msgJson = JSON.parse(msgBody.contentText);
+      } catch (err) {
+        msgJson = null;
+      }
+    }
+    return { text, json, msgBody, msgJson };
+  }
+
+  function payloadText(decoded) {
+    if (decoded.msgJson && decoded.msgJson.text) return decoded.msgJson.text;
+    if (decoded.json && decoded.json.text) return decoded.json.text;
+    if (decoded.msgBody) return decoded.msgBody.contentText || "[binary MsgBody]";
+    return decoded.text || "[empty]";
+  }
+
+  function payloadMeta(decoded) {
+    const data = decoded.msgJson || decoded.json || {};
+    if (decoded.msgBody) {
+      return "msg_id=" + decoded.msgBody.msgID + " seq=" + decoded.msgBody.seq;
+    }
+    const parts = [];
+    if (data.from) parts.push("from=" + data.from);
+    if (data.to) parts.push("to=" + data.to);
+    return parts.join(" ");
+  }
+
+  function sendProtocol(client, op, body, label) {
+    if (!client.ws || client.ws.readyState !== WebSocket.OPEN) {
+      throw new Error(client.name + " 未连接");
+    }
+    client.ws.send(buildProto(op, client.seq++, body || null));
+    if (label) {
+      addEvent("system", client.name, label, "op=" + op);
+    }
+  }
+
+  function connectClient(id) {
+    const client = getClient(id);
+    if (!client || client.status === "connected" || client.status === "connecting") return;
+
+    const ws = new WebSocket(getWsUrl());
+    client.ws = ws;
+    client.status = "connecting";
+    client.room = $("#defaultRoom").value.trim() || client.room;
+    ws.binaryType = "arraybuffer";
+    renderClients();
 
     ws.onopen = function() {
-      // Send auth
-      var token = JSON.stringify({
-        mid: mid,
-        key: 'demo-' + mid + '-' + Date.now(),
-        room_id: 'live://1000',
-        platform: 'web',
-        device_id: 'demo-web-' + mid,
-        accepts: [OP_RAW]
-      });
-      var encoder = new TextEncoder();
-      var body = encoder.encode(token);
-      ws.send(buildProto(OP_AUTH, user.seq++, body));
-      addSystemMsg(mid, 'Authenticating...');
+      const token = {
+        mid: client.mid,
+        key: client.key,
+        room_id: client.room,
+        platform: client.platform,
+        device_id: client.deviceId,
+        accepts: getDefaultAccepts(),
+        last_seq: client.lastSeq || 0
+      };
+      sendProtocol(client, OP_AUTH, textEncoder.encode(JSON.stringify(token)), "Auth " + JSON.stringify(token));
     };
 
     ws.onmessage = function(evt) {
-      var proto = parseProto(evt.data);
-      console.log('WS onmessage mid=' + mid + ' op=' + proto.op + ' bodyLen=' + (proto.body ? proto.body.byteLength : 0));
-      switch (proto.op) {
-        case OP_AUTH_REPLY:
-          setStatus(mid, 'connected');
-          addSystemMsg(mid, 'Connected');
-          // Start heartbeat every 4 minutes
-          user.heartbeatTimer = setInterval(function() {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(buildProto(OP_HEARTBEAT, user.seq++, null));
-            }
-          }, 4 * 60 * 1000);
-          break;
-        case OP_HEARTBEAT_REPLY:
-          // ignore
-          break;
-        case OP_RAW:
-          // Server push message
-          console.log('OP_RAW received mid=' + mid + ' bodyLen=' + (proto.body ? proto.body.byteLength : 0));
-          try {
-            var text = new TextDecoder().decode(proto.body);
-            console.log('OP_RAW text mid=' + mid, text);
-            var msg = JSON.parse(text);
-            var senderName = users[msg.from] ? users[msg.from].name : ('User ' + msg.from);
-            if (msg.from === mid) {
-              addMsg(mid, msg.text, 'sent');
-            } else {
-              addMsg(mid, senderName + ': ' + msg.text, 'received');
-            }
-          } catch (e) {
-            console.error('OP_RAW error mid=' + mid, e);
-            addMsg(mid, '[raw] ' + new TextDecoder().decode(proto.body), 'received');
-          }
-          break;
-        default:
-          try {
-            var bodyText = new TextDecoder().decode(proto.body);
-            addSystemMsg(mid, 'op=' + proto.op + ' ' + bodyText);
-          } catch (e) {
-            addSystemMsg(mid, 'op=' + proto.op);
-          }
+      let proto;
+      try {
+        proto = parseProto(evt.data);
+      } catch (err) {
+        addEvent("error", client.name, "协议解析失败: " + err.message);
+        return;
       }
-    };
-
-    ws.onclose = function() {
-      if (user.heartbeatTimer) {
-        clearInterval(user.heartbeatTimer);
-        user.heartbeatTimer = null;
-      }
-      user.ws = null;
-      setStatus(mid, 'disconnected');
-      addSystemMsg(mid, 'Disconnected');
+      handleProto(client, proto);
     };
 
     ws.onerror = function() {
-      addSystemMsg(mid, 'Connection error');
+      addEvent("error", client.name, "WebSocket error");
+    };
+
+    ws.onclose = function() {
+      clearClientTimer(client);
+      client.ws = null;
+      client.status = "disconnected";
+      renderClients();
+      addEvent("system", client.name, "连接已断开");
     };
   }
 
-  function disconnectWs(mid) {
-    var user = users[mid];
-    if (user.ws) {
-      user.ws.close();
-      user.ws = null;
+  function clearClientTimer(client) {
+    if (client.heartbeatTimer) {
+      clearInterval(client.heartbeatTimer);
+      client.heartbeatTimer = null;
     }
-    if (user.heartbeatTimer) {
-      clearInterval(user.heartbeatTimer);
-      user.heartbeatTimer = null;
-    }
-    setStatus(mid, 'disconnected');
   }
 
-  window.toggleConnection = function(mid) {
-    if (users[mid].status === 'connected' || users[mid].status === 'connecting') {
-      disconnectWs(mid);
-    } else {
-      connectWs(mid);
+  function disconnectClient(id) {
+    const client = getClient(id);
+    if (!client) return;
+    clearClientTimer(client);
+    if (client.ws) {
+      client.ws.close();
+      client.ws = null;
     }
-  };
+    client.status = "disconnected";
+    renderClients();
+  }
 
-  window.sendMsg = function(fromMid) {
-    var input = document.getElementById('input-' + fromMid);
-    var text = input.value.trim();
-    if (!text) return;
-
-    var toMid = fromMid === 1001 ? 1002 : 1001;
-    var payload = JSON.stringify({
-      from: fromMid,
-      to: toMid,
-      text: text,
-      ts: Date.now()
-    });
-
-    // Send via HTTP API (through nginx proxy)
-    var apiBase = getApiBase();
-    var url = apiBase + '/goim/push/mids?operation=9&mids=' + toMid;
-    fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: payload
-    }).then(function(resp) {
-      return resp.json();
-    }).then(function(data) {
-      if (data.code !== 0) {
-        addSystemMsg(fromMid, 'Send failed: ' + (data.message || JSON.stringify(data)));
+  function startHeartbeat(client) {
+    clearClientTimer(client);
+    const seconds = Math.max(10, Number($("#heartbeatSeconds").value) || 30);
+    client.heartbeatTimer = setInterval(() => {
+      try {
+        sendProtocol(client, OP_HEARTBEAT, null);
+      } catch (err) {
+        addEvent("error", client.name, "心跳失败: " + err.message);
       }
-    }).catch(function(err) {
-      addSystemMsg(fromMid, 'Send error: ' + err.message);
+    }, seconds * 1000);
+  }
+
+  function handleProto(client, proto) {
+    const name = opNames[proto.op] || ("Op " + proto.op);
+    switch (proto.op) {
+      case OP_AUTH_REPLY:
+        client.status = "connected";
+        $("#apiStatus").textContent = getApiBase().replace(/^https?:\/\//, "");
+        $("#roomStatus").textContent = client.room;
+        startHeartbeat(client);
+        renderClients();
+        addEvent("system", client.name, "Auth OK", "op=8");
+        break;
+      case OP_HEARTBEAT_REPLY: {
+        let online = "-";
+        if (proto.body.byteLength >= 4) {
+          online = new DataView(proto.body).getInt32(0);
+        }
+        client.online = online;
+        renderClients();
+        addEvent("system", client.name, "HeartbeatReply online=" + online, "op=3");
+        break;
+      }
+      case OP_RAW:
+        handleIncomingPayload(client, proto, name);
+        break;
+      case OP_SYNC_REPLY:
+        handleSyncReply(client, proto.body, "WS SyncReply");
+        break;
+      case OP_CHANGE_ROOM_REPLY:
+      case OP_SUB_REPLY:
+      case OP_UNSUB_REPLY:
+        addEvent("system", client.name, name + " OK", "op=" + proto.op);
+        break;
+      case OP_SEND_MSG_ACK:
+        addEvent("system", client.name, "SendMsgAck " + compact(textDecoder.decode(proto.body), 160), "op=18");
+        break;
+      default:
+        handleIncomingPayload(client, proto, name);
+        break;
+    }
+  }
+
+  function handleIncomingPayload(client, proto, title) {
+    const decoded = decodePayload(proto.body);
+    const body = payloadText(decoded);
+    const meta = payloadMeta(decoded) || ("op=" + proto.op + " len=" + proto.body.byteLength);
+    addEvent("received", client.name + " 收到 " + title, body, meta);
+
+    if ($("#autoAck").checked && decoded.msgBody && decoded.msgBody.msgID) {
+      try {
+        sendAck(client, decoded.msgBody.msgID, decoded.msgBody.seq);
+      } catch (err) {
+        addEvent("error", client.name, "ACK 失败: " + err.message);
+      }
+    }
+  }
+
+  function handleSyncReply(client, buffer, title) {
+    let reply;
+    try {
+      reply = parseSyncReply(buffer);
+    } catch (err) {
+      addEvent("error", title, "SyncReply 解析失败: " + err.message);
+      return null;
+    }
+    if (client) {
+      client.lastSeq = reply.currentSeq;
+      renderClients();
+    }
+    const owner = client ? client.name : title;
+    addEvent("system", owner, "current_seq=" + reply.currentSeq + " has_more=" + reply.hasMore + " messages=" + reply.messages.length);
+    reply.messages.forEach((message) => {
+      let text = message.contentText;
+      try {
+        const json = JSON.parse(message.contentText);
+        text = json.text || JSON.stringify(json);
+      } catch (err) {
+        text = message.contentText;
+      }
+      addEvent("received", owner + " 离线消息", text, "msg_id=" + message.msgID + " seq=" + message.seq);
+      if (client && $("#autoAck").checked && message.msgID) {
+        try {
+          sendAck(client, message.msgID, message.seq);
+        } catch (err) {
+          addEvent("error", client.name, "离线 ACK 失败: " + err.message);
+        }
+      }
+    });
+    return reply;
+  }
+
+  function sendAck(client, msgID, seq) {
+    sendProtocol(client, OP_PUSH_MSG_ACK, marshalAckBody(msgID, seq), "ACK msg_id=" + msgID + " seq=" + seq);
+  }
+
+  function normalizeRoom(value) {
+    const raw = String(value || "").trim();
+    if (raw.includes("://")) {
+      const parts = raw.split("://");
+      return { type: parts[0] || "live", room: parts.slice(1).join("://") };
+    }
+    return { type: $("#pushRoomType").value.trim() || "live", room: raw || "1000" };
+  }
+
+  async function sendPush(endpoint, operation, target, body, options) {
+    const params = new URLSearchParams();
+    params.set("operation", operation);
+    if (endpoint === "mids") {
+      appendList(params, "mids", csvValues(target));
+      return assertResult(await postRaw("/goim/push/mids", params, body));
+    }
+    if (endpoint === "keys") {
+      appendList(params, "keys", csvValues(target));
+      return assertResult(await postRaw("/goim/push/keys", params, body));
+    }
+    if (endpoint === "room") {
+      const room = normalizeRoom(target);
+      params.set("type", room.type);
+      params.set("room", room.room);
+      return assertResult(await postRaw("/goim/push/room", params, body));
+    }
+    if (endpoint === "all") {
+      if (options && options.speed) params.set("speed", options.speed);
+      return assertResult(await postRaw("/goim/push/all", params, body));
+    }
+    throw new Error("unknown push endpoint");
+  }
+
+  async function refreshOnlineTotal() {
+    const result = assertResult(await fetchJSON("/goim/online/total"));
+    const data = result.data || {};
+    $("#connStatus").textContent = "conn " + (data.conn_count ?? "-") + " / ip " + (data.ip_count ?? "-");
+    setResult(result);
+    return result;
+  }
+
+  function defaultPayload(fromClient, text, targetMode, targetValue) {
+    const firstTarget = csvValues(targetValue)[0] || "";
+    const to = targetMode === "mids" && firstTarget ? Number(firstTarget) : 0;
+    return {
+      from: fromClient.mid,
+      to: Number.isFinite(to) ? to : 0,
+      text,
+      ts: Date.now()
+    };
+  }
+
+  function bindEvents() {
+    $("#clientList").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      const id = button.dataset.client;
+      if (button.dataset.action === "connect") connectClient(id);
+      if (button.dataset.action === "disconnect") disconnectClient(id);
     });
 
-    // Show in sender's chat
-    addMsg(fromMid, text, 'sent');
-    input.value = '';
-  };
+    $("#connectAll").addEventListener("click", () => clients.forEach((client) => connectClient(client.id)));
+    $("#disconnectAll").addEventListener("click", () => clients.forEach((client) => disconnectClient(client.id)));
+    $("#clearTimeline").addEventListener("click", () => { $("#timeline").innerHTML = ""; });
+    $("#refreshOnline").addEventListener("click", () => refreshOnlineTotal().catch((err) => addEvent("error", "Online", err.message)));
+    $("#saveConfig").addEventListener("click", saveConfig);
 
-  // Auto-connect on load
-  setTimeout(function() { connectWs(1001); }, 500);
-  setTimeout(function() { connectWs(1002); }, 1000);
+    ["#apiHost", "#wsHost", "#defaultRoom", "#defaultAccepts", "#heartbeatSeconds", "#autoAck", "#autoConnect"].forEach((selector) => {
+      $(selector).addEventListener("change", () => {
+        renderClients();
+        $("#roomStatus").textContent = $("#defaultRoom").value || "live://1000";
+      });
+    });
+
+    $("#composerMode").addEventListener("change", () => {
+      const mode = $("#composerMode").value;
+      const target = $("#composerTarget");
+      if (mode === "mids") target.value = "1002";
+      if (mode === "keys") target.value = clients[2].key;
+      if (mode === "room") target.value = "live://1000";
+      if (mode === "all") target.value = "0";
+    });
+
+    $("#composer").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const from = getClient($("#composerFrom").value);
+      const mode = $("#composerMode").value;
+      const target = $("#composerTarget").value.trim();
+      const text = $("#composerText").value.trim();
+      if (!from || !text) return;
+      const payload = defaultPayload(from, text, mode, target);
+      const body = JSON.stringify(payload);
+      try {
+        await sendPush(mode, "9", target, body, { speed: 0 });
+        addEvent("sent", from.name + " 发送", text, mode + "=" + (target || "all"));
+        $("#composerText").value = "";
+      } catch (err) {
+        addEvent("error", "发送失败", err.message);
+      }
+    });
+
+    $("#pushEndpoint").addEventListener("change", () => {
+      const endpoint = $("#pushEndpoint").value;
+      const target = $("#pushTarget");
+      $("#pushTypeWrap").classList.toggle("hidden", endpoint !== "room");
+      $("#pushSpeed").disabled = endpoint !== "all";
+      if (endpoint === "mids") target.value = "1002";
+      if (endpoint === "keys") target.value = clients[2].key;
+      if (endpoint === "room") target.value = "live://1000";
+      if (endpoint === "all") target.value = "";
+    });
+
+    $("#manualPushForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const result = await sendPush(
+          $("#pushEndpoint").value,
+          $("#pushOperation").value,
+          $("#pushTarget").value,
+          $("#pushBody").value,
+          { speed: $("#pushSpeed").value }
+        );
+        addEvent("system", "HTTP Push", "提交成功 " + compact(result, 160));
+      } catch (err) {
+        addEvent("error", "HTTP Push", err.message);
+      }
+    });
+
+    $("#roomForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const client = getClient($("#roomClient").value);
+      const room = $("#roomChangeValue").value.trim();
+      if (!client || !room) return;
+      try {
+        sendProtocol(client, OP_CHANGE_ROOM, textEncoder.encode(room), "ChangeRoom " + room);
+        client.room = room;
+        $("#roomStatus").textContent = room;
+        renderClients();
+      } catch (err) {
+        addEvent("error", "ChangeRoom", err.message);
+      }
+    });
+
+    let watchAction = "sub";
+    $("#watchForm").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-watch-action]");
+      if (button) watchAction = button.dataset.watchAction;
+    });
+    $("#watchForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const client = getClient($("#watchClient").value);
+      const ops = $("#watchOps").value.trim();
+      if (!client || !ops) return;
+      try {
+        sendProtocol(client, watchAction === "sub" ? OP_SUB : OP_UNSUB, textEncoder.encode(ops), (watchAction === "sub" ? "Sub " : "Unsub ") + ops);
+      } catch (err) {
+        addEvent("error", "订阅控制", err.message);
+      }
+    });
+
+    $("#wsSyncForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const client = getClient($("#wsSyncClient").value);
+      if (!client) return;
+      try {
+        sendProtocol(client, OP_SYNC_REQ, marshalSyncReq($("#wsSyncLastSeq").value, $("#wsSyncLimit").value), "SyncReq last_seq=" + $("#wsSyncLastSeq").value);
+      } catch (err) {
+        addEvent("error", "WS SyncReq", err.message);
+      }
+    });
+
+    $("#offlinePushForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const params = {
+          mid: $("#offlineMid").value,
+          seq: $("#offlineSeq").value,
+          op: $("#offlineOp").value
+        };
+        const result = assertResult(await postRaw("/goim/push/offline", params, $("#offlineBody").value));
+        addEvent("system", "离线写入", "提交成功 " + compact(result, 160), "mid=" + params.mid + " seq=" + params.seq);
+      } catch (err) {
+        addEvent("error", "离线写入", err.message);
+      }
+    });
+
+    $("#httpSyncForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const params = {
+          mid: $("#httpSyncMid").value,
+          last_seq: $("#httpSyncLastSeq").value,
+          limit: $("#httpSyncLimit").value
+        };
+        const response = await fetch(apiUrl("/goim/sync", params));
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const buffer = await response.arrayBuffer();
+        const reply = handleSyncReply(null, buffer, "HTTP Sync mid=" + params.mid);
+        if (reply) {
+          $("#httpSyncLastSeq").value = reply.currentSeq;
+          setResult(reply);
+        }
+      } catch (err) {
+        addEvent("error", "HTTP Sync", err.message);
+      }
+    });
+
+    $$(".tab-btn").forEach((button) => {
+      button.addEventListener("click", () => {
+        $$(".tab-btn").forEach((item) => item.classList.remove("active"));
+        $$(".tab-panel").forEach((item) => item.classList.remove("active"));
+        button.classList.add("active");
+        $("#tab-" + button.dataset.tab).classList.add("active");
+      });
+    });
+
+    $("[data-observe='total']").addEventListener("click", () => {
+      refreshOnlineTotal().catch((err) => setResult("Error: " + err.message));
+    });
+    $("[data-observe='room']").addEventListener("click", async () => {
+      try {
+        const params = new URLSearchParams();
+        params.set("type", $("#onlineType").value || "live");
+        appendList(params, "rooms", csvValues($("#onlineRooms").value));
+        const result = assertResult(await fetchJSON("/goim/online/room", params));
+        setResult(result);
+      } catch (err) {
+        setResult("Error: " + err.message);
+      }
+    });
+    $("[data-observe='top']").addEventListener("click", async () => {
+      try {
+        const result = assertResult(await fetchJSON("/goim/online/top", {
+          type: $("#onlineType").value || "live",
+          limit: $("#onlineLimit").value || 10
+        }));
+        setResult(result);
+      } catch (err) {
+        setResult("Error: " + err.message);
+      }
+    });
+    $("[data-observe='weighted']").addEventListener("click", async () => {
+      try {
+        const result = assertResult(await fetchJSON("/goim/nodes/weighted", { platform: $("#nodePlatform").value || "web" }));
+        setResult(result);
+      } catch (err) {
+        setResult("Error: " + err.message);
+      }
+    });
+    $("[data-observe='instances']").addEventListener("click", async () => {
+      try {
+        const result = assertResult(await fetchJSON("/goim/nodes/instances"));
+        setResult(result);
+      } catch (err) {
+        setResult("Error: " + err.message);
+      }
+    });
+    $("[data-observe='metrics']").addEventListener("click", async () => {
+      try {
+        const response = await fetch(apiUrl("/metrics"));
+        const text = await response.text();
+        const lines = text.split("\n")
+          .filter((line) => line && !line.startsWith("#"))
+          .slice(0, 80)
+          .join("\n");
+        setResult(lines || text.slice(0, 4000));
+      } catch (err) {
+        setResult("Error: " + err.message);
+      }
+    });
+  }
+
+  function init() {
+    loadConfig();
+    clients.forEach((client) => {
+      client.room = $("#defaultRoom").value.trim() || client.room;
+    });
+    renderClients();
+    renderSelects();
+    bindEvents();
+    $("#pushTypeWrap").classList.add("hidden");
+    $("#pushSpeed").disabled = true;
+    addEvent("system", "GoToIM Console", "前端已就绪");
+    refreshOnlineTotal().catch(() => {
+      $("#apiStatus").textContent = "等待 API";
+    });
+    if ($("#autoConnect").checked) {
+      setTimeout(() => clients.forEach((client) => connectClient(client.id)), 500);
+    }
+  }
+
+  window.addEventListener("beforeunload", () => {
+    clients.forEach((client) => {
+      clearClientTimer(client);
+      if (client.ws) client.ws.close();
+    });
+  });
+
+  document.addEventListener("DOMContentLoaded", init);
 })();
 </script>
 </body>
