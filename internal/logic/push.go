@@ -2,16 +2,20 @@ package logic
 
 import (
 	"context"
+	"strconv"
+	"time"
 
+	"github.com/Terry-Mao/goim/api/protocol"
 	"github.com/Terry-Mao/goim/internal/logic/model"
 
 	log "github.com/Terry-Mao/goim/pkg/log"
 )
 
 // PushKeys push a message by connection keys.
-// Uses Session system to resolve key -> server mapping.
+// Resolves key -> uid via session, then routes through DispatchEngine
+// for msg_id generation, delivery tracking, and offline queue support.
+// The raw body is wrapped as MsgBody so the client can parse msg_id and ACK.
 func (l *Logic) PushKeys(c context.Context, op int32, keys []string, msg []byte) (err error) {
-	pushKeys := make(map[string][]string)
 	for _, key := range keys {
 		if key == "" {
 			continue
@@ -25,41 +29,53 @@ func (l *Logic) PushKeys(c context.Context, op int32, keys []string, msg []byte)
 		if err != nil || len(sess) == 0 {
 			continue
 		}
-		server := sess["server"]
-		if server != "" {
-			pushKeys[server] = append(pushKeys[server], key)
+		uidStr, ok := sess["uid"]
+		if !ok || uidStr == "" {
+			log.Warningf("push key:%s session has no uid", key)
+			continue
+		}
+		uid, _ := strconv.ParseInt(uidStr, 10, 64)
+		if uid == 0 {
+			continue
+		}
+		msgID := l.GenerateMsgID()
+		body := wrapAsMsgBody(msgID, uid, msg)
+		if e := l.router.RouteByUser(c, msgID, uid, op, body, 0); e != nil {
+			log.Warningf("push key:%s uid:%d failed: %v", key, uid, e)
 		}
 	}
-	for server, skeys := range pushKeys {
-		if err = l.dao.PushMsg(c, op, server, skeys, msg); err != nil {
-			return
-		}
-	}
-	return
+	return nil
 }
 
 // PushMids push a message by user IDs.
-// Uses Session system to resolve uid -> server + keys mapping.
+// Routes through DispatchEngine for msg_id generation, delivery tracking,
+// and offline queue support.
+// The raw body is wrapped as MsgBody so the client can parse msg_id and ACK.
 func (l *Logic) PushMids(c context.Context, op int32, mids []int64, msg []byte) (err error) {
-	keys := make(map[string][]string)
 	for _, mid := range mids {
-		sessions, err := l.sessionMgr.GetSessions(c, mid)
-		if err != nil || len(sessions) == 0 {
-			log.Warningf("push mid:%d no active sessions", mid)
-			continue
-		}
-		for _, sess := range sessions {
-			if sess.Server != "" && sess.Key != "" {
-				keys[sess.Server] = append(keys[sess.Server], sess.Key)
-			}
+		msgID := l.GenerateMsgID()
+		body := wrapAsMsgBody(msgID, mid, msg)
+		if e := l.router.RouteByUser(c, msgID, mid, op, body, 0); e != nil {
+			log.Warningf("push mid:%d msg_id:%s failed: %v", mid, msgID, e)
 		}
 	}
-	for server, skeys := range keys {
-		if err = l.dao.PushMsg(c, op, server, skeys, msg); err != nil {
-			return
-		}
+	return nil
+}
+
+// wrapAsMsgBody wraps raw bytes into a MsgBody with the given msgID and toUID.
+func wrapAsMsgBody(msgID string, toUID int64, content []byte) []byte {
+	mb := &protocol.MsgBody{
+		MsgID:     msgID,
+		ToUID:     toUID,
+		Timestamp: time.Now().UnixMilli(),
+		Content:   content,
 	}
-	return
+	body, err := protocol.MarshalMsgBody(mb)
+	if err != nil {
+		log.Warningf("marshal MsgBody failed: %v", err)
+		return content
+	}
+	return body
 }
 
 // PushRoom push a message by room.

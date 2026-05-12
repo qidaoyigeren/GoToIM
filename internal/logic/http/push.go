@@ -18,7 +18,6 @@ func (s *Server) pushKeys(c *gin.Context) {
 		errors(c, RequestErr, err.Error())
 		return
 	}
-	// read message
 	msg, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		errors(c, RequestErr, err.Error())
@@ -40,7 +39,6 @@ func (s *Server) pushMids(c *gin.Context) {
 		errors(c, RequestErr, err.Error())
 		return
 	}
-	// read message
 	msg, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		errors(c, RequestErr, err.Error())
