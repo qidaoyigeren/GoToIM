@@ -61,7 +61,7 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 // RouteByRoom pushes a message to a room.
 func (e *DispatchEngine) RouteByRoom(ctx context.Context, op int32, roomKey string, body []byte) error {
 	if e.producer != nil {
-		pushMsg := pushMsgBytes(pbPush, op, "", nil, roomKey, body, 0)
+		pushMsg := pushMsgBytes(pbRoom, op, "", nil, roomKey, body, 0)
 		return e.producer.EnqueueToRoom(ctx, roomKey, &mq.Message{Key: roomKey, Value: pushMsg})
 	}
 	return e.dao.BroadcastRoomMsg(ctx, op, roomKey, body)
@@ -76,13 +76,14 @@ func (e *DispatchEngine) RouteBroadcast(ctx context.Context, op, speed int32, bo
 	return e.dao.BroadcastMsg(ctx, op, speed, body)
 }
 
-// directPush pushes a message directly to the user's sessions via gRPC.
+// directPush pushes a message directly to all of the user's sessions via gRPC.
 // Returns nil if at least one push succeeds.
 func directPush(ctx context.Context, pusher CometPusher, sessions []*service.Session, op int32, body []byte) error {
 	if pusher == nil {
 		return fmt.Errorf("comet pusher not configured")
 	}
 	var lastErr error
+	anyOK := false
 	for _, sess := range sessions {
 		if sess == nil {
 			continue
@@ -96,6 +97,9 @@ func directPush(ctx context.Context, pusher CometPusher, sessions []*service.Ses
 			log.Warningf("direct push to server=%s key=%s failed: %v", sess.Server, sess.Key, err)
 			continue
 		}
+		anyOK = true
+	}
+	if anyOK {
 		return nil
 	}
 	return fmt.Errorf("all direct pushes failed: %w", lastErr)

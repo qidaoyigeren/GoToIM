@@ -111,12 +111,13 @@ func (s *PushService) PushToUser(ctx context.Context, msgID string, toUID int64,
 	return err
 }
 
-// directPush pushes a message directly to the user's Comet server(s) via gRPC.
+// directPush pushes a message directly to all of the user's sessions via gRPC.
 func (s *PushService) directPush(ctx context.Context, sessions []*Session, op int32, body []byte) error {
 	if s.pusher == nil {
 		return fmt.Errorf("comet pusher not configured")
 	}
 	var lastErr error
+	anyOK := false
 	for _, sess := range sessions {
 		if sess == nil {
 			continue
@@ -132,7 +133,9 @@ func (s *PushService) directPush(ctx context.Context, sessions []*Session, op in
 				sess.Server, sess.Key, err)
 			continue
 		}
-		// At least one push succeeded
+		anyOK = true
+	}
+	if anyOK {
 		return nil
 	}
 	return fmt.Errorf("all direct pushes failed: %w", lastErr)
