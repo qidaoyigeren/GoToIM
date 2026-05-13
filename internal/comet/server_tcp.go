@@ -453,7 +453,8 @@ func (s *Server) dispatchTCP(conn *net.TCPConn, wr *bufio.Writer, wp *bytes.Pool
 				whitelist.Printf("key: %s start write server proto%v\n", ch.Key, p)
 			}
 			// 服务端推送消息（来自 Channel.Push()）：直接写入 TCP
-			// 推送路径：Logic → Kafka → Comet.Push() → Channel.Push() → ch.Signal() → 此处
+			// 推送路径：Logic → Kafka → Comet.Push() → Channel.Push() → ch.Signal() →
+			//此处
 			if err = p.WriteTCP(wr); err != nil {
 				goto failed
 			}
