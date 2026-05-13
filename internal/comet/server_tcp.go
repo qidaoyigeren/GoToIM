@@ -313,6 +313,13 @@ func (s *Server) ServeTCP(conn *net.TCPConn, rp, wp *bytes.Pool, tr *xtime.Timer
 				log.Infof("tcp heartbeat receive key:%s, mid:%d", ch.Key, ch.Mid)
 			}
 			step++
+		} else if p.Op == protocol.OpPushMsgAck {
+			// ACK is a one-way client→server notification; forward to Logic
+			// but skip echo-back — the client does not expect a reply.
+			if err = s.Operate(ctx, p, ch, b); err != nil {
+				break
+			}
+			continue
 		} else {
 			// === 业务消息处理 ===
 			// Operate 根据操作码（Op）分发到不同的处理逻辑：

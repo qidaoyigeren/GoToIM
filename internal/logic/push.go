@@ -15,7 +15,8 @@ import (
 // Resolves key -> server via session, pushes to the specific key (not all
 // sessions of the uid). Body is wrapped as MsgBody so the client can parse
 // msg_id and ACK.
-func (l *Logic) PushKeys(c context.Context, op int32, keys []string, msg []byte) (err error) {
+// Returns the server-generated msgID(s) so the caller can track delivery.
+func (l *Logic) PushKeys(c context.Context, op int32, keys []string, msg []byte) (msgIDs []string, err error) {
 	pushKeys := make(map[string][]string)
 	var uid int64
 	for _, key := range keys {
@@ -42,28 +43,31 @@ func (l *Logic) PushKeys(c context.Context, op int32, keys []string, msg []byte)
 		}
 	}
 	msgID := l.GenerateMsgID()
+	msgIDs = append(msgIDs, msgID)
 	body := wrapAsMsgBody(msgID, uid, msg)
 	for server, skeys := range pushKeys {
 		if err = l.dao.PushMsg(c, op, server, skeys, body); err != nil {
-			return
+			return msgIDs, err
 		}
 	}
-	return
+	return msgIDs, nil
 }
 
 // PushMids push a message by user IDs.
 // Routes through DispatchEngine for msg_id generation, delivery tracking,
 // and offline queue support.
 // The raw body is wrapped as MsgBody so the client can parse msg_id and ACK.
-func (l *Logic) PushMids(c context.Context, op int32, mids []int64, msg []byte) (err error) {
+// Returns server-generated msgIDs for delivery tracking.
+func (l *Logic) PushMids(c context.Context, op int32, mids []int64, msg []byte) (msgIDs []string, err error) {
 	for _, mid := range mids {
 		msgID := l.GenerateMsgID()
+		msgIDs = append(msgIDs, msgID)
 		body := wrapAsMsgBody(msgID, mid, msg)
 		if e := l.router.RouteByUser(c, msgID, mid, op, body, 0); e != nil {
 			log.Warningf("push mid:%d msg_id:%s failed: %v", mid, msgID, e)
 		}
 	}
-	return nil
+	return msgIDs, nil
 }
 
 // wrapAsMsgBody wraps raw bytes into a MsgBody with the given msgID and toUID.
@@ -84,15 +88,19 @@ func wrapAsMsgBody(msgID string, toUID int64, content []byte) []byte {
 
 // PushRoom push a message by room.
 // Body is wrapped as MsgBody so the client can parse msg_id.
-func (l *Logic) PushRoom(c context.Context, op int32, typ, room string, msg []byte) (err error) {
+// Returns the server-generated msgID.
+func (l *Logic) PushRoom(c context.Context, op int32, typ, room string, msg []byte) (msgID string, err error) {
 	roomKey := model.EncodeRoomKey(typ, room)
-	body := wrapAsMsgBody(l.GenerateMsgID(), 0, msg)
-	return l.router.RouteByRoom(c, op, roomKey, body)
+	msgID = l.GenerateMsgID()
+	body := wrapAsMsgBody(msgID, 0, msg)
+	return msgID, l.router.RouteByRoom(c, op, roomKey, body)
 }
 
 // PushAll push a message to all.
 // Body is wrapped as MsgBody so the client can parse msg_id.
-func (l *Logic) PushAll(c context.Context, op, speed int32, msg []byte) (err error) {
-	body := wrapAsMsgBody(l.GenerateMsgID(), 0, msg)
-	return l.router.RouteBroadcast(c, op, speed, body)
+// Returns the server-generated msgID.
+func (l *Logic) PushAll(c context.Context, op, speed int32, msg []byte) (msgID string, err error) {
+	msgID = l.GenerateMsgID()
+	body := wrapAsMsgBody(msgID, 0, msg)
+	return msgID, l.router.RouteBroadcast(c, op, speed, body)
 }

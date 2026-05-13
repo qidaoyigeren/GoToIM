@@ -285,6 +285,13 @@ func (s *Server) ServeWebsocket(conn net.Conn, rp, wp *bytes.Pool, tr *xtime.Tim
 				log.Infof("websocket heartbeat receive key:%s, mid:%d", ch.Key, ch.Mid)
 			}
 			step++
+		} else if p.Op == protocol.OpPushMsgAck {
+			// ACK is a one-way client→server notification; forward to Logic
+			// but skip echo-back — the client does not expect a reply.
+			if err = s.Operate(ctx, p, ch, b); err != nil {
+				break
+			}
+			continue
 		} else {
 			if err = s.Operate(ctx, p, ch, b); err != nil {
 				break

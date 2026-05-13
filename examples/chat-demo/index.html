@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -24,16 +24,33 @@
   --red-soft: #fff0ed;
   --green: #15803d;
   --shadow: 0 10px 28px rgba(23, 32, 42, 0.08);
+  --gray-bg: #f0efe9;
 }
 
-* {
-  box-sizing: border-box;
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1a1a2e;
+  --panel: #16213e;
+  --panel-soft: #1a2744;
+  --ink: #e0e0e0;
+  --muted: #8899aa;
+  --line: #2a3a5c;
+  --line-strong: #3a4a6c;
+  --teal: #5eead4;
+  --teal-soft: #0d3b4a;
+  --blue: #60a5fa;
+  --blue-soft: #1a3050;
+  --amber: #f59e0b;
+  --amber-soft: #2e2208;
+  --red: #f87171;
+  --red-soft: #2a1515;
+  --green: #4ade80;
+  --shadow: 0 10px 28px rgba(0,0,0,0.35);
+  --gray-bg: #1e1e32;
 }
 
-html,
-body {
-  height: 100%;
-}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
 
 body {
   margin: 0;
@@ -43,10 +60,7 @@ body {
   letter-spacing: 0;
 }
 
-button,
-input,
-select,
-textarea {
+button, input, select, textarea {
   font: inherit;
   letter-spacing: 0;
 }
@@ -60,55 +74,25 @@ button {
   cursor: pointer;
   min-height: 36px;
 }
+button:hover { border-color: var(--teal); }
+button.primary { background: var(--teal); border-color: var(--teal); color: #fff; }
+button.blue { background: var(--blue); border-color: var(--blue); color: #fff; }
+button.warn { background: var(--amber); border-color: var(--amber); color: #fff; }
+button:disabled { cursor: default; opacity: 0.55; }
+button.icon-btn { min-height: 32px; padding: 5px 9px; font-size: 13px; }
 
-button:hover {
-  border-color: var(--teal);
-}
-
-button.primary {
-  background: var(--teal);
-  border-color: var(--teal);
-  color: #fff;
-}
-
-button.blue {
-  background: var(--blue);
-  border-color: var(--blue);
-  color: #fff;
-}
-
-button.warn {
-  background: var(--amber);
-  border-color: var(--amber);
-  color: #fff;
-}
-
-button:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
-input,
-select,
-textarea {
+input, select, textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel);
   color: var(--ink);
   padding: 8px 10px;
   min-height: 36px;
   outline: none;
 }
-
-textarea {
-  min-height: 90px;
-  resize: vertical;
-}
-
-input:focus,
-select:focus,
-textarea:focus {
+textarea { min-height: 90px; resize: vertical; }
+input:focus, select:focus, textarea:focus {
   border-color: var(--teal);
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
 }
@@ -121,11 +105,7 @@ label {
   line-height: 1.25;
 }
 
-.app-shell {
-  min-height: 100%;
-  display: grid;
-  grid-template-rows: auto auto 1fr;
-}
+.app-shell { min-height: 100%; display: grid; grid-template-rows: auto auto 1fr; }
 
 .topbar {
   display: flex;
@@ -137,33 +117,27 @@ label {
   color: #fff;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 220px;
-}
-
+.brand { display: flex; align-items: center; gap: 12px; min-width: 220px; }
 .brand-mark {
-  width: 38px;
-  height: 38px;
+  width: 38px; height: 38px; border-radius: 8px;
+  background: linear-gradient(135deg, #67e8f9 0%, #14b8a6 44%, #f59e0b 100%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35);
+}
+.brand h1 { margin: 0; font-size: 20px; line-height: 1.1; }
+.brand p { margin: 3px 0 0; color: rgba(255,255,255,0.68); font-size: 12px; }
+
+.topbar-actions { display: flex; gap: 10px; align-items: center; }
+.theme-btn {
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.22);
+  color: #fff;
   border-radius: 8px;
-  background:
-    linear-gradient(135deg, #67e8f9 0%, #14b8a6 44%, #f59e0b 100%);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  min-height: 34px;
 }
-
-.brand h1 {
-  margin: 0;
-  font-size: 20px;
-  line-height: 1.1;
-}
-
-.brand p {
-  margin: 3px 0 0;
-  color: rgba(255, 255, 255, 0.68);
-  font-size: 12px;
-}
+.theme-btn:hover { background: rgba(255,255,255,0.22); }
 
 .status-strip {
   display: grid;
@@ -172,64 +146,32 @@ label {
   flex: 1;
   max-width: 760px;
 }
-
 .status-tile {
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255,255,255,0.16);
   border-radius: 8px;
   padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255,255,255,0.06);
   min-width: 0;
 }
-
-.status-tile span {
-  display: block;
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 11px;
-}
-
-.status-tile strong {
-  display: block;
-  margin-top: 3px;
-  color: #fff;
-  font-size: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.status-tile span { display: block; color: rgba(255,255,255,0.62); font-size: 11px; }
+.status-tile strong { display: block; margin-top: 3px; color: #fff; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .config-strip {
   display: grid;
-  grid-template-columns: minmax(170px, 1.1fr) minmax(170px, 1.1fr) minmax(140px, 0.9fr) minmax(150px, 1fr) minmax(130px, 0.7fr) auto;
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) minmax(130px, 0.8fr) minmax(145px, 0.9fr) minmax(95px, 0.55fr) minmax(95px, 0.55fr) auto;
   gap: 12px;
   align-items: end;
   padding: 12px 20px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
-
 .config-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  justify-content: flex-end;
-  min-width: 220px;
+  display: flex; gap: 8px; align-items: center; justify-content: flex-end; min-width: 220px; flex-wrap: wrap;
 }
-
 .config-actions label {
-  display: flex;
-  grid-template-columns: auto auto;
-  align-items: center;
-  gap: 7px;
-  color: var(--ink);
-  white-space: nowrap;
+  display: flex; align-items: center; gap: 7px; color: var(--ink); white-space: nowrap; font-size: 12px;
 }
-
-.config-actions input[type="checkbox"] {
-  width: 16px;
-  min-height: 16px;
-  height: 16px;
-  padding: 0;
-}
+.config-actions input[type="checkbox"] { width: 16px; min-height: 16px; height: 16px; padding: 0; }
 
 .layout {
   display: grid;
@@ -240,8 +182,7 @@ label {
 }
 
 .panel {
-  min-width: 0;
-  min-height: 0;
+  min-width: 0; min-height: 0;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -250,328 +191,285 @@ label {
   display: flex;
   flex-direction: column;
 }
-
 .panel-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--line);
   background: var(--panel-soft);
 }
+.panel-title h2 { margin: 0; font-size: 15px; }
 
-.panel-title h2 {
-  margin: 0;
-  font-size: 15px;
-}
+.button-row { display: flex; flex-wrap: wrap; gap: 8px; }
 
-.button-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.client-list {
-  overflow: auto;
-  padding: 10px;
-  display: grid;
-  gap: 9px;
-}
-
+.client-list { overflow: auto; padding: 10px; display: grid; gap: 9px; }
 .client-row {
-  display: grid;
-  gap: 10px;
+  display: grid; gap: 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px;
-  background: #fff;
+  border-radius: 8px; padding: 10px;
+  background: var(--panel);
 }
-
-.client-row[data-status="connected"] {
-  border-color: rgba(21, 128, 61, 0.35);
-  background: #f7fff9;
-}
-
-.client-row[data-status="connecting"] {
-  border-color: rgba(180, 83, 9, 0.35);
-  background: #fffbf1;
-}
-
-.client-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.client-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--line-strong);
-  flex: 0 0 auto;
-}
-
-.dot.connected {
-  background: var(--green);
-}
-
-.dot.connecting {
-  background: var(--amber);
-}
-
-.dot.disconnected {
-  background: var(--red);
-}
-
-.client-name strong {
-  display: block;
-  font-size: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.client-name span,
-.client-meta {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.client-meta {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px 8px;
-}
-
-.client-meta code,
-.pill code {
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
-}
-
-.pill-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
+.client-row[data-status="connected"] { border-color: rgba(21,128,61,0.35); background: var(--teal-soft); }
+.client-row[data-status="connecting"] { border-color: rgba(180,83,9,0.35); background: var(--amber-soft); }
+.client-row[data-status="reconnecting"] { border-color: rgba(180,83,9,0.48); background: var(--amber-soft); }
+.client-row[data-status="disconnected"] { border-color: rgba(180,35,24,0.22); }
+.client-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.client-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.client-actions button { min-height: 31px; padding: 5px 8px; font-size: 12px; }
+.client-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line-strong); flex: 0 0 auto; }
+.dot.connected { background: var(--green); }
+.dot.connecting { background: var(--amber); }
+.dot.reconnecting { background: var(--amber); }
+.dot.disconnected { background: var(--red); }
+.client-name strong { display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.client-name span, .client-meta { color: var(--muted); font-size: 12px; }
+.client-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; }
+.client-status-line { color: var(--muted); font-size: 12px; }
+.client-status-line.connected { color: var(--green); }
+.client-status-line.connecting,
+.client-status-line.reconnecting { color: var(--amber); }
+.client-status-line.disconnected { color: var(--red); }
+.client-meta code, .pill code { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: 12px; }
+.pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  padding: 4px 7px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel-soft);
-  color: var(--muted);
-  font-size: 12px;
+  display: inline-flex; align-items: center; gap: 5px;
+  max-width: 100%; padding: 4px 7px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--panel-soft); color: var(--muted); font-size: 12px;
 }
+
+.timeline-toolbar {
+  display: flex; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--line);
+  background: var(--panel-soft); flex-wrap: wrap; align-items: center;
+}
+.timeline-toolbar select { width: auto; min-width: 120px; }
+.search-wrap { position: relative; flex: 1; min-width: 180px; }
+.search-wrap input { padding-left: 32px; }
+.search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 14px; }
+.filter-btn { white-space: nowrap; }
+.filter-panel {
+  display: none; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--line);
+  background: var(--panel-soft); flex-wrap: wrap; align-items: end;
+}
+.filter-panel.active { display: flex; }
+.filter-panel label { min-width: 100px; }
+.filter-panel select { width: auto; }
+.filter-panel input { width: auto; }
+.search-info { font-size: 12px; color: var(--muted); padding: 4px 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.search-info button { font-size: 11px; min-height: 24px; padding: 2px 7px; }
 
 .timeline {
-  min-height: 0;
-  flex: 1;
-  overflow: auto;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background:
-    linear-gradient(180deg, rgba(15, 118, 110, 0.05), transparent 180px),
-    #fbfbf8;
+  min-height: 0; flex: 1; overflow: auto; padding: 14px;
+  display: flex; flex-direction: column; gap: 10px;
+  background: linear-gradient(180deg, rgba(15,118,110,0.05), transparent 180px), var(--gray-bg);
 }
+.load-more-btn {
+  text-align: center; padding: 8px;
+  background: var(--panel-soft); border: 1px dashed var(--line);
+  border-radius: 8px; cursor: pointer; color: var(--muted); font-size: 13px;
+}
+.load-more-btn:hover { border-color: var(--teal); color: var(--teal); }
 
 .event {
   max-width: min(760px, 92%);
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel);
   padding: 9px 10px;
   align-self: flex-start;
+  transition: opacity 0.2s;
 }
+.event.dimmed { opacity: 0.2; }
+.event.sent { align-self: flex-end; background: var(--blue-soft); border-color: rgba(37,99,235,0.22); }
+.event.received { background: var(--teal-soft); border-color: rgba(15,118,110,0.2); }
+.event.system { align-self: center; max-width: 92%; background: var(--panel); }
+.event.error { background: var(--red-soft); border-color: rgba(180,35,24,0.24); }
+.event-title { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
+.event-title-main, .event-title-meta { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.event-body { margin-top: 5px; white-space: pre-wrap; word-break: break-word; line-height: 1.45; }
+.event-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 7px; color: var(--muted); font-size: 11px; }
 
-.event.sent {
-  align-self: flex-end;
-  background: var(--blue-soft);
-  border-color: rgba(37, 99, 235, 0.22);
+.path-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10px; padding: 1px 5px; border-radius: 999px;
+  font-weight: 600;
 }
+.path-direct { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+.path-reliable { background: #fff7ed; color: #9a3412; border: 1px solid #fdba74; }
+[data-theme="dark"] .path-direct { background: #064e3b; color: #6ee7b7; border-color: #059669; }
+[data-theme="dark"] .path-reliable { background: #431407; color: #fdba74; border-color: #9a3412; }
 
-.event.received {
-  background: var(--teal-soft);
-  border-color: rgba(15, 118, 110, 0.2);
+.msg-id-chip {
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--panel); color: var(--muted); padding: 2px 6px; cursor: pointer; font-size: 11px;
 }
+.status-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%; font-size: 12px; font-weight: 700; flex: 0 0 auto;
+}
+.status-pending { border: 2px solid var(--line-strong); border-top-color: var(--muted); animation: spin 0.9s linear infinite; }
+.status-delivered { color: var(--muted); }
+.status-acked { color: var(--blue); }
+.status-failed { color: var(--red); background: var(--red-soft); }
+.retry-btn { min-height: 24px; padding: 2px 7px; border-color: rgba(180,35,24,0.35); color: var(--red); font-size: 11px; }
 
-.event.system {
-  align-self: center;
-  max-width: 92%;
-  background: #fff;
-}
-
-.event.error {
-  background: var(--red-soft);
-  border-color: rgba(180, 35, 24, 0.24);
-}
-
-.event-title {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.event-body {
-  margin-top: 5px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.45;
-}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .composer {
   display: grid;
-  grid-template-columns: minmax(130px, 0.9fr) minmax(110px, 0.7fr) minmax(140px, 0.9fr) minmax(180px, 1.3fr) auto;
-  gap: 9px;
-  padding: 12px;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(105px, 0.6fr) minmax(130px, 0.8fr) minmax(180px, 1.2fr) minmax(76px, auto);
+  gap: 9px; padding: 12px;
   border-top: 1px solid var(--line);
   background: var(--panel);
   align-items: end;
 }
 
-.ops-body {
-  min-height: 0;
-  overflow: auto;
-  padding: 12px;
+.ops-body { min-height: 0; overflow: auto; padding: 12px; }
+.tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 10px 10px 0; }
+.tab-btn { min-height: 34px; padding: 7px 8px; color: var(--muted); background: var(--panel); }
+.tab-btn.active { color: #fff; background: #17202a; border-color: #17202a; }
+.tab-panel { display: none; }
+.tab-panel.active { display: grid; gap: 14px; }
+
+.tool-block { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.tool-block:first-child { border-top: 0; padding-top: 0; }
+.tool-block h3 { margin: 0; font-size: 14px; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.form-grid .span-2 { grid-column: 1 / -1; }
+
+/* Metrics Cards */
+.metrics-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.metric-card {
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+  background: var(--panel); text-align: center;
+}
+.metric-card .metric-value { font-size: 22px; font-weight: 700; color: var(--teal); }
+.metric-card .metric-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.metric-card .metric-delta { font-size: 11px; margin-top: 2px; }
+.metric-delta.up { color: var(--green); }
+.metric-delta.down { color: var(--red); }
+.metrics-chart { display: flex; align-items: flex-end; gap: 3px; height: 80px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.metrics-chart .bar { flex: 1; background: var(--teal); border-radius: 2px 2px 0 0; min-height: 2px; transition: height 0.3s; }
+.metrics-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Path Stats */
+.path-stats { display: grid; gap: 8px; }
+.path-bar-wrap { display: flex; align-items: center; gap: 8px; }
+.path-bar-label { width: 55px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.path-bar-track { flex: 1; height: 18px; background: var(--panel-soft); border-radius: 9px; overflow: hidden; display: flex; }
+.path-bar-direct { background: #10b981; transition: flex 0.3s; }
+.path-bar-reliable { background: #f59e0b; transition: flex 0.3s; }
+.path-bar-count { font-size: 11px; color: var(--muted); white-space: nowrap; min-width: 50px; }
+
+/* Sync Progress */
+.sync-progress { display: none; padding: 8px 12px; background: var(--amber-soft); border: 1px solid var(--amber); border-radius: 8px; font-size: 12px; color: var(--amber); }
+.sync-progress.active { display: block; }
+.sync-progress-bar { height: 6px; background: var(--line); border-radius: 3px; margin-top: 4px; overflow: hidden; }
+.sync-progress-fill { height: 100%; background: var(--amber); border-radius: 3px; transition: width 0.3s; }
+
+/* Floating new-msg button */
+.new-msg-float {
+  position: sticky; bottom: 8px; align-self: center;
+  background: var(--blue); color: #fff; border: none; border-radius: 999px;
+  padding: 6px 16px; font-size: 12px; cursor: pointer; box-shadow: var(--shadow);
+  display: none; z-index: 5;
+}
+.new-msg-float.visible { display: block; }
+
+/* Unread badge */
+.unread-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; border-radius: 9px;
+  background: var(--red); color: #fff; font-size: 10px; font-weight: 700;
+  padding: 0 5px; margin-left: 4px;
 }
 
-.tabs {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-  padding: 10px 10px 0;
-}
-
-.tab-btn {
-  min-height: 34px;
-  padding: 7px 8px;
-  color: var(--muted);
-  background: #fff;
-}
-
-.tab-btn.active {
-  color: #fff;
-  background: #17202a;
-  border-color: #17202a;
-}
-
-.tab-panel {
-  display: none;
-}
-
-.tab-panel.active {
-  display: grid;
-  gap: 14px;
-}
-
-.tool-block {
-  display: grid;
-  gap: 10px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-
-.tool-block:first-child {
-  border-top: 0;
-  padding-top: 0;
-}
-
-.tool-block h3 {
-  margin: 0;
-  font-size: 14px;
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
-}
-
-.form-grid .span-2 {
-  grid-column: 1 / -1;
-}
+/* Notify config */
+.notify-config { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.notify-config label { display: flex; flex-direction: row; align-items: center; gap: 6px; font-size: 12px; color: var(--ink); }
+.notify-config input[type="checkbox"] { width: 16px; min-height: 16px; height: 16px; padding: 0; }
 
 .result-box {
   margin-top: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #101820;
-  color: #d6f3ee;
-  min-height: 150px;
-  max-height: 300px;
-  overflow: auto;
-  padding: 10px;
-  white-space: pre-wrap;
-  word-break: break-word;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: #101820; color: #d6f3ee;
+  min-height: 150px; max-height: 300px; overflow: auto;
+  padding: 10px; white-space: pre-wrap; word-break: break-word;
   font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
 }
 
-.small {
-  color: var(--muted);
-  font-size: 12px;
-}
+.trace-toolbar { display: flex; align-items: end; gap: 8px; }
+.trace-list { display: grid; gap: 8px; }
+.trace-item { border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--panel); }
+.trace-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
+.trace-body { margin-top: 5px; word-break: break-word; }
 
-.hidden {
-  display: none !important;
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 20;
+  display: none; align-items: center; justify-content: center;
+  padding: 18px; background: rgba(23,32,42,0.46);
+}
+.modal-backdrop.active { display: flex; }
+.modal {
+  width: min(560px, 100%); max-height: 92vh; overflow: auto;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 18px 60px rgba(23,32,42,0.28);
+}
+.modal-header, .modal-footer {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line); background: var(--panel-soft);
+}
+.modal-footer { border-top: 1px solid var(--line); border-bottom: 0; justify-content: flex-end; }
+.modal-header h2 { margin: 0; font-size: 15px; }
+.modal-body { display: grid; gap: 10px; padding: 14px; }
+
+.small { color: var(--muted); font-size: 12px; }
+.hidden { display: none !important; }
+
+/* Mobile bottom nav */
+.mobile-nav { display: none; }
+@media (max-width: 820px) {
+  .mobile-nav {
+    display: flex;
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 15;
+    background: var(--panel); border-top: 1px solid var(--line);
+  }
+  .mobile-nav button {
+    flex: 1; border: none; border-radius: 0; background: transparent;
+    font-size: 11px; padding: 10px 4px; min-height: auto;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+  }
+  .mobile-nav button.active { color: var(--teal); border-top: 2px solid var(--teal); margin-top: -1px; }
+
+  .topbar, .config-strip, .layout, .composer { grid-template-columns: 1fr; }
+  .topbar { display: grid; }
+  .status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: none; }
+  .layout { padding: 10px; padding-bottom: 60px; }
+  .config-actions { justify-content: flex-start; min-width: 0; }
+  .event { max-width: 100%; }
+
+  .layout { display: flex; overflow-x: hidden; }
+  .layout > .panel { flex: 0 0 100%; width: 100%; display: none; }
+  .layout > .panel.mobile-active { display: flex; }
+  .clients-panel.mobile-active, .conversation-panel.mobile-active, .ops-panel.mobile-active { display: flex; }
+  .composer { display: none; }
+  .composer.mobile-active { display: grid; }
+  .timeline-toolbar { flex-direction: column; }
+  .filter-panel { flex-direction: column; }
+  .filter-panel label { min-width: auto; }
+  .metrics-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 1180px) {
-  .layout {
-    grid-template-columns: minmax(240px, 0.8fr) minmax(420px, 1.2fr);
-  }
-
-  .ops-panel {
-    grid-column: 1 / -1;
-  }
+  .layout { grid-template-columns: minmax(240px, 0.8fr) minmax(420px, 1.2fr); }
+  .ops-panel { grid-column: 1 / -1; }
 }
 
-@media (max-width: 820px) {
-  .topbar,
-  .config-strip,
-  .layout,
-  .composer {
-    grid-template-columns: 1fr;
-  }
-
-  .topbar {
-    display: grid;
-  }
-
-  .status-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-width: none;
-  }
-
-  .layout {
-    padding: 10px;
-  }
-
-  .config-actions {
-    justify-content: flex-start;
-    min-width: 0;
-  }
-
-  .event {
-    max-width: 100%;
-  }
-}
+/* mark highlight */
+mark { background: #fde68a; color: #17202a; padding: 0 2px; border-radius: 2px; }
+[data-theme="dark"] mark { background: #854d0e; color: #fef3c7; }
 </style>
 </head>
 <body>
@@ -589,6 +487,9 @@ label {
       <div class="status-tile"><span>WebSocket</span><strong id="wsStatus">0 在线</strong></div>
       <div class="status-tile"><span>连接数</span><strong id="connStatus">-</strong></div>
       <div class="status-tile"><span>当前房间</span><strong id="roomStatus">live://1000</strong></div>
+    </div>
+    <div class="topbar-actions">
+      <button id="themeToggle" class="theme-btn" title="切换主题" aria-label="切换暗色/亮色模式">🌙</button>
     </div>
   </header>
 
@@ -608,18 +509,33 @@ label {
     <label>心跳秒
       <input id="heartbeatSeconds" type="number" min="10" value="30">
     </label>
+    <label>重连次数
+      <input id="maxReconnectAttempts" type="number" min="0" max="99" value="10">
+    </label>
     <div class="config-actions">
       <label><input id="autoAck" type="checkbox" checked> 自动 ACK</label>
       <label><input id="autoConnect" type="checkbox" checked> 自动连接</label>
+      <label><input id="autoReconnect" type="checkbox" checked> 自动重连</label>
+      <label><input id="desktopNotify" type="checkbox" checked> 桌面通知</label>
+      <label><input id="soundNotify" type="checkbox"> 声音</label>
       <button id="saveConfig" type="button">保存</button>
     </div>
   </section>
 
   <main class="layout">
+    <!-- 客户端面板 -->
     <aside class="panel clients-panel">
       <div class="panel-title">
         <h2>客户端</h2>
         <div class="button-row">
+          <select id="quickAddPreset" aria-label="快速添加客户端">
+            <option value="">快速添加</option>
+            <option value="dual-device">单用户双端</option>
+            <option value="two-users">双用户对聊</option>
+            <option value="room-group">群聊用户组</option>
+          </select>
+          <button id="addClient" type="button">+ 添加</button>
+          <button id="resetClients" type="button">重置默认</button>
           <button id="connectAll" class="primary" type="button">全部连接</button>
           <button id="disconnectAll" type="button">全部断开</button>
         </div>
@@ -627,15 +543,72 @@ label {
       <div id="clientList" class="client-list"></div>
     </aside>
 
+    <!-- 消息面板 -->
     <section class="panel conversation-panel">
       <div class="panel-title">
         <h2>消息流</h2>
         <div class="button-row">
+          <select id="viewFilter" aria-label="视图筛选">
+            <option value="all">全部消息</option>
+          </select>
           <button id="refreshOnline" type="button">刷新在线</button>
           <button id="clearTimeline" type="button">清空</button>
         </div>
       </div>
-      <div id="timeline" class="timeline" aria-live="polite"></div>
+      <div class="timeline-toolbar">
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input id="searchInput" placeholder="搜索消息..." autocomplete="off">
+        </div>
+        <button id="filterToggle" class="icon-btn filter-btn">筛选 ▾</button>
+        <button id="prevMatch" class="icon-btn" disabled>▲</button>
+        <button id="nextMatch" class="icon-btn" disabled>▼</button>
+        <span id="matchInfo" class="small hidden"></span>
+        <button id="clearSearch" class="icon-btn hidden">清除</button>
+      </div>
+      <div id="filterPanel" class="filter-panel">
+        <label>Op类型
+          <select id="filterOp" multiple size="1">
+            <option value="">全部</option>
+            <option value="2">Heartbeat(2)</option>
+            <option value="3">HeartbeatReply(3)</option>
+            <option value="7">Auth(7)</option>
+            <option value="8">AuthReply(8)</option>
+            <option value="9">Raw(9)</option>
+            <option value="12">ChangeRoom(12)</option>
+            <option value="21">SyncReply(21)</option>
+          </select>
+        </label>
+        <label>消息类型
+          <select id="filterKind">
+            <option value="">全部</option>
+            <option value="sent">发送</option>
+            <option value="received">接收</option>
+            <option value="system">系统</option>
+            <option value="error">错误</option>
+          </select>
+        </label>
+        <label>发送方MID
+          <input id="filterFromMid" type="number" placeholder="MID">
+        </label>
+        <label>时间范围
+          <select id="filterTime">
+            <option value="">全部</option>
+            <option value="5m">最近5分钟</option>
+            <option value="1h">最近1小时</option>
+            <option value="today">今天</option>
+          </select>
+        </label>
+        <button id="clearFilter" type="button">清除筛选</button>
+      </div>
+      <div class="search-info">
+        <span id="searchInfo"></span>
+      </div>
+      <div id="timeline" class="timeline" aria-live="polite">
+        <div id="loadMoreBtn" class="load-more-btn hidden">加载更多历史消息</div>
+        <button id="newMsgFloat" class="new-msg-float">↓ 新消息</button>
+      </div>
+      <div id="syncProgress" class="sync-progress"></div>
       <form id="composer" class="composer">
         <label>发送方
           <select id="composerFrom"></select>
@@ -658,44 +631,32 @@ label {
       </form>
     </section>
 
+    <!-- 后端能力面板 -->
     <aside class="panel ops-panel">
-      <div class="panel-title">
-        <h2>后端能力</h2>
-      </div>
+      <div class="panel-title"><h2>后端能力</h2></div>
       <div class="tabs" role="tablist">
         <button class="tab-btn active" type="button" data-tab="push">推送</button>
         <button class="tab-btn" type="button" data-tab="session">会话</button>
         <button class="tab-btn" type="button" data-tab="offline">离线</button>
         <button class="tab-btn" type="button" data-tab="observe">观测</button>
+        <button class="tab-btn" type="button" data-tab="trace">追踪</button>
       </div>
       <div class="ops-body">
         <section id="tab-push" class="tab-panel active">
           <form id="manualPushForm" class="tool-block">
             <h3>HTTP Push</h3>
             <div class="form-grid">
-              <label>接口
-                <select id="pushEndpoint">
-                  <option value="mids">/push/mids</option>
-                  <option value="keys">/push/keys</option>
-                  <option value="room">/push/room</option>
-                  <option value="all">/push/all</option>
-                </select>
-              </label>
-              <label>Operation
-                <input id="pushOperation" type="number" value="9">
-              </label>
-              <label id="pushTypeWrap">Type
-                <input id="pushRoomType" value="live" autocomplete="off">
-              </label>
-              <label>目标
-                <input id="pushTarget" value="1002" autocomplete="off">
-              </label>
-              <label>Speed
-                <input id="pushSpeed" type="number" min="0" value="0">
-              </label>
-              <label class="span-2">Body
-                <textarea id="pushBody">{"from":1001,"to":1002,"text":"manual push","ts":0}</textarea>
-              </label>
+              <label>接口<select id="pushEndpoint">
+                <option value="mids">/push/mids</option>
+                <option value="keys">/push/keys</option>
+                <option value="room">/push/room</option>
+                <option value="all">/push/all</option>
+              </select></label>
+              <label>Operation<input id="pushOperation" type="number" value="9"></label>
+              <label id="pushTypeWrap">Type<input id="pushRoomType" value="live" autocomplete="off"></label>
+              <label>目标<input id="pushTarget" value="1002" autocomplete="off"></label>
+              <label>Speed<input id="pushSpeed" type="number" min="0" value="0"></label>
+              <label class="span-2">Body<textarea id="pushBody">{"from":1001,"to":1002,"text":"manual push","ts":0}</textarea></label>
             </div>
             <button class="primary" type="submit">提交推送</button>
           </form>
@@ -705,44 +666,28 @@ label {
           <form id="roomForm" class="tool-block">
             <h3>房间切换</h3>
             <div class="form-grid">
-              <label>客户端
-                <select id="roomClient"></select>
-              </label>
-              <label>Room ID
-                <input id="roomChangeValue" value="live://1000" autocomplete="off">
-              </label>
+              <label>客户端<select id="roomClient"></select></label>
+              <label>Room ID<input id="roomChangeValue" value="live://1000" autocomplete="off"></label>
             </div>
             <button class="primary" type="submit">切换房间</button>
           </form>
-
           <form id="watchForm" class="tool-block">
             <h3>订阅控制</h3>
             <div class="form-grid">
-              <label>客户端
-                <select id="watchClient"></select>
-              </label>
-              <label>Ops
-                <input id="watchOps" value="9,21,1000,1001,1002" autocomplete="off">
-              </label>
+              <label>客户端<select id="watchClient"></select></label>
+              <label>Ops<input id="watchOps" value="9,21,1000,1001,1002" autocomplete="off"></label>
             </div>
             <div class="button-row">
               <button class="primary" type="submit" data-watch-action="sub">订阅</button>
               <button type="submit" data-watch-action="unsub">取消订阅</button>
             </div>
           </form>
-
           <form id="wsSyncForm" class="tool-block">
             <h3>WS SyncReq</h3>
             <div class="form-grid">
-              <label>客户端
-                <select id="wsSyncClient"></select>
-              </label>
-              <label>Last Seq
-                <input id="wsSyncLastSeq" type="number" min="0" value="0">
-              </label>
-              <label>Limit
-                <input id="wsSyncLimit" type="number" min="1" max="200" value="100">
-              </label>
+              <label>客户端<select id="wsSyncClient"></select></label>
+              <label>Last Seq<input id="wsSyncLastSeq" type="number" min="0" value="0"></label>
+              <label>Limit<input id="wsSyncLimit" type="number" min="1" max="200" value="100"></label>
             </div>
             <button class="primary" type="submit">发送 SyncReq</button>
           </form>
@@ -752,34 +697,19 @@ label {
           <form id="offlinePushForm" class="tool-block">
             <h3>离线写入</h3>
             <div class="form-grid">
-              <label>Mid
-                <input id="offlineMid" type="number" value="1002">
-              </label>
-              <label>Seq
-                <input id="offlineSeq" type="number" min="0" value="1">
-              </label>
-              <label>Op
-                <input id="offlineOp" type="number" value="9">
-              </label>
-              <label class="span-2">Body
-                <textarea id="offlineBody">{"from":1001,"to":1002,"text":"offline message","ts":0}</textarea>
-              </label>
+              <label>Mid<input id="offlineMid" type="number" value="1002"></label>
+              <label>Seq<input id="offlineSeq" type="number" min="0" value="1"></label>
+              <label>Op<input id="offlineOp" type="number" value="9"></label>
+              <label class="span-2">Body<textarea id="offlineBody">{"from":1001,"to":1002,"text":"offline message","ts":0}</textarea></label>
             </div>
             <button class="warn" type="submit">写入离线队列</button>
           </form>
-
           <form id="httpSyncForm" class="tool-block">
             <h3>HTTP Sync</h3>
             <div class="form-grid">
-              <label>Mid
-                <input id="httpSyncMid" type="number" value="1002">
-              </label>
-              <label>Last Seq
-                <input id="httpSyncLastSeq" type="number" min="0" value="0">
-              </label>
-              <label>Limit
-                <input id="httpSyncLimit" type="number" min="1" max="200" value="100">
-              </label>
+              <label>Mid<input id="httpSyncMid" type="number" value="1002"></label>
+              <label>Last Seq<input id="httpSyncLastSeq" type="number" min="0" value="0"></label>
+              <label>Limit<input id="httpSyncLimit" type="number" min="1" max="200" value="100"></label>
             </div>
             <button class="primary" type="submit">拉取离线消息</button>
           </form>
@@ -789,15 +719,9 @@ label {
           <div class="tool-block">
             <h3>Online</h3>
             <div class="form-grid">
-              <label>Type
-                <input id="onlineType" value="live" autocomplete="off">
-              </label>
-              <label>Rooms
-                <input id="onlineRooms" value="1000" autocomplete="off">
-              </label>
-              <label>Top Limit
-                <input id="onlineLimit" type="number" min="1" value="10">
-              </label>
+              <label>Type<input id="onlineType" value="live" autocomplete="off"></label>
+              <label>Rooms<input id="onlineRooms" value="1000" autocomplete="off"></label>
+              <label>Top Limit<input id="onlineLimit" type="number" min="1" value="10"></label>
             </div>
             <div class="button-row">
               <button type="button" data-observe="total">总在线</button>
@@ -805,25 +729,120 @@ label {
               <button type="button" data-observe="top">热门房间</button>
             </div>
           </div>
-
           <div class="tool-block">
-            <h3>Nodes / Metrics</h3>
-            <div class="form-grid">
-              <label>Platform
-                <input id="nodePlatform" value="web" autocomplete="off">
+            <h3>投递路径</h3>
+            <div class="path-stats">
+              <div class="path-bar-wrap">
+                <span class="path-bar-label">⚡ 直连</span>
+                <div class="path-bar-track"><div class="path-bar-direct" id="pathBarDirect" style="flex:0"></div><div class="path-bar-reliable" id="pathBarReliable" style="flex:0"></div></div>
+                <span class="path-bar-count" id="pathBarCount">0 / 0</span>
+              </div>
+            </div>
+          </div>
+          <div class="tool-block">
+            <h3>Metrics 仪表盘</h3>
+            <div class="metrics-controls">
+              <label style="display:flex;flex-direction:row;align-items:center;gap:6px">
+                <input id="metricsAutoRefresh" type="checkbox" checked> 自动刷新
               </label>
+              <select id="metricsInterval">
+                <option value="5000">5s</option>
+                <option value="10000">10s</option>
+                <option value="30000">30s</option>
+              </select>
+              <button id="refreshMetrics" class="primary" type="button">刷新</button>
+            </div>
+            <div class="metrics-grid" id="metricsCards"></div>
+            <div class="metrics-chart" id="metricsChart" title="在线连接趋势"></div>
+          </div>
+          <div class="tool-block">
+            <h3>Nodes</h3>
+            <div class="form-grid">
+              <label>Platform<input id="nodePlatform" value="web" autocomplete="off"></label>
             </div>
             <div class="button-row">
               <button type="button" data-observe="weighted">Weighted</button>
               <button type="button" data-observe="instances">Instances</button>
-              <button type="button" data-observe="metrics">Metrics</button>
+              <button type="button" data-observe="metrics">Raw Metrics</button>
             </div>
           </div>
           <pre id="resultBox" class="result-box">等待查询...</pre>
         </section>
+
+        <section id="tab-trace" class="tab-panel">
+          <div class="tool-block">
+            <h3>消息追踪</h3>
+            <div class="trace-toolbar">
+              <label>状态<select id="traceStatusFilter">
+                <option value="all">全部</option>
+                <option value="pending">pending</option>
+                <option value="delivered">delivered</option>
+                <option value="acked">acked</option>
+                <option value="failed">failed</option>
+              </select></label>
+              <button id="clearTrace" type="button">清空追踪</button>
+              <button id="exportMessages" type="button">导出JSON</button>
+            </div>
+            <div id="traceList" class="trace-list"></div>
+          </div>
+          <div class="tool-block">
+            <h3>存储管理</h3>
+            <div class="form-grid">
+              <label>存储占用<span id="storageSize">-</span></label>
+              <label>清理时间范围
+                <select id="cleanupRange">
+                  <option value="1h">最近1小时以后</option>
+                  <option value="today">今天以前</option>
+                  <option value="7d">7天以前</option>
+                  <option value="all">全部</option>
+                </select>
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="clearStorage" class="warn" type="button">清理历史</button>
+              <button id="exportStorage" type="button">导出消息JSON</button>
+            </div>
+          </div>
+        </section>
       </div>
     </aside>
   </main>
+</div>
+
+<!-- 移动端底部导航 -->
+<nav class="mobile-nav" id="mobileNav">
+  <button data-panel="clients" class="active">👥 客户端</button>
+  <button data-panel="conversation">💬 消息流</button>
+  <button data-panel="ops">⚙️ 后端能力</button>
+</nav>
+
+<!-- 客户端编辑弹窗 -->
+<div id="clientModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="clientModalTitle">
+  <form id="clientForm" class="modal">
+    <div class="modal-header">
+      <h2 id="clientModalTitle">添加客户端</h2>
+      <button id="closeClientModal" type="button">关闭</button>
+    </div>
+    <div class="modal-body">
+      <input id="clientFormId" type="hidden">
+      <div class="form-grid">
+        <label>名称<input id="clientFormName" required autocomplete="off"></label>
+        <label>Mid<input id="clientFormMid" type="number" required min="1"></label>
+        <label>Key<input id="clientFormKey" required autocomplete="off"></label>
+        <label>Device ID<input id="clientFormDevice" required autocomplete="off"></label>
+        <label>Platform<select id="clientFormPlatform">
+          <option value="web">web</option><option value="ios">ios</option><option value="android">android</option>
+        </select></label>
+        <label>Room<input id="clientFormRoom" value="live://1000" required autocomplete="off"></label>
+      </div>
+      <div class="button-row">
+        <button id="generateClientIds" type="button">自动生成 Key / Device</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="submit" class="primary">保存客户端</button>
+    </div>
+  </form>
 </div>
 
 <script>
@@ -848,553 +867,1180 @@ label {
   const OP_SYNC_REPLY = 21;
 
   const opNames = {
-    2: "Heartbeat",
-    3: "HeartbeatReply",
-    7: "Auth",
-    8: "AuthReply",
-    9: "Raw",
-    12: "ChangeRoom",
-    13: "ChangeRoomReply",
-    14: "Sub",
-    15: "SubReply",
-    16: "Unsub",
-    17: "UnsubReply",
-    18: "SendMsgAck",
-    19: "PushMsgAck",
-    20: "SyncReq",
-    21: "SyncReply"
+    2:"Heartbeat",3:"HeartbeatReply",7:"Auth",8:"AuthReply",9:"Raw",
+    12:"ChangeRoom",13:"ChangeRoomReply",14:"Sub",15:"SubReply",
+    16:"Unsub",17:"UnsubReply",18:"SendMsgAck",19:"PushMsgAck",
+    20:"SyncReq",21:"SyncReply"
   };
 
   const textEncoder = new TextEncoder();
   const textDecoder = new TextDecoder();
+  const CLIENTS_KEY = "gotoim-console-clients";
+  const CONFIG_KEY = "gotoim-console-config";
+  const THEME_KEY = "gotoim-theme";
+  const DB_NAME = "gotoim_messages";
+  const DB_VERSION = 1;
+  const STORE_NAME = "messages";
+  const MAX_STORED = 10000;
+  const PAGE_SIZE = 200;
+  const TRACE_LIMIT = 50;
 
-  const clients = [
-    {
-      id: "aliceWeb",
-      name: "Alice Web",
-      mid: 1001,
-      key: "gotoim-alice-web",
-      deviceId: "web-1001",
-      platform: "web",
-      room: "live://1000",
-      status: "disconnected",
-      seq: 1,
-      ws: null,
-      heartbeatTimer: null,
-      lastSeq: 0,
-      online: "-"
-    },
-    {
-      id: "alicePhone",
-      name: "Alice Phone",
-      mid: 1001,
-      key: "gotoim-alice-phone",
-      deviceId: "phone-1001",
-      platform: "ios",
-      room: "live://1000",
-      status: "disconnected",
-      seq: 1,
-      ws: null,
-      heartbeatTimer: null,
-      lastSeq: 0,
-      online: "-"
-    },
-    {
-      id: "bobWeb",
-      name: "Bob Web",
-      mid: 1002,
-      key: "gotoim-bob-web",
-      deviceId: "web-1002",
-      platform: "web",
-      room: "live://1000",
-      status: "disconnected",
-      seq: 1,
-      ws: null,
-      heartbeatTimer: null,
-      lastSeq: 0,
-      online: "-"
-    }
-  ];
+  function createDefaultClients() {
+    return [
+      { id:"aliceWeb", name:"Alice Web", mid:1001, key:"gotoim-alice-web", deviceId:"web-1001", platform:"web", room:"live://1000" },
+      { id:"alicePhone", name:"Alice Phone", mid:1001, key:"gotoim-alice-phone", deviceId:"phone-1001", platform:"ios", room:"live://1000" },
+      { id:"bobWeb", name:"Bob Web", mid:1002, key:"gotoim-bob-web", deviceId:"web-1002", platform:"web", room:"live://1000" }
+    ].map(hydrateClient);
+  }
 
-  const $ = (selector) => document.querySelector(selector);
-  const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+  let clients = createDefaultClients();
+  const trackedMessages = new Map();
+  const traceItems = [];
+  let editingClientId = "";
+  let unloading = false;
 
-  function escapeHTML(value) {
-    return String(value)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+  // IDB
+  let db = null;
+  let writeQueue = [];
+  let writeTimer = null;
+  let dbReady = false;
+
+  // Metrics
+  let metricsHistory = [];
+  let lastMetricValues = {};
+  let metricsRefreshTimer = null;
+
+  // Path stats
+  let pathStats = { direct: 0, reliable: 0 };
+
+  // Notification throttle
+  let notifyThrottle = {};
+
+  // Search state
+  let searchMatches = [];
+  let currentMatchIdx = -1;
+  let allTimelineEvents = [];
+
+  // Unread
+  let unreadCounts = {};
+  let currentViewFilter = "all";
+
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+  function slug(v) {
+    return String(v||"client").trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"client";
+  }
+
+  function runtimeClientState() {
+    return { status:"disconnected", seq:1, ws:null, heartbeatTimer:null, reconnectTimer:null, reconnectAttempts:0, reconnectDelay:1000, manualClose:false, lastSeq:0, online:"-" };
+  }
+
+  var clientIdCounter = 0;
+  function hydrateClient(c) {
+    clientIdCounter += 1;
+    return Object.assign(runtimeClientState(), {
+      id: c.id||("client-"+Date.now()+"-"+clientIdCounter),
+      name: c.name||"Client",
+      mid: Number(c.mid)||1000,
+      key: c.key||("gotoim-"+Date.now()),
+      deviceId: c.deviceId||c.device_id||("device-"+Date.now()),
+      platform: c.platform||"web",
+      room: c.room||"live://1000"
+    });
+  }
+
+  function serializeClient(c) {
+    return { id:c.id, name:c.name, mid:c.mid, key:c.key, deviceId:c.deviceId, platform:c.platform, room:c.room };
+  }
+
+  function saveClients() {
+    localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients.map(serializeClient)));
+  }
+
+  function loadClients() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(CLIENTS_KEY)||"[]");
+      if (Array.isArray(raw) && raw.length>0) clients = raw.map(hydrateClient);
+    } catch(e) { clients = createDefaultClients(); }
+  }
+
+  function resetClients() {
+    clients.forEach(function(c) { disconnectClient(c.id, true); });
+    clients = createDefaultClients();
+    saveClients();
+    renderClients();
+    renderSelects();
+  }
+
+  function makeClientIds(name, platform) {
+    var suffix = Math.random().toString(36).slice(2,7);
+    var base = slug(name);
+    return { key:"gotoim-"+base+"-"+suffix, deviceId:(platform||"web")+"-"+base+"-"+suffix };
+  }
+
+  function escapeHTML(v) {
+    return String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
   }
 
   function nowTime() {
-    return new Date().toLocaleTimeString("zh-CN", { hour12: false });
+    return new Date().toLocaleTimeString("zh-CN",{hour12:false});
   }
 
-  function compact(value, maxLen) {
-    const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-    if (text.length <= maxLen) return text;
-    return text.slice(0, maxLen - 1) + "...";
+  function compact(v, maxLen) {
+    var t = typeof v==="string"?v:JSON.stringify(v,null,2);
+    return t.length<=maxLen?t:t.slice(0,maxLen-1)+"...";
   }
 
-  function csvValues(value) {
-    return String(value || "")
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
+  function csvValues(v) {
+    return String(v||"").split(",").map(function(i){return i.trim();}).filter(Boolean);
   }
 
-  function getClient(id) {
-    return clients.find((client) => client.id === id);
-  }
+  function getClient(id) { return clients.find(function(c){return c.id===id;}); }
 
-  function connectedClients() {
-    return clients.filter((client) => client.status === "connected");
-  }
-
-  function formatStatus(status) {
-    if (status === "connected") return "已连接";
-    if (status === "connecting") return "连接中";
+  function formatStatus(s) {
+    if (s==="connected") return "已连接";
+    if (s==="connecting") return "连接中";
+    if (s==="reconnecting") return "重连中";
     return "未连接";
   }
 
+  function reconnectStatusText(c) {
+    if (c.status!=="reconnecting") return formatStatus(c.status);
+    return "重连中("+c.reconnectAttempts+"/"+maxReconnectAttempts()+")...";
+  }
+
+  function maxReconnectAttempts() {
+    var raw = $("#maxReconnectAttempts").value;
+    var n = Number(raw);
+    return Number.isFinite(n) ? Math.max(0, n) : 10;
+  }
+
+  function updateConnectionHealth() {
+    var total = clients.length||1;
+    var connected = clients.filter(function(c){return c.status==="connected";}).length;
+    var reconnecting = clients.filter(function(c){return c.status==="reconnecting"||c.status==="connecting";}).length;
+    $("#wsStatus").textContent = connected+"/"+total+" 健康"+(reconnecting?" · "+reconnecting+" 重连中":"");
+  }
+
   function getDefaultAccepts() {
-    return csvValues($("#defaultAccepts").value)
-      .map((item) => Number(item))
-      .filter((item) => Number.isFinite(item));
+    return csvValues($("#defaultAccepts").value).map(Number).filter(function(n){return Number.isFinite(n);});
   }
 
   function getApiBase() {
-    const raw = $("#apiHost").value.trim();
-    if (!raw) {
-      if (window.location.origin && window.location.origin !== "null") {
-        return window.location.origin;
-      }
-      return "http://localhost:3111";
-    }
-    if (/^https?:\/\//i.test(raw)) {
-      return raw.replace(/\/$/, "");
-    }
-    return ("http://" + raw).replace(/\/$/, "");
+    var raw = $("#apiHost").value.trim();
+    if (!raw) return (window.location.origin&&window.location.origin!=="null")?window.location.origin:"http://localhost:3111";
+    if (/^https?:\/\//i.test(raw)) return raw.replace(/\/$/,"");
+    return ("http://"+raw).replace(/\/$/,"");
   }
 
   function getWsUrl() {
-    const raw = ($("#wsHost").value.trim() || "localhost:3102").replace(/\/$/, "");
-    if (/^wss?:\/\//i.test(raw)) {
-      return raw.endsWith("/sub") ? raw : raw + "/sub";
-    }
-    const scheme = window.location.protocol === "https:" ? "wss" : "ws";
-    return scheme + "://" + raw + "/sub";
+    var raw = ($("#wsHost").value.trim()||"localhost:3102").replace(/\/$/,"");
+    if (/^wss?:\/\//i.test(raw)) return raw.endsWith("/sub")?raw:raw+"/sub";
+    var scheme = window.location.protocol==="https:"?"wss":"ws";
+    return scheme+"://"+raw+"/sub";
   }
 
   function apiUrl(path, params) {
-    const url = new URL(path, getApiBase());
+    var url = new URL(path, getApiBase());
     if (params instanceof URLSearchParams) {
-      params.forEach((value, key) => url.searchParams.append(key, value));
+      params.forEach(function(v,k){url.searchParams.append(k,v);});
     } else if (params) {
-      Object.keys(params).forEach((key) => {
-        const value = params[key];
-        if (Array.isArray(value)) {
-          value.forEach((item) => url.searchParams.append(key, item));
-        } else if (value !== undefined && value !== null && value !== "") {
-          url.searchParams.set(key, value);
-        }
+      Object.keys(params).forEach(function(k){
+        var v=params[k];
+        if (Array.isArray(v)) v.forEach(function(i){url.searchParams.append(k,i);});
+        else if (v!==undefined&&v!==null&&v!=="") url.searchParams.set(k,v);
       });
     }
     return url.toString();
   }
 
   async function fetchJSON(path, params) {
-    const response = await fetch(apiUrl(path, params));
-    const text = await response.text();
-    try {
-      return JSON.parse(text);
-    } catch (err) {
-      throw new Error("JSON parse failed: " + compact(text, 180));
-    }
+    var r = await fetch(apiUrl(path, params));
+    var t = await r.text();
+    try { return JSON.parse(t); }
+    catch(e) { throw new Error("JSON parse failed: "+compact(t,180)); }
   }
 
   async function postRaw(path, params, body) {
-    const response = await fetch(apiUrl(path, params), {
-      method: "POST",
-      headers: { "Content-Type": "application/json;charset=utf-8" },
-      body
+    var r = await fetch(apiUrl(path, params), {method:"POST",headers:{"Content-Type":"application/json;charset=utf-8"},body:body});
+    var t = await r.text();
+    try { return JSON.parse(t); }
+    catch(e) { return {code:r.ok?0:r.status,message:t}; }
+  }
+
+  function assertResult(r) {
+    if (r&&r.code===0) return r;
+    throw new Error((r&&(r.message||r.error||JSON.stringify(r)))||"request failed");
+  }
+
+  function appendList(params, name, list) { list.forEach(function(i){params.append(name,i);}); }
+
+  // ============ IndexedDB ============
+
+  function openDB() {
+    return new Promise(function(resolve, reject) {
+      var req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = function(e) {
+        var d = e.target.result;
+        if (!d.objectStoreNames.contains(STORE_NAME)) {
+          var store = d.createObjectStore(STORE_NAME, { keyPath:"id", autoIncrement:true });
+          store.createIndex("timestamp","timestamp",{unique:false});
+          store.createIndex("from_mid","from_mid",{unique:false});
+          store.createIndex("to_mid","to_mid",{unique:false});
+          store.createIndex("op","op",{unique:false});
+          store.createIndex("status","status",{unique:false});
+        }
+      };
+      req.onsuccess = function(e) { resolve(e.target.result); };
+      req.onerror = function(e) { reject(e.target.error); };
     });
-    const text = await response.text();
-    try {
-      return JSON.parse(text);
-    } catch (err) {
-      return { code: response.ok ? 0 : response.status, message: text };
+  }
+
+  function flushWrites() {
+    if (!db||!writeQueue.length) return;
+    var batch = writeQueue.splice(0);
+    var tx = db.transaction(STORE_NAME,"readwrite");
+    var store = tx.objectStore(STORE_NAME);
+    batch.forEach(function(record) { store.put(record); });
+    tx.oncomplete = function() { enforceStorageLimit(); };
+  }
+
+  function writeMessage(record) {
+    writeQueue.push(record);
+    if (!writeTimer) writeTimer = setTimeout(function(){ writeTimer=null; flushWrites(); }, 100);
+  }
+
+  function updateMessageInDB(msgID, status) {
+    if (!db) return;
+    var tx = db.transaction(STORE_NAME,"readwrite");
+    var store = tx.objectStore(STORE_NAME);
+    var idx = store.index("status");
+    // We need to find by msgID which is in the body, iterate
+    var req = store.openCursor();
+    req.onsuccess = function(e) {
+      var cursor = e.target.result;
+      if (cursor) {
+        if (cursor.value.msgID===msgID) {
+          var rec = cursor.value;
+          rec.status = status;
+          cursor.update(rec);
+          return;
+        }
+        cursor.continue();
+      }
+    };
+  }
+
+  function enforceStorageLimit() {
+    if (!db) return;
+    var tx = db.transaction(STORE_NAME,"readwrite");
+    var store = tx.objectStore(STORE_NAME);
+    var idx = store.index("timestamp");
+    var countReq = store.count();
+    countReq.onsuccess = function() {
+      if (countReq.result<=MAX_STORED) return;
+      var toDelete = countReq.result-MAX_STORED;
+      var delReq = idx.openCursor(null,"next");
+      var deleted = 0;
+      delReq.onsuccess = function(e) {
+        var cursor = e.target.result;
+        if (cursor&&deleted<toDelete) { cursor.delete(); deleted++; cursor.continue(); }
+      };
+    };
+  }
+
+  var loadedCount = 0;
+
+  async function loadRecentMessages(count) {
+    if (!db) return [];
+    return new Promise(function(resolve) {
+      var tx = db.transaction(STORE_NAME,"readonly");
+      var store = tx.objectStore(STORE_NAME);
+      var idx = store.index("timestamp");
+      var results = [];
+      var skip = loadedCount;
+      var seen = 0;
+      var req = idx.openCursor(null,"prev");
+      req.onsuccess = function(e) {
+        var cursor = e.target.result;
+        if (!cursor) { loadedCount += results.length; resolve(results.reverse()); return; }
+        if (seen < skip) { seen++; cursor.continue(); return; }
+        if (results.length < count) { results.push(cursor.value); cursor.continue(); }
+        else { loadedCount += results.length; resolve(results.reverse()); }
+      };
+      req.onerror = function() { resolve([]); };
+    });
+  }
+
+  function updateStorageSize() {
+    if (!db) return;
+    var tx = db.transaction(STORE_NAME,"readonly");
+    var store = tx.objectStore(STORE_NAME);
+    var req = store.count();
+    req.onsuccess = function() {
+      var el = $("#storageSize");
+      if (el) el.textContent = "~"+(req.result||0)+" 条消息";
+    };
+    req.onerror = function() {};
+  }
+
+  async function clearStorageByRange(range) {
+    if (!db) return;
+    var cutoff = 0;
+    if (range==="1h") cutoff = Date.now()-3600000;
+    else if (range==="today") cutoff = new Date().setHours(0,0,0,0);
+    else if (range==="7d") cutoff = Date.now()-7*86400000;
+    else if (range==="all") { clearAllStorage(); return; }
+    return new Promise(function(resolve) {
+      var tx = db.transaction(STORE_NAME,"readwrite");
+      var store = tx.objectStore(STORE_NAME);
+      var idx = store.index("timestamp");
+      var req = idx.openCursor();
+      var deleted = 0;
+      req.onsuccess = function(e) {
+        var cursor = e.target.result;
+        if (cursor) {
+          if (cursor.value.timestamp<cutoff) { cursor.delete(); deleted++; }
+          cursor.continue();
+        } else {
+          addEvent("system","存储清理","已清理 "+deleted+" 条历史消息");
+          updateStorageSize();
+          resolve();
+        }
+      };
+    });
+  }
+
+  function clearAllStorage() {
+    if (!db) return;
+    var tx = db.transaction(STORE_NAME,"readwrite");
+    var store = tx.objectStore(STORE_NAME);
+    store.clear();
+    addEvent("system","存储清理","已清空所有历史消息");
+    updateStorageSize();
+  }
+
+  async function exportMessagesJSON() {
+    if (!db) { addEvent("error","导出","数据库未就绪"); return; }
+    var all = await new Promise(function(resolve) {
+      var tx = db.transaction(STORE_NAME,"readonly");
+      var store = tx.objectStore(STORE_NAME);
+      var req = store.getAll();
+      req.onsuccess = function() { resolve(req.result||[]); };
+      req.onerror = function() { resolve([]); };
+    });
+    var blob = new Blob([JSON.stringify(all,null,2)],{type:"application/json"});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = "gotoim-messages-"+new Date().toISOString().slice(0,10)+".json";
+    a.click();
+    URL.revokeObjectURL(url);
+    addEvent("system","导出","已导出 "+all.length+" 条消息");
+  }
+
+  // ============ Notifications ============
+
+  function requestNotifyPermission() {
+    if (!("Notification" in window)) return;
+    if (Notification.permission==="default") {
+      Notification.requestPermission();
     }
   }
 
-  function assertResult(result) {
-    if (result && result.code === 0) return result;
-    const message = result && (result.message || result.error || JSON.stringify(result));
-    throw new Error(message || "request failed");
+  function showNotification(title, body, msgID) {
+    if (!$("#desktopNotify").checked) return;
+    if (Notification.permission!=="granted") return;
+    if (!document.hidden) return;
+
+    var throttleKey = title;
+    var now = Date.now();
+    if (notifyThrottle[throttleKey]&&now-notifyThrottle[throttleKey]<5000) return;
+    notifyThrottle[throttleKey] = now;
+
+    if ($("#soundNotify").checked) playBeep();
+
+    var n = new Notification(title, {
+      body: body.length>100?body.slice(0,97)+"...":body,
+      icon: "data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0f766e"/></svg>'),
+      tag: msgID||""
+    });
+    n.onclick = function() {
+      window.focus();
+      if (msgID) scrollToMsg(msgID);
+      n.close();
+    };
   }
 
-  function appendList(params, name, list) {
-    list.forEach((item) => params.append(name, item));
+  function playBeep() {
+    try {
+      var ctx = new (window.AudioContext||window.webkitAudioContext)();
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = "sine";
+      gain.gain.value = 0.15;
+      osc.start(0);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.15);
+      osc.stop(ctx.currentTime+0.15);
+    } catch(e) {}
   }
+
+  function scrollToMsg(msgID) {
+    var item = document.querySelector('[data-track-id="'+msgID+'"]');
+    if (item) { item.scrollIntoView({behavior:"smooth",block:"center"}); item.style.outline="2px solid var(--teal)"; setTimeout(function(){item.style.outline="";},2000); }
+  }
+
+  // ============ Theme ============
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem(THEME_KEY, theme);
+    $("#themeToggle").textContent = theme==="dark"?"☀️":"🌙";
+  }
+
+  function toggleTheme() {
+    var current = document.documentElement.getAttribute("data-theme");
+    applyTheme(current==="dark"?"light":"dark");
+  }
+
+  function initTheme() {
+    var saved = localStorage.getItem(THEME_KEY);
+    if (saved) { applyTheme(saved); return; }
+    if (window.matchMedia&&window.matchMedia("(prefers-color-scheme:dark)").matches) { applyTheme("dark"); }
+  }
+
+  // ============ Mobile Nav ============
+
+  function showMobilePanel(panelName) {
+    $$(".layout>.panel").forEach(function(p){p.classList.remove("mobile-active");});
+    $("#mobileNav button").forEach(function(b){b.classList.remove("active");});
+    var panel = document.querySelector("."+panelName+"-panel");
+    if (panel) panel.classList.add("mobile-active");
+    var btn = $("#mobileNav").querySelector('[data-panel="'+panelName+'"]');
+    if (btn) btn.classList.add("active");
+    if (panelName==="conversation") $("#composer").classList.add("mobile-active");
+    else $("#composer").classList.remove("mobile-active");
+  }
+
+  // ============ Render ============
 
   function renderClients() {
-    $("#clientList").innerHTML = clients.map((client) => {
-      const connected = client.status === "connected" || client.status === "connecting";
-      return `
-        <article class="client-row" data-status="${client.status}">
-          <div class="client-head">
-            <div class="client-name">
-              <span class="dot ${client.status}" aria-hidden="true"></span>
-              <div>
-                <strong>${escapeHTML(client.name)}</strong>
-                <span>mid=${client.mid} · ${escapeHTML(formatStatus(client.status))}</span>
-              </div>
-            </div>
-            <button type="button" data-action="${connected ? "disconnect" : "connect"}" data-client="${client.id}">
-              ${connected ? "断开" : "连接"}
-            </button>
-          </div>
-          <div class="client-meta">
-            <span>key <code>${escapeHTML(client.key)}</code></span>
-            <span>device <code>${escapeHTML(client.deviceId)}</code></span>
-            <span>room <code>${escapeHTML(client.room)}</code></span>
-            <span>seq <code>${escapeHTML(client.lastSeq)}</code> · online <code>${escapeHTML(client.online)}</code></span>
-          </div>
-          <div class="pill-row">
-            <span class="pill">platform <code>${escapeHTML(client.platform)}</code></span>
-            <span class="pill">accepts <code>${escapeHTML($("#defaultAccepts").value)}</code></span>
-          </div>
-        </article>
-      `;
+    $("#clientList").innerHTML = clients.map(function(c){
+      var connected = c.status==="connected"||c.status==="connecting"||c.status==="reconnecting";
+      var unread = unreadCounts[c.mid]||0;
+      return '<article class="client-row" data-status="'+c.status+'">'+
+        '<div class="client-head">'+
+          '<div class="client-name">'+
+            '<span class="dot '+c.status+'" aria-hidden="true"></span>'+
+            '<div><strong>'+escapeHTML(c.name)+(unread?'<span class="unread-badge">'+(unread>99?"99+":unread)+'</span>':'')+'</strong>'+
+            '<span>mid='+c.mid+' · '+escapeHTML(formatStatus(c.status))+'</span></div>'+
+          '</div>'+
+          '<div class="client-actions">'+
+            '<button type="button" data-action="edit" data-client="'+c.id+'">编辑</button>'+
+            '<button type="button" data-action="delete" data-client="'+c.id+'">删除</button>'+
+            '<button type="button" data-action="'+(connected?"disconnect":"connect")+'" data-client="'+c.id+'">'+(connected?"断开":"连接")+'</button>'+
+          '</div>'+
+        '</div>'+
+        '<div class="client-status-line '+c.status+'">'+escapeHTML(reconnectStatusText(c))+'</div>'+
+        '<div class="client-meta">'+
+          '<span>key <code>'+escapeHTML(c.key)+'</code></span>'+
+          '<span>device <code>'+escapeHTML(c.deviceId)+'</code></span>'+
+          '<span>room <code>'+escapeHTML(c.room)+'</code></span>'+
+          '<span>seq <code>'+escapeHTML(c.lastSeq)+'</code> · online <code>'+escapeHTML(c.online)+'</code></span>'+
+        '</div>'+
+        '<div class="pill-row">'+
+          '<span class="pill">platform <code>'+escapeHTML(c.platform)+'</code></span>'+
+          '<span class="pill">accepts <code>'+escapeHTML($("#defaultAccepts").value)+'</code></span>'+
+        '</div>'+
+      '</article>';
     }).join("");
-
-    $("#wsStatus").textContent = connectedClients().length + " 在线";
+    updateConnectionHealth();
+    renderViewFilter();
   }
 
   function renderSelects() {
-    const options = clients.map((client) => {
-      return `<option value="${client.id}">${escapeHTML(client.name)} · mid=${client.mid}</option>`;
+    var options = clients.map(function(c){
+      return '<option value="'+c.id+'">'+escapeHTML(c.name)+' · mid='+c.mid+'</option>';
     }).join("");
-    ["#composerFrom", "#roomClient", "#watchClient", "#wsSyncClient"].forEach((selector) => {
-      const current = $(selector).value;
-      $(selector).innerHTML = options;
-      if (current) $(selector).value = current;
+    ["#composerFrom","#roomClient","#watchClient","#wsSyncClient"].forEach(function(sel){
+      var el = $(sel); if (!el) return;
+      var cur = el.value;
+      el.innerHTML = options;
+      if (cur) el.value = cur;
     });
   }
 
-  function addEvent(kind, title, body, meta) {
-    const timeline = $("#timeline");
-    const item = document.createElement("article");
-    item.className = "event " + kind;
-    const metaText = meta ? " · " + meta : "";
-    item.innerHTML = `
-      <div class="event-title"><span>${escapeHTML(title)}</span><span>${escapeHTML(nowTime() + metaText)}</span></div>
-      <div class="event-body">${escapeHTML(body)}</div>
-    `;
+  function renderViewFilter() {
+    var sel = $("#viewFilter"); if (!sel) return;
+    var cur = sel.value;
+    var mids = {};
+    clients.forEach(function(c){ mids[c.mid]=c; });
+    var html = '<option value="all">全部消息</option>';
+    Object.keys(mids).forEach(function(mid){
+      var c = mids[mid];
+      var unread = unreadCounts[mid]||0;
+      html += '<option value="mid_'+mid+'">'+escapeHTML(c.name)+' (mid='+mid+')'+(unread?' ['+unread+']':'')+'</option>';
+    });
+    sel.innerHTML = html;
+    if (cur) sel.value = cur;
+  }
+
+  function statusIcon(status) {
+    if (status==="pending") return '<span class="status-icon status-pending" title="pending"></span>';
+    if (status==="delivered") return '<span class="status-icon status-delivered" title="delivered">✓</span>';
+    if (status==="acked") return '<span class="status-icon status-acked" title="acked">✓✓</span>';
+    if (status==="failed") return '<span class="status-icon status-failed" title="failed">!</span>';
+    return "";
+  }
+
+  function pathBadge(kind) {
+    if (kind==="direct") return '<span class="path-badge path-direct">⚡ 直连</span>';
+    if (kind==="reliable") return '<span class="path-badge path-reliable">✉ 可靠</span>';
+    return "";
+  }
+
+  function addEvent(kind, title, body, meta, options) {
+    var timeline = $("#timeline");
+    var item = document.createElement("article");
+    item.className = "event "+kind;
+    if (options&&options.trackId) item.dataset.trackId = options.trackId;
+    if (options&&options.msgID) item.dataset.msgId = options.msgID;
+    if (options&&options.fromMid) item.dataset.fromMid = options.fromMid;
+    if (options&&options.toMid) item.dataset.toMid = options.toMid;
+    if (options&&options.op) item.dataset.op = options.op;
+    if (options) {
+      if (options.fromMid!==undefined) item.dataset.fromMid = options.fromMid;
+      if (options.toMid!==undefined) item.dataset.toMid = options.toMid;
+      if (options.op!==undefined) item.dataset.op = options.op;
+      if (options.msgID) item.dataset.msgId = options.msgID;
+      if (options.kind) item.dataset.kind = options.kind;
+      if (options.pathKind) item.dataset.pathKind = options.pathKind;
+      if (options.timestamp) item.dataset.timestamp = options.timestamp;
+    }
+    item.dataset.timestamp = (options&&options.timestamp)||Date.now();
+
+    var metaText = meta?" · "+meta:"";
+    var pathHtml = (options&&options.pathKind)?pathBadge(options.pathKind)+" ":"";
+    var msgFooter = options&&options.msgID?(
+      '<div class="event-footer">'+
+        '<button class="msg-id-chip" type="button" data-copy-msg="'+escapeHTML(options.msgID)+'">msg_id='+escapeHTML(options.msgID)+'</button>'+
+        (options.status==="failed"?'<button class="retry-btn" type="button" data-retry-msg="'+escapeHTML(options.msgID)+'">重试</button>':"")+
+      '</div>'
+    ):"";
+    item.innerHTML =
+      '<div class="event-title">'+
+        '<span class="event-title-main" data-status-slot>'+(options&&options.status?statusIcon(options.status):"")+pathHtml+'<span>'+escapeHTML(title)+'</span></span>'+
+        '<span class="event-title-meta">'+escapeHTML(nowTime()+metaText)+'</span>'+
+      '</div>'+
+      '<div class="event-body">'+escapeHTML(body)+'</div>'+
+      msgFooter;
     timeline.appendChild(item);
     timeline.scrollTop = timeline.scrollHeight;
-  }
+    allTimelineEvents.push(item);
 
-  function setResult(value) {
-    $("#resultBox").textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-  }
-
-  function saveConfig() {
-    const config = {
-      apiHost: $("#apiHost").value,
-      wsHost: $("#wsHost").value,
-      defaultRoom: $("#defaultRoom").value,
-      defaultAccepts: $("#defaultAccepts").value,
-      heartbeatSeconds: $("#heartbeatSeconds").value,
-      autoAck: $("#autoAck").checked,
-      autoConnect: $("#autoConnect").checked
-    };
-    localStorage.setItem("gotoim-console-config", JSON.stringify(config));
-    addEvent("system", "配置", "已保存当前前端配置");
-  }
-
-  function loadConfig() {
-    try {
-      const config = JSON.parse(localStorage.getItem("gotoim-console-config") || "{}");
-      Object.keys(config).forEach((key) => {
-        const el = $("#" + key);
-        if (!el) return;
-        if (el.type === "checkbox") {
-          el.checked = Boolean(config[key]);
-        } else {
-          el.value = config[key];
-        }
+    // Persist to IDB
+    if (dbReady) {
+      writeMessage({
+        type: kind, op: (options&&options.op)||0, from_mid: (options&&options.fromMid)||0,
+        to_mid: (options&&options.toMid)||0, body: body, msgID: (options&&options.msgID)||"",
+        status: (options&&options.status)||"", timestamp: (options&&options.timestamp)||Date.now(),
+        client_name: title, meta: meta||"", pathKind: (options&&options.pathKind)||""
       });
-    } catch (err) {
-      addEvent("error", "配置", "读取 localStorage 失败: " + err.message);
+      updateStorageSize();
+    }
+
+    return item;
+  }
+
+  function trackMessage(data) {
+    var msgID = data.msgID||("local-"+Date.now()+"-"+Math.random().toString(36).slice(2,6));
+    var record = Object.assign({ msgID:msgID, status:"pending", kind:"sent", op:9, title:"", body:"", timestamp:Date.now(), event:null, failTimer:null }, data);
+    trackedMessages.set(msgID, record);
+    traceItems.unshift(record);
+    while (traceItems.length>TRACE_LIMIT) {
+      var old = traceItems.pop();
+      trackedMessages.delete(old.msgID);
+    }
+    if (record.status!=="acked") {
+      record.failTimer = setTimeout(function() {
+        var cur = trackedMessages.get(msgID);
+        if (cur&&cur.status!=="acked") updateMessageStatus(msgID,"failed");
+      }, 30000);
+    }
+    renderTrace();
+    return record;
+  }
+
+  function renderTrackedEvent(kind, title, body, meta, data) {
+    var record = trackMessage(Object.assign({kind:kind,title:title,body:body},data));
+    record.event = addEvent(kind, title, body, meta, {
+      trackId: record.msgID, msgID: record.msgID, status: record.status,
+      fromMid: data.fromMid, toMid: data.toMid, op: data.op, pathKind: data.pathKind
+    });
+    return record;
+  }
+
+  function updateMessageStatus(msgID, status) {
+    var record = trackedMessages.get(msgID);
+    if (!record) return;
+    record.status = status;
+    if (status==="acked"&&record.failTimer) { clearTimeout(record.failTimer); record.failTimer=null; }
+    if (record.event) {
+      var slot = record.event.querySelector("[data-status-slot]");
+      if (slot) {
+        var text = slot.querySelector("span:last-child");
+        slot.innerHTML = statusIcon(status)+(text?'<span>'+escapeHTML(text.textContent)+'</span>':"");
+      }
+      var footer = record.event.querySelector(".event-footer");
+      if (footer) {
+        var retry = footer.querySelector(".retry-btn");
+        if (status==="failed"&&!retry) {
+          footer.insertAdjacentHTML("beforeend",'<button class="retry-btn" type="button" data-retry-msg="'+escapeHTML(msgID)+'">重试</button>');
+        } else if (status!=="failed"&&retry) {
+          retry.remove();
+        }
+      }
+    }
+    if (dbReady) updateMessageInDB(msgID, status);
+    renderTrace();
+  }
+
+  function renderTrace() {
+    var list = $("#traceList"); if (!list) return;
+    var filter = $("#traceStatusFilter")?$("#traceStatusFilter").value:"all";
+    var items = traceItems.filter(function(i){return filter==="all"||i.status===filter;});
+    list.innerHTML = items.map(function(i){
+      return '<article class="trace-item">'+
+        '<div class="trace-head">'+
+          '<span>'+statusIcon(i.status)+' '+escapeHTML(i.status)+' · op='+escapeHTML(i.op||"-")+'</span>'+
+          '<span>'+new Date(i.timestamp).toLocaleTimeString("zh-CN",{hour12:false})+'</span>'+
+        '</div>'+
+        '<div class="trace-body">'+escapeHTML(compact(i.body||i.title||i.msgID,140))+'</div>'+
+        '<div class="event-footer">'+
+          '<button class="msg-id-chip" type="button" data-copy-msg="'+escapeHTML(i.msgID)+'">msg_id='+escapeHTML(i.msgID)+'</button>'+
+          (i.status==="failed"?'<button class="retry-btn" type="button" data-retry-msg="'+escapeHTML(i.msgID)+'">重试</button>':"")+
+        '</div>'+
+      '</article>';
+    }).join("")||'<div class="small">暂无消息追踪</div>';
+  }
+
+  function setResult(v) {
+    $("#resultBox").textContent = typeof v==="string"?v:JSON.stringify(v,null,2);
+  }
+
+  // ============ Path Stats ============
+
+  function recordPath(kind) {
+    pathStats[kind] = (pathStats[kind]||0)+1;
+    updatePathBar();
+  }
+
+  function updatePathBar() {
+    var d = pathStats.direct||0;
+    var r = pathStats.reliable||0;
+    var total = d+r||1;
+    $("#pathBarDirect").style.flex = d/total;
+    $("#pathBarReliable").style.flex = r/total;
+    $("#pathBarCount").textContent = d+" / "+r;
+  }
+
+  // ============ Sync Progress ============
+
+  function showSyncProgress(current, total) {
+    var el = $("#syncProgress");
+    el.classList.add("active");
+    el.innerHTML = '正在同步离线消息... ('+current+'/'+total+')'+
+      '<div class="sync-progress-bar"><div class="sync-progress-fill" style="width:'+(total?current/total*100:0)+'%"></div></div>';
+  }
+
+  function hideSyncProgress(count) {
+    var el = $("#syncProgress");
+    el.classList.remove("active");
+    if (count>0) addEvent("system","离线同步","共同步 "+count+" 条离线消息");
+  }
+
+  // ============ New Message Float ============
+
+  function checkTimelineInView() {
+    var tl = $("#timeline");
+    var rect = tl.getBoundingClientRect();
+    var inView = rect.bottom<=window.innerHeight&&rect.top>=0;
+    return inView;
+  }
+
+  function maybeShowNewMsgFloat() {
+    if (!checkTimelineInView()) {
+      $("#newMsgFloat").classList.add("visible");
     }
   }
 
+  function scrollToLatest() {
+    var tl = $("#timeline");
+    tl.scrollTop = tl.scrollHeight;
+    $("#newMsgFloat").classList.remove("visible");
+  }
+
+  // ============ Search & Filter ============
+
+  function applySearchAndFilter() {
+    var query = ($("#searchInput").value||"").trim().toLowerCase();
+    var filterOp = $("#filterOp").value;
+    var filterKind = $("#filterKind").value;
+    var filterFromMid = $("#filterFromMid").value;
+    var filterTime = $("#filterTime").value;
+    var now = Date.now();
+    var timeCutoff = 0;
+    if (filterTime==="5m") timeCutoff = now-300000;
+    else if (filterTime==="1h") timeCutoff = now-3600000;
+    else if (filterTime==="today") timeCutoff = new Date().setHours(0,0,0,0);
+
+    searchMatches = [];
+    currentMatchIdx = -1;
+
+    var events = $$("#timeline .event");
+    var matchCount = 0;
+
+    events.forEach(function(ev) {
+      var matchesFilter = true;
+      if (filterOp && ev.dataset.op!==filterOp) matchesFilter = false;
+      if (filterKind && ev.dataset.kind!==filterKind && (!ev.classList.contains(filterKind))) matchesFilter = false;
+      if (filterFromMid && ev.dataset.fromMid!==filterFromMid && ev.dataset.toMid!==filterFromMid) matchesFilter = false;
+      if (timeCutoff && Number(ev.dataset.timestamp)<timeCutoff) matchesFilter = false;
+
+      if (!matchesFilter) { ev.classList.add("dimmed"); return; }
+
+      var bodyText = (ev.querySelector(".event-body")||{}).textContent||"";
+      var titleText = (ev.querySelector(".event-title")||{}).textContent||"";
+      var allText = bodyText+" "+titleText;
+
+      if (query) {
+        var hasMatch = allText.toLowerCase().indexOf(query)>=0;
+        if (!hasMatch) { ev.classList.add("dimmed"); return; }
+        // highlight
+        highlightText(ev, query);
+        searchMatches.push(ev);
+        matchCount++;
+      } else {
+        clearHighlight(ev);
+        matchCount++;
+      }
+      ev.classList.remove("dimmed");
+    });
+
+    if (query) {
+      $("#matchInfo").textContent = "找到 "+matchCount+" 条匹配";
+      $("#matchInfo").classList.remove("hidden");
+      $("#prevMatch").disabled = false;
+      $("#nextMatch").disabled = false;
+      $("#clearSearch").classList.remove("hidden");
+    } else {
+      $("#matchInfo").textContent = "";
+      $("#matchInfo").classList.add("hidden");
+      $("#prevMatch").disabled = true;
+      $("#nextMatch").disabled = true;
+      $("#clearSearch").classList.add("hidden");
+    }
+    if (filterOp||filterKind||filterFromMid||filterTime) {
+      $("#matchInfo").textContent = (query?"找到 "+matchCount+" 条匹配":"已筛选");
+      $("#matchInfo").classList.remove("hidden");
+      $("#clearSearch").classList.remove("hidden");
+    }
+  }
+
+  function highlightText(el, query) {
+    clearHighlight(el);
+    var body = el.querySelector(".event-body");
+    if (body&&query) {
+      var text = body.textContent;
+      var idx = text.toLowerCase().indexOf(query);
+      if (idx>=0) {
+        body.innerHTML = escapeHTML(text.slice(0,idx))+'<mark>'+escapeHTML(text.slice(idx,idx+query.length))+'</mark>'+escapeHTML(text.slice(idx+query.length));
+      }
+    }
+  }
+
+  function clearHighlight(el) {
+    var body = el.querySelector(".event-body");
+    if (body&&body.querySelector("mark")) {
+      body.textContent = body.textContent;
+    }
+  }
+
+  function navigateMatch(direction) {
+    if (!searchMatches.length) return;
+    if (direction==="next") currentMatchIdx = (currentMatchIdx+1)%searchMatches.length;
+    else currentMatchIdx = (currentMatchIdx-1+searchMatches.length)%searchMatches.length;
+    var el = searchMatches[currentMatchIdx];
+    el.scrollIntoView({behavior:"smooth",block:"center"});
+    searchMatches.forEach(function(e){e.style.outline="";});
+    el.style.outline = "2px solid var(--teal)";
+  }
+
+  function clearSearch() {
+    $("#searchInput").value = "";
+    $("#filterOp").value = "";
+    $("#filterKind").value = "";
+    $("#filterFromMid").value = "";
+    $("#filterTime").value = "";
+    $("#filterPanel").classList.remove("active");
+    $$("#timeline .event").forEach(function(ev){
+      ev.classList.remove("dimmed");
+      clearHighlight(ev);
+    });
+    $("#matchInfo").classList.add("hidden");
+    $("#prevMatch").disabled = true;
+    $("#nextMatch").disabled = true;
+    $("#clearSearch").classList.add("hidden");
+    searchMatches = [];
+    currentMatchIdx = -1;
+    window.location.hash = "";
+  }
+
+  // ============ View Filter (Session) ============
+
+  function applyViewFilter() {
+    var val = $("#viewFilter").value;
+    currentViewFilter = val;
+
+    $$("#timeline .event").forEach(function(ev) {
+      if (val==="all") { ev.classList.remove("hidden"); return; }
+      if (val.indexOf("mid_")===0) {
+        var mid = Number(val.replace("mid_",""));
+        var fromMid = Number(ev.dataset.fromMid);
+        var toMid = Number(ev.dataset.toMid);
+        if (fromMid===mid||toMid===mid) ev.classList.remove("hidden");
+        else ev.classList.add("hidden");
+      }
+    });
+
+    // Reset unread for selected mid
+    if (val.indexOf("mid_")===0) {
+      var mid = Number(val.replace("mid_",""));
+      unreadCounts[mid] = 0;
+      renderClients();
+    }
+  }
+
+  function incrementUnread(mid) {
+    if (currentViewFilter===("mid_"+mid)) return;
+    unreadCounts[mid] = (unreadCounts[mid]||0)+1;
+    renderClients();
+  }
+
+  // ============ Metrics ============
+
+  function parsePrometheus(text) {
+    var metrics = {};
+    var lines = text.split("\n");
+    lines.forEach(function(line) {
+      if (!line||line.startsWith("#")) return;
+      var m = line.match(/^(\w+)\{?([^}]*)\}?\s+([\d\.e+-]+)(?:\s+(\d+))?/);
+      if (m) {
+        var name = m[1];
+        var labels = {};
+        if (m[2]) {
+          m[2].split(",").forEach(function(pair){
+            var kv = pair.split("=");
+            if (kv.length===2) labels[kv[0]]=kv[1].replace(/^"|"$/g,"");
+          });
+        }
+        var value = parseFloat(m[3]);
+        if (!metrics[name]) metrics[name] = [];
+        metrics[name].push({labels:labels,value:value,ts:m[4]?Number(m[4]):Date.now()});
+      }
+    });
+    return metrics;
+  }
+
+  function renderMetricsCards(metrics) {
+    var cards = $("#metricsCards");
+    var names = { push_total:"总推送数", comet_connections:"在线连接数", msg_ack_total:"ACK确认数", push_latency:"平均延迟(ms)" };
+    var html = "";
+    Object.keys(names).forEach(function(key){
+      var data = metrics[key];
+      var val = "-";
+      var deltaHtml = "";
+      if (data&&data.length) {
+        val = data[data.length-1].value;
+        if (lastMetricValues[key]!==undefined) {
+          var diff = val-lastMetricValues[key];
+          if (diff>0) deltaHtml = '<span class="metric-delta up">↑ +'+diff.toFixed(0)+'</span>';
+          else if (diff<0) deltaHtml = '<span class="metric-delta down">↓ '+diff.toFixed(0)+'</span>';
+        }
+        lastMetricValues[key] = val;
+      }
+      html += '<div class="metric-card"><div class="metric-value">'+val+'</div><div class="metric-label">'+names[key]+'</div>'+deltaHtml+'</div>';
+    });
+    cards.innerHTML = html;
+
+    // chart
+    var chartData = (metrics.comet_connections||[]).slice(-30);
+    var chartEl = $("#metricsChart");
+    if (chartData.length) {
+      var maxVal = Math.max.apply(null, chartData.map(function(d){return d.value;}))||1;
+      chartEl.innerHTML = chartData.map(function(d){
+        var h = Math.max(2, Math.round(d.value/maxVal*100));
+        return '<div class="bar" style="height:'+h+'%" title="'+d.value+'"></div>';
+      }).join("");
+    }
+  }
+
+  async function refreshMetrics() {
+    try {
+      var r = await fetch(apiUrl("/metrics"));
+      var text = await r.text();
+      var parsed = parsePrometheus(text);
+      metricsHistory.push({ts:Date.now(),metrics:parsed});
+      if (metricsHistory.length>30) metricsHistory.shift();
+      renderMetricsCards(parsed);
+    } catch(e) {
+      // silently fail
+    }
+  }
+
+  function startMetricsAutoRefresh() {
+    stopMetricsAutoRefresh();
+    if ($("#metricsAutoRefresh").checked) {
+      var interval = Number($("#metricsInterval").value)||5000;
+      metricsRefreshTimer = setInterval(refreshMetrics, interval);
+    }
+  }
+
+  function stopMetricsAutoRefresh() {
+    if (metricsRefreshTimer) { clearInterval(metricsRefreshTimer); metricsRefreshTimer=null; }
+  }
+
+  // ============ Protocol ============
+
   function buildProto(op, seq, body) {
-    const bodyBytes = body ? (body instanceof Uint8Array ? body : new Uint8Array(body)) : new Uint8Array();
-    const buffer = new ArrayBuffer(RAW_HEADER_LEN + bodyBytes.byteLength);
-    const view = new DataView(buffer);
-    view.setInt32(0, RAW_HEADER_LEN + bodyBytes.byteLength);
-    view.setInt16(4, RAW_HEADER_LEN);
-    view.setInt16(6, 1);
-    view.setInt32(8, op);
-    view.setInt32(12, seq);
-    new Uint8Array(buffer, RAW_HEADER_LEN).set(bodyBytes);
-    return buffer;
+    var bodyBytes = body?(body instanceof Uint8Array?body:new Uint8Array(body)):new Uint8Array();
+    var buf = new ArrayBuffer(RAW_HEADER_LEN+bodyBytes.byteLength);
+    var v = new DataView(buf);
+    v.setInt32(0,RAW_HEADER_LEN+bodyBytes.byteLength);
+    v.setInt16(4,RAW_HEADER_LEN); v.setInt16(6,1);
+    v.setInt32(8,op); v.setInt32(12,seq);
+    new Uint8Array(buf,RAW_HEADER_LEN).set(bodyBytes);
+    return buf;
   }
 
   function parseProto(data) {
-    const view = new DataView(data);
-    const packLen = view.getInt32(0);
-    const headerLen = view.getInt16(4);
-    return {
-      packLen,
-      headerLen,
-      ver: view.getInt16(6),
-      op: view.getInt32(8),
-      seq: view.getInt32(12),
-      body: data.slice(headerLen, packLen)
-    };
+    var v = new DataView(data);
+    var packLen = v.getInt32(0);
+    var headerLen = v.getInt16(4);
+    return { packLen:packLen, headerLen:headerLen, ver:v.getInt16(6), op:v.getInt32(8), seq:v.getInt32(12), body:data.slice(headerLen,packLen) };
   }
 
   function readUint64(view, offset) {
-    const high = BigInt(view.getUint32(offset));
-    const low = BigInt(view.getUint32(offset + 4));
-    const value = (high << 32n) + low;
-    return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : value.toString();
+    var high = BigInt(view.getUint32(offset));
+    var low = BigInt(view.getUint32(offset+4));
+    var value = (high<<32n)+low;
+    return value<=BigInt(Number.MAX_SAFE_INTEGER)?Number(value):value.toString();
   }
 
   function writeUint64(view, offset, value) {
-    const text = String(value === undefined || value === null || value === "" ? "0" : value).trim();
-    const big = BigInt(text || "0");
-    view.setUint32(offset, Number((big >> 32n) & 0xffffffffn));
-    view.setUint32(offset + 4, Number(big & 0xffffffffn));
+    var text = String(value===undefined||value===null||value===""?"0":value).trim();
+    var big = BigInt(text||"0");
+    view.setUint32(offset, Number((big>>32n)&0xffffffffn));
+    view.setUint32(offset+4, Number(big&0xffffffffn));
   }
 
   function parseMsgBody(buffer) {
-    if (!buffer || buffer.byteLength < 34) throw new Error("too short");
-    const view = new DataView(buffer);
-    const msgIDLen = view.getUint16(0);
-    const minLen = 2 + msgIDLen + 32;
-    if (msgIDLen > 2048 || buffer.byteLength < minLen) throw new Error("not MsgBody");
-    let offset = 2;
-    const msgID = textDecoder.decode(buffer.slice(offset, offset + msgIDLen));
-    offset += msgIDLen;
-    const from = readUint64(view, offset);
-    offset += 8;
-    const to = readUint64(view, offset);
-    offset += 8;
-    const timestamp = readUint64(view, offset);
-    offset += 8;
-    const seq = readUint64(view, offset);
-    offset += 8;
-    const content = buffer.slice(offset);
-    const contentText = textDecoder.decode(content);
-    return { msgID, from, to, timestamp, seq, content, contentText };
+    if (!buffer||buffer.byteLength<34) throw new Error("too short");
+    var view = new DataView(buffer);
+    var msgIDLen = view.getUint16(0);
+    var minLen = 2+msgIDLen+32;
+    if (msgIDLen>2048||buffer.byteLength<minLen) throw new Error("not MsgBody");
+    var offset = 2;
+    var msgID = textDecoder.decode(buffer.slice(offset,offset+msgIDLen));
+    offset+=msgIDLen;
+    var from = readUint64(view,offset); offset+=8;
+    var to = readUint64(view,offset); offset+=8;
+    var timestamp = readUint64(view,offset); offset+=8;
+    var seq = readUint64(view,offset); offset+=8;
+    var content = buffer.slice(offset);
+    var contentText = textDecoder.decode(content);
+    return { msgID:msgID, from:from, to:to, timestamp:timestamp, seq:seq, content:content, contentText:contentText };
   }
 
   function parseAckBody(buffer) {
-    const view = new DataView(buffer);
-    const msgIDLen = view.getUint16(0);
-    const msgID = textDecoder.decode(buffer.slice(2, 2 + msgIDLen));
-    const seq = readUint64(view, 2 + msgIDLen);
-    return { msgID, seq };
+    var view = new DataView(buffer);
+    var msgIDLen = view.getUint16(0);
+    var msgID = textDecoder.decode(buffer.slice(2,2+msgIDLen));
+    var seq = readUint64(view,2+msgIDLen);
+    return { msgID:msgID, seq:seq };
   }
 
   function marshalAckBody(msgID, seq) {
-    const idBytes = textEncoder.encode(msgID);
-    const buffer = new ArrayBuffer(2 + idBytes.byteLength + 8);
-    const view = new DataView(buffer);
-    view.setUint16(0, idBytes.byteLength);
-    new Uint8Array(buffer, 2).set(idBytes);
-    writeUint64(view, 2 + idBytes.byteLength, seq);
-    return new Uint8Array(buffer);
+    var idBytes = textEncoder.encode(msgID);
+    var buf = new ArrayBuffer(2+idBytes.byteLength+8);
+    var view = new DataView(buf);
+    view.setUint16(0,idBytes.byteLength);
+    new Uint8Array(buf,2).set(idBytes);
+    writeUint64(view,2+idBytes.byteLength,seq);
+    return new Uint8Array(buf);
   }
 
   function marshalSyncReq(lastSeq, limit) {
-    const buffer = new ArrayBuffer(12);
-    const view = new DataView(buffer);
-    writeUint64(view, 0, lastSeq);
-    view.setUint32(8, Number(limit || 100));
-    return new Uint8Array(buffer);
+    var buf = new ArrayBuffer(12);
+    var view = new DataView(buf);
+    writeUint64(view,0,lastSeq);
+    view.setUint32(8,Number(limit||100));
+    return new Uint8Array(buf);
   }
 
   function parseSyncReply(buffer) {
-    if (!buffer || buffer.byteLength < 13) {
-      throw new Error("sync reply too short");
-    }
-    const view = new DataView(buffer);
-    const reply = {
-      currentSeq: readUint64(view, 0),
-      hasMore: view.getUint8(8) === 1,
-      messages: []
-    };
-    const count = view.getUint32(9);
-    let offset = 13;
-    for (let index = 0; index < count; index += 1) {
-      if (offset + 4 > buffer.byteLength) throw new Error("sync message length truncated");
-      const msgLen = view.getUint32(offset);
-      offset += 4;
-      if (offset + msgLen > buffer.byteLength) throw new Error("sync message body truncated");
-      reply.messages.push(parseMsgBody(buffer.slice(offset, offset + msgLen)));
-      offset += msgLen;
+    if (!buffer||buffer.byteLength<13) throw new Error("sync reply too short");
+    var view = new DataView(buffer);
+    var reply = { currentSeq:readUint64(view,0), hasMore:view.getUint8(8)===1, messages:[] };
+    var count = view.getUint32(9);
+    var offset = 13;
+    for (var i=0;i<count;i+=1) {
+      if (offset+4>buffer.byteLength) throw new Error("sync message length truncated");
+      var msgLen = view.getUint32(offset); offset+=4;
+      if (offset+msgLen>buffer.byteLength) throw new Error("sync message body truncated");
+      reply.messages.push(parseMsgBody(buffer.slice(offset,offset+msgLen)));
+      offset+=msgLen;
     }
     return reply;
   }
 
   function decodePayload(buffer) {
-    const text = textDecoder.decode(buffer);
-    let json = null;
-    try {
-      json = JSON.parse(text);
-    } catch (err) {
-      json = null;
-    }
-    let msgBody = null;
-    try {
-      msgBody = parseMsgBody(buffer);
-    } catch (err) {
-      msgBody = null;
-    }
-    let msgJson = null;
-    if (msgBody) {
-      try {
-        msgJson = JSON.parse(msgBody.contentText);
-      } catch (err) {
-        msgJson = null;
-      }
-    }
-    return { text, json, msgBody, msgJson };
+    var text = textDecoder.decode(buffer);
+    var json = null;
+    try { json = JSON.parse(text); } catch(e) { json=null; }
+    var msgBody = null;
+    try { msgBody = parseMsgBody(buffer); } catch(e) { msgBody=null; }
+    var msgJson = null;
+    if (msgBody) { try { msgJson=JSON.parse(msgBody.contentText); } catch(e) { msgJson=null; } }
+    return { text:text, json:json, msgBody:msgBody, msgJson:msgJson };
   }
 
   function payloadText(decoded) {
-    if (decoded.msgJson && decoded.msgJson.text) return decoded.msgJson.text;
-    if (decoded.json && decoded.json.text) return decoded.json.text;
-    if (decoded.msgBody) return decoded.msgBody.contentText || "[binary MsgBody]";
-    return decoded.text || "[empty]";
+    if (decoded.msgJson&&decoded.msgJson.text) return decoded.msgJson.text;
+    if (decoded.json&&decoded.json.text) return decoded.json.text;
+    if (decoded.msgBody) return decoded.msgBody.contentText||"[binary MsgBody]";
+    return decoded.text||"[empty]";
   }
 
   function payloadMeta(decoded) {
-    const data = decoded.msgJson || decoded.json || {};
-    if (decoded.msgBody) {
-      return "msg_id=" + decoded.msgBody.msgID + " seq=" + decoded.msgBody.seq;
-    }
-    const parts = [];
-    if (data.from) parts.push("from=" + data.from);
-    if (data.to) parts.push("to=" + data.to);
+    var data = decoded.msgJson||decoded.json||{};
+    if (decoded.msgBody) return "msg_id="+decoded.msgBody.msgID+" seq="+decoded.msgBody.seq;
+    var parts = [];
+    if (data.from) parts.push("from="+data.from);
+    if (data.to) parts.push("to="+data.to);
     return parts.join(" ");
   }
 
   function sendProtocol(client, op, body, label) {
-    if (!client.ws || client.ws.readyState !== WebSocket.OPEN) {
-      throw new Error(client.name + " 未连接");
-    }
-    client.ws.send(buildProto(op, client.seq++, body || null));
-    if (label) {
-      addEvent("system", client.name, label, "op=" + op);
-    }
+    if (!client.ws||client.ws.readyState!==WebSocket.OPEN) throw new Error(client.name+" 未连接");
+    client.ws.send(buildProto(op, client.seq++, body||null));
+    if (label) addEvent("system", client.name, label, "op="+op,{op:op,fromMid:client.mid});
   }
 
-  function connectClient(id) {
-    const client = getClient(id);
-    if (!client || client.status === "connected" || client.status === "connecting") return;
+  function clearReconnectTimer(client) {
+    if (client.reconnectTimer) { clearTimeout(client.reconnectTimer); client.reconnectTimer=null; }
+  }
 
-    const ws = new WebSocket(getWsUrl());
+  function shouldAutoReconnect(client) {
+    return $("#autoReconnect").checked&&!client.manualClose&&!unloading&&client.reconnectAttempts<maxReconnectAttempts();
+  }
+
+  function scheduleReconnect(client) {
+    clearClientTimer(client);
+    clearReconnectTimer(client);
+    if (!shouldAutoReconnect(client)) { client.status="disconnected"; renderClients(); return; }
+    client.reconnectAttempts+=1;
+    client.status="reconnecting";
+    var delay = Math.min(client.reconnectDelay||1000,30000);
+    client.reconnectDelay = Math.min(delay*2,30000);
+    renderClients();
+    addEvent("system", client.name, "将在 "+Math.round(delay/1000)+"s 后重连", "attempt="+client.reconnectAttempts+"/"+maxReconnectAttempts(),{op:0,fromMid:client.mid});
+    client.reconnectTimer = setTimeout(function(){connectClient(client.id,true);},delay);
+  }
+
+  function connectClient(id, isReconnect) {
+    var client = getClient(id);
+    if (!client||client.status==="connected"||client.status==="connecting") return;
+    clearReconnectTimer(client);
+    client.manualClose = false;
+    var ws = new WebSocket(getWsUrl());
     client.ws = ws;
-    client.status = "connecting";
-    client.room = $("#defaultRoom").value.trim() || client.room;
+    client.status = isReconnect?"reconnecting":"connecting";
+    client.room = $("#defaultRoom").value.trim()||client.room;
     ws.binaryType = "arraybuffer";
     renderClients();
 
     ws.onopen = function() {
-      const token = {
-        mid: client.mid,
-        key: client.key,
-        room_id: client.room,
-        platform: client.platform,
-        device_id: client.deviceId,
-        accepts: getDefaultAccepts(),
-        last_seq: client.lastSeq || 0
-      };
-      sendProtocol(client, OP_AUTH, textEncoder.encode(JSON.stringify(token)), "Auth " + JSON.stringify(token));
+      var token = { mid:client.mid, key:client.key, room_id:client.room, platform:client.platform, device_id:client.deviceId, accepts:getDefaultAccepts(), last_seq:client.lastSeq||0 };
+      sendProtocol(client, OP_AUTH, textEncoder.encode(JSON.stringify(token)), "Auth "+JSON.stringify(token));
     };
 
     ws.onmessage = function(evt) {
-      let proto;
-      try {
-        proto = parseProto(evt.data);
-      } catch (err) {
-        addEvent("error", client.name, "协议解析失败: " + err.message);
-        return;
-      }
+      var proto;
+      try { proto = parseProto(evt.data); }
+      catch(e) { addEvent("error", client.name, "协议解析失败: "+e.message, "",{op:0,fromMid:client.mid}); return; }
       handleProto(client, proto);
     };
 
     ws.onerror = function() {
-      addEvent("error", client.name, "WebSocket error");
+      addEvent("error", client.name, "WebSocket error", "",{op:0,fromMid:client.mid});
     };
 
     ws.onclose = function() {
       clearClientTimer(client);
       client.ws = null;
-      client.status = "disconnected";
-      renderClients();
-      addEvent("system", client.name, "连接已断开");
+      addEvent("system", client.name, "连接已断开","",{op:0,fromMid:client.mid});
+      scheduleReconnect(client);
     };
   }
 
   function clearClientTimer(client) {
-    if (client.heartbeatTimer) {
-      clearInterval(client.heartbeatTimer);
-      client.heartbeatTimer = null;
-    }
+    if (client.heartbeatTimer) { clearInterval(client.heartbeatTimer); client.heartbeatTimer=null; }
   }
 
-  function disconnectClient(id) {
-    const client = getClient(id);
-    if (!client) return;
+  function disconnectClient(id, silent) {
+    var client = getClient(id); if (!client) return;
+    client.manualClose = true;
     clearClientTimer(client);
-    if (client.ws) {
-      client.ws.close();
-      client.ws = null;
-    }
+    clearReconnectTimer(client);
+    if (client.ws) { client.ws.close(); client.ws=null; }
     client.status = "disconnected";
+    client.reconnectAttempts = 0;
+    client.reconnectDelay = 1000;
     renderClients();
+    if (!silent) addEvent("system", client.name, "已手动断开","",{op:0,fromMid:client.mid});
   }
 
   function startHeartbeat(client) {
     clearClientTimer(client);
-    const seconds = Math.max(10, Number($("#heartbeatSeconds").value) || 30);
-    client.heartbeatTimer = setInterval(() => {
-      try {
-        sendProtocol(client, OP_HEARTBEAT, null);
-      } catch (err) {
-        addEvent("error", client.name, "心跳失败: " + err.message);
-      }
-    }, seconds * 1000);
+    var seconds = Math.max(10,Number($("#heartbeatSeconds").value)||30);
+    client.heartbeatTimer = setInterval(function() {
+      try { sendProtocol(client, OP_HEARTBEAT, null); }
+      catch(e) { addEvent("error", client.name, "心跳失败: "+e.message,"",{op:2,fromMid:client.mid}); }
+    }, seconds*1000);
   }
 
   function handleProto(client, proto) {
-    const name = opNames[proto.op] || ("Op " + proto.op);
+    var name = opNames[proto.op]||("Op "+proto.op);
     switch (proto.op) {
       case OP_AUTH_REPLY:
         client.status = "connected";
-        $("#apiStatus").textContent = getApiBase().replace(/^https?:\/\//, "");
+        client.reconnectAttempts = 0;
+        client.reconnectDelay = 1000;
+        $("#apiStatus").textContent = getApiBase().replace(/^https?:\/\//,"");
         $("#roomStatus").textContent = client.room;
         startHeartbeat(client);
         renderClients();
-        addEvent("system", client.name, "Auth OK", "op=8");
+        addEvent("system", client.name, "Auth OK", "op=8",{op:8,fromMid:client.mid});
         break;
       case OP_HEARTBEAT_REPLY: {
-        let online = "-";
-        if (proto.body.byteLength >= 4) {
-          online = new DataView(proto.body).getInt32(0);
-        }
+        var online = "-";
+        if (proto.body.byteLength>=4) online = new DataView(proto.body).getInt32(0);
         client.online = online;
         renderClients();
-        addEvent("system", client.name, "HeartbeatReply online=" + online, "op=3");
+        addEvent("system", client.name, "HeartbeatReply online="+online, "op=3",{op:3,fromMid:client.mid});
         break;
       }
       case OP_RAW:
@@ -1406,11 +2052,24 @@ label {
       case OP_CHANGE_ROOM_REPLY:
       case OP_SUB_REPLY:
       case OP_UNSUB_REPLY:
-        addEvent("system", client.name, name + " OK", "op=" + proto.op);
+        addEvent("system", client.name, name+" OK", "op="+proto.op,{op:proto.op,fromMid:client.mid});
         break;
-      case OP_SEND_MSG_ACK:
-        addEvent("system", client.name, "SendMsgAck " + compact(textDecoder.decode(proto.body), 160), "op=18");
+      case OP_SEND_MSG_ACK: {
+        var ackBody;
+        try { ackBody = parseAckBody(proto.body); }
+        catch(e) { addEvent("error", client.name, "SendMsgAck 解析失败","",{op:18,fromMid:client.mid}); break; }
+        updateMessageStatus(ackBody.msgID, "delivered");
+        addEvent("system", client.name, "SendMsgAck msg_id="+ackBody.msgID, "op=18",{op:18,fromMid:client.mid});
         break;
+      }
+      case OP_PUSH_MSG_ACK: {
+        var pushAckBody;
+        try { pushAckBody = parseAckBody(proto.body); }
+        catch(e) { addEvent("error", client.name, "PushMsgAck 解析失败","",{op:19,fromMid:client.mid}); break; }
+        updateMessageStatus(pushAckBody.msgID, "acked");
+        addEvent("system", client.name, "PushMsgAck msg_id="+pushAckBody.msgID, "op=19",{op:19,fromMid:client.mid});
+        break;
+      }
       default:
         handleIncomingPayload(client, proto, name);
         break;
@@ -1418,354 +2077,619 @@ label {
   }
 
   function handleIncomingPayload(client, proto, title) {
-    const decoded = decodePayload(proto.body);
-    const body = payloadText(decoded);
-    const meta = payloadMeta(decoded) || ("op=" + proto.op + " len=" + proto.body.byteLength);
-    addEvent("received", client.name + " 收到 " + title, body, meta);
+    var decoded = decodePayload(proto.body);
+    var body = payloadText(decoded);
+    var meta = payloadMeta(decoded)||("op="+proto.op+" len="+proto.body.byteLength);
+    var msgID = decoded.msgBody?decoded.msgBody.msgID:null;
+    var fromMid = decoded.msgBody?decoded.msgBody.from:(decoded.json?decoded.json.from:client.mid);
+    var toMid = decoded.msgBody?decoded.msgBody.to:(decoded.json?decoded.json.to:0);
 
-    if ($("#autoAck").checked && decoded.msgBody && decoded.msgBody.msgID) {
-      try {
-        sendAck(client, decoded.msgBody.msgID, decoded.msgBody.seq);
-      } catch (err) {
-        addEvent("error", client.name, "ACK 失败: " + err.message);
-      }
+    // Determine path kind
+    var pathKind = (proto.op===OP_RAW||proto.op===OP_SYNC_REPLY)?"reliable":"direct";
+    recordPath(pathKind);
+
+    // Determine if this is a push (received) message for notification
+    var isReceived = (decoded.msgBody&&decoded.msgBody.from!==client.mid)||(decoded.json&&decoded.json.from!==client.mid);
+
+    addEvent("received", client.name+" 收到 "+title, body, meta, {
+      op:proto.op, fromMid:fromMid, toMid:toMid, msgID:msgID, pathKind:pathKind, timestamp:Date.now()
+    });
+
+    if (isReceived) {
+      incrementUnread(fromMid);
+      maybeShowNewMsgFloat();
+      var senderName = clients.find(function(c){return c.mid===fromMid;});
+      var notifTitle = (senderName?senderName.name:"mid="+fromMid)+" 发来消息";
+      showNotification(notifTitle, body, msgID);
+    }
+
+    if ($("#autoAck").checked&&decoded.msgBody&&decoded.msgBody.msgID) {
+      try { sendAck(client, decoded.msgBody.msgID, decoded.msgBody.seq); }
+      catch(e) { addEvent("error", client.name, "ACK 失败: "+e.message,"",{op:0,fromMid:client.mid}); }
     }
   }
 
   function handleSyncReply(client, buffer, title) {
-    let reply;
-    try {
-      reply = parseSyncReply(buffer);
-    } catch (err) {
-      addEvent("error", title, "SyncReply 解析失败: " + err.message);
-      return null;
-    }
-    if (client) {
-      client.lastSeq = reply.currentSeq;
-      renderClients();
-    }
-    const owner = client ? client.name : title;
-    addEvent("system", owner, "current_seq=" + reply.currentSeq + " has_more=" + reply.hasMore + " messages=" + reply.messages.length);
-    reply.messages.forEach((message) => {
-      let text = message.contentText;
-      try {
-        const json = JSON.parse(message.contentText);
-        text = json.text || JSON.stringify(json);
-      } catch (err) {
-        text = message.contentText;
-      }
-      addEvent("received", owner + " 离线消息", text, "msg_id=" + message.msgID + " seq=" + message.seq);
-      if (client && $("#autoAck").checked && message.msgID) {
-        try {
-          sendAck(client, message.msgID, message.seq);
-        } catch (err) {
-          addEvent("error", client.name, "离线 ACK 失败: " + err.message);
+    var reply;
+    try { reply = parseSyncReply(buffer); }
+    catch(e) { addEvent("error", title, "SyncReply 解析失败: "+e.message); return null; }
+    if (client) { client.lastSeq = reply.currentSeq; renderClients(); }
+    var totalMsgs = reply.messages.length;
+
+    if (totalMsgs>0) {
+      var index = 0;
+      function processNext() {
+        if (index>=totalMsgs) { hideSyncProgress(totalMsgs); return; }
+        showSyncProgress(index+1, totalMsgs);
+        var message = reply.messages[index];
+        var text = message.contentText;
+        try { var j = JSON.parse(message.contentText); text = j.text||JSON.stringify(j); } catch(e){text=message.contentText;}
+        recordPath("reliable");
+        addEvent("received", (client?client.name:title)+" 离线消息", text, "msg_id="+message.msgID+" seq="+message.seq, {
+          op:OP_SYNC_REPLY, fromMid:message.from, toMid:message.to, msgID:message.msgID, pathKind:"reliable", timestamp:Date.now()
+        });
+        if (client&&message.from!==client.mid) {
+          incrementUnread(message.from);
+          maybeShowNewMsgFloat();
         }
+        if (client&&$("#autoAck").checked&&message.msgID) {
+          try { sendAck(client, message.msgID, message.seq); } catch(e) {}
+        }
+        index++;
+        setTimeout(processNext, 50);
       }
-    });
+      processNext();
+    }
+    var owner = client?client.name:title;
+    addEvent("system", owner, "current_seq="+reply.currentSeq+" has_more="+reply.hasMore+" messages="+totalMsgs, "",{op:21,fromMid:client?client.mid:0});
     return reply;
   }
 
   function sendAck(client, msgID, seq) {
-    sendProtocol(client, OP_PUSH_MSG_ACK, marshalAckBody(msgID, seq), "ACK msg_id=" + msgID + " seq=" + seq);
+    sendProtocol(client, OP_PUSH_MSG_ACK, marshalAckBody(msgID, seq), "ACK msg_id="+msgID+" seq="+seq);
   }
 
   function normalizeRoom(value) {
-    const raw = String(value || "").trim();
+    var raw = String(value||"").trim();
     if (raw.includes("://")) {
-      const parts = raw.split("://");
-      return { type: parts[0] || "live", room: parts.slice(1).join("://") };
+      var parts = raw.split("://");
+      return { type:parts[0]||"live", room:parts.slice(1).join("://") };
     }
-    return { type: $("#pushRoomType").value.trim() || "live", room: raw || "1000" };
+    return { type:$("#pushRoomType").value.trim()||"live", room:raw||"1000" };
   }
 
   async function sendPush(endpoint, operation, target, body, options) {
-    const params = new URLSearchParams();
+    var params = new URLSearchParams();
     params.set("operation", operation);
-    if (endpoint === "mids") {
-      appendList(params, "mids", csvValues(target));
-      return assertResult(await postRaw("/goim/push/mids", params, body));
-    }
-    if (endpoint === "keys") {
-      appendList(params, "keys", csvValues(target));
-      return assertResult(await postRaw("/goim/push/keys", params, body));
-    }
-    if (endpoint === "room") {
-      const room = normalizeRoom(target);
-      params.set("type", room.type);
-      params.set("room", room.room);
-      return assertResult(await postRaw("/goim/push/room", params, body));
-    }
-    if (endpoint === "all") {
-      if (options && options.speed) params.set("speed", options.speed);
-      return assertResult(await postRaw("/goim/push/all", params, body));
-    }
+    if (endpoint==="mids") { appendList(params,"mids",csvValues(target)); return assertResult(await postRaw("/goim/push/mids",params,body)); }
+    if (endpoint==="keys") { appendList(params,"keys",csvValues(target)); return assertResult(await postRaw("/goim/push/keys",params,body)); }
+    if (endpoint==="room") { var room=normalizeRoom(target); params.set("type",room.type); params.set("room",room.room); return assertResult(await postRaw("/goim/push/room",params,body)); }
+    if (endpoint==="all") { if (options&&options.speed) params.set("speed",options.speed); return assertResult(await postRaw("/goim/push/all",params,body)); }
     throw new Error("unknown push endpoint");
   }
 
   async function refreshOnlineTotal() {
-    const result = assertResult(await fetchJSON("/goim/online/total"));
-    const data = result.data || {};
-    $("#connStatus").textContent = "conn " + (data.conn_count ?? "-") + " / ip " + (data.ip_count ?? "-");
+    var result = assertResult(await fetchJSON("/goim/online/total"));
+    var data = result.data||{};
+    $("#connStatus").textContent = "conn "+(data.conn_count||"-")+" / ip "+(data.ip_count||"-");
     setResult(result);
     return result;
   }
 
   function defaultPayload(fromClient, text, targetMode, targetValue) {
-    const firstTarget = csvValues(targetValue)[0] || "";
-    const to = targetMode === "mids" && firstTarget ? Number(firstTarget) : 0;
-    return {
-      from: fromClient.mid,
-      to: Number.isFinite(to) ? to : 0,
-      text,
-      ts: Date.now()
-    };
+    var firstTarget = csvValues(targetValue)[0]||"";
+    var to = targetMode==="mids"&&firstTarget?Number(firstTarget):0;
+    return { from:fromClient.mid, to:Number.isFinite(to)?to:0, text:text, ts:Date.now() };
   }
 
-  function bindEvents() {
-    $("#clientList").addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-action]");
-      if (!button) return;
-      const id = button.dataset.client;
-      if (button.dataset.action === "connect") connectClient(id);
-      if (button.dataset.action === "disconnect") disconnectClient(id);
-    });
+  function saveConfig() {
+    var config = {
+      apiHost:$("#apiHost").value, wsHost:$("#wsHost").value,
+      defaultRoom:$("#defaultRoom").value, defaultAccepts:$("#defaultAccepts").value,
+      heartbeatSeconds:$("#heartbeatSeconds").value, maxReconnectAttempts:$("#maxReconnectAttempts").value,
+      autoAck:$("#autoAck").checked, autoConnect:$("#autoConnect").checked,
+      autoReconnect:$("#autoReconnect").checked,
+      desktopNotify:$("#desktopNotify").checked, soundNotify:$("#soundNotify").checked
+    };
+    localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+    addEvent("system","配置","已保存当前前端配置");
+  }
 
-    $("#connectAll").addEventListener("click", () => clients.forEach((client) => connectClient(client.id)));
-    $("#disconnectAll").addEventListener("click", () => clients.forEach((client) => disconnectClient(client.id)));
-    $("#clearTimeline").addEventListener("click", () => { $("#timeline").innerHTML = ""; });
-    $("#refreshOnline").addEventListener("click", () => refreshOnlineTotal().catch((err) => addEvent("error", "Online", err.message)));
-    $("#saveConfig").addEventListener("click", saveConfig);
+  function loadConfig() {
+    try {
+      var config = JSON.parse(localStorage.getItem(CONFIG_KEY)||"{}");
+      Object.keys(config).forEach(function(key){
+        var el = $("#"+key); if (!el) return;
+        if (el.type==="checkbox") el.checked = Boolean(config[key]);
+        else el.value = config[key];
+      });
+    } catch(e) { addEvent("error","配置","读取 localStorage 失败: "+e.message); }
+  }
 
-    ["#apiHost", "#wsHost", "#defaultRoom", "#defaultAccepts", "#heartbeatSeconds", "#autoAck", "#autoConnect"].forEach((selector) => {
-      $(selector).addEventListener("change", () => {
-        renderClients();
-        $("#roomStatus").textContent = $("#defaultRoom").value || "live://1000";
+  // ============ Restore timeline from IDB ============
+
+  async function restoreTimeline() {
+    loadedCount = 0;
+    var msgs = await loadRecentMessages(PAGE_SIZE);
+    if (!msgs.length) {
+      $("#loadMoreBtn").classList.add("hidden");
+      return;
+    }
+    msgs.forEach(function(m) {
+      var item = addEvent(m.type||"system", m.client_name||"", m.body||"", m.meta||"", {
+        op:m.op||0, fromMid:m.from_mid||0, toMid:m.to_mid||0,
+        msgID:m.msgID||"", pathKind:m.pathKind||"direct", timestamp:m.timestamp||Date.now()
       });
     });
+    $("#loadMoreBtn").classList.remove("hidden");
+  }
 
-    $("#composerMode").addEventListener("change", () => {
-      const mode = $("#composerMode").value;
-      const target = $("#composerTarget");
-      if (mode === "mids") target.value = "1002";
-      if (mode === "keys") target.value = clients[2].key;
-      if (mode === "room") target.value = "live://1000";
-      if (mode === "all") target.value = "0";
+  // ============ Bind Events ============
+
+  function bindEvents() {
+    // Theme
+    $("#themeToggle").addEventListener("click", toggleTheme);
+
+    // Mobile nav
+    $$("#mobileNav button").forEach(function(btn) {
+      btn.addEventListener("click", function() { showMobilePanel(btn.dataset.panel); });
     });
 
-    $("#composer").addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const from = getClient($("#composerFrom").value);
-      const mode = $("#composerMode").value;
-      const target = $("#composerTarget").value.trim();
-      const text = $("#composerText").value.trim();
-      if (!from || !text) return;
-      const payload = defaultPayload(from, text, mode, target);
-      const body = JSON.stringify(payload);
+    // Client list actions
+    $("#clientList").addEventListener("click", function(evt) {
+      var btn = evt.target.closest("button[data-action]");
+      if (!btn) return;
+      var id = btn.dataset.client;
+      if (btn.dataset.action==="connect") connectClient(id);
+      if (btn.dataset.action==="disconnect") disconnectClient(id);
+      if (btn.dataset.action==="edit") openEditClient(id);
+      if (btn.dataset.action==="delete") deleteClientConfirm(id);
+    });
+
+    // Add client
+    $("#addClient").addEventListener("click", function() { openAddClient(); });
+    $("#resetClients").addEventListener("click", function() { if (confirm("确定要重置所有客户端为默认吗？已连接的将先断开。")) resetClients(); });
+    $("#connectAll").addEventListener("click", function() { clients.forEach(function(c){connectClient(c.id);}); });
+    $("#disconnectAll").addEventListener("click", function() { clients.forEach(function(c){disconnectClient(c.id);}); });
+    $("#clearTimeline").addEventListener("click", function() {
+      if (confirm("确定要清空时间线和所有历史消息吗？")) {
+        $("#timeline").innerHTML = '<div id="loadMoreBtn" class="load-more-btn hidden">加载更多历史消息</div><button id="newMsgFloat" class="new-msg-float">↓ 新消息</button>';
+        clearAllStorage();
+        allTimelineEvents = [];
+        loadedCount = 0;
+        unreadCounts = {};
+        renderClients();
+      }
+    });
+    $("#refreshOnline").addEventListener("click", function() { refreshOnlineTotal().catch(function(e){addEvent("error","Online",e.message);}); });
+    $("#saveConfig").addEventListener("click", saveConfig);
+
+    // Quick add preset
+    $("#quickAddPreset").addEventListener("change", function() {
+      var val = this.value;
+      if (val==="dual-device") {
+        clients.push(hydrateClient({ name:"User Web", mid:2001, key:"gotoim-user-web-"+Math.random().toString(36).slice(2,7), deviceId:"web-2001-"+Math.random().toString(36).slice(2,7), platform:"web", room:"live://1000" }));
+        clients.push(hydrateClient({ name:"User Phone", mid:2001, key:"gotoim-user-phone-"+Math.random().toString(36).slice(2,7), deviceId:"phone-2001-"+Math.random().toString(36).slice(2,7), platform:"ios", room:"live://1000" }));
+      } else if (val==="two-users") {
+        clients.push(hydrateClient({ name:"User A", mid:3001, key:"gotoim-user-a-"+Math.random().toString(36).slice(2,7), deviceId:"web-3001-"+Math.random().toString(36).slice(2,7), platform:"web", room:"live://1000" }));
+        clients.push(hydrateClient({ name:"User B", mid:3002, key:"gotoim-user-b-"+Math.random().toString(36).slice(2,7), deviceId:"web-3002-"+Math.random().toString(36).slice(2,7), platform:"web", room:"live://1000" }));
+      } else if (val==="room-group") {
+        clients.push(hydrateClient({ name:"Group A", mid:4001, key:"gotoim-group-a-"+Math.random().toString(36).slice(2,7), deviceId:"web-4001-"+Math.random().toString(36).slice(2,7), platform:"web", room:"live://1000" }));
+        clients.push(hydrateClient({ name:"Group B", mid:4002, key:"gotoim-group-b-"+Math.random().toString(36).slice(2,7), deviceId:"web-4002-"+Math.random().toString(36).slice(2,7), platform:"android", room:"live://1000" }));
+        clients.push(hydrateClient({ name:"Group C", mid:4003, key:"gotoim-group-c-"+Math.random().toString(36).slice(2,7), deviceId:"web-4003-"+Math.random().toString(36).slice(2,7), platform:"web", room:"live://1000" }));
+      }
+      if (val) { saveClients(); renderClients(); renderSelects(); this.value = ""; }
+    });
+
+    // Config changes
+    ["#apiHost","#wsHost","#defaultRoom","#defaultAccepts","#heartbeatSeconds","#autoAck","#autoConnect","#desktopNotify","#soundNotify"].forEach(function(sel){
+      $(sel).addEventListener("change", function() { renderClients(); $("#roomStatus").textContent = $("#defaultRoom").value||"live://1000"; });
+    });
+    $("#autoReconnect").addEventListener("change", renderClients);
+
+    // Metrics
+    $("#refreshMetrics").addEventListener("click", refreshMetrics);
+    $("#metricsAutoRefresh").addEventListener("change", startMetricsAutoRefresh);
+    $("#metricsInterval").addEventListener("change", startMetricsAutoRefresh);
+
+    // Composer
+    $("#composerMode").addEventListener("change", function() {
+      var mode = $("#composerMode").value;
+      var target = $("#composerTarget");
+      if (mode==="mids") target.value = "1002";
+      if (mode==="keys") target.value = clients.length>2?clients[2].key:"";
+      if (mode==="room") target.value = "live://1000";
+      if (mode==="all") target.value = "0";
+    });
+
+    $("#composer").addEventListener("submit", async function(evt) {
+      evt.preventDefault();
+      var from = getClient($("#composerFrom").value);
+      var mode = $("#composerMode").value;
+      var target = $("#composerTarget").value.trim();
+      var text = $("#composerText").value.trim();
+      if (!from||!text) return;
+      var payload = defaultPayload(from, text, mode, target);
+      var body = JSON.stringify(payload);
+      var localMsgID = "local-"+Date.now()+"-"+Math.random().toString(36).slice(2,6);
+      // Show pending state immediately, before HTTP call
+      var record = renderTrackedEvent("sent", from.name+" 发送", text, mode+"="+(target||"all"), {
+        msgID: localMsgID, op: 9, fromMid: from.mid, toMid: payload.to||0, pathKind: "direct",
+        _retryMode: mode, _retryTarget: target, _retryBody: body
+      });
+      updateMessageStatus(localMsgID, "pending");
+      $("#composerText").value = "";
+      recordPath("direct");
       try {
-        await sendPush(mode, "9", target, body, { speed: 0 });
-        addEvent("sent", from.name + " 发送", text, mode + "=" + (target || "all"));
-        $("#composerText").value = "";
-      } catch (err) {
-        addEvent("error", "发送失败", err.message);
+        var result = await sendPush(mode, "9", target, body, {speed:0});
+        // Use server-returned msgID to replace local placeholder for ACK correlation
+        var serverMsgIDs = (result && result.data && result.data.msg_ids) || (result && result.data && result.data.msg_id && [result.data.msg_id]) || [];
+        if (serverMsgIDs.length) {
+          // Replace tracking key: server msgID is the real key for ACK matching
+          trackedMessages.delete(localMsgID);
+          record.msgID = serverMsgIDs[0];
+          trackedMessages.set(serverMsgIDs[0], record);
+          // Update the event DOM with the real msgID
+          if (record.event) {
+            record.event.dataset.trackId = serverMsgIDs[0];
+            record.event.dataset.msgId = serverMsgIDs[0];
+            var chip = record.event.querySelector(".msg-id-chip");
+            if (chip) { chip.textContent = "msg_id="+serverMsgIDs[0]; chip.dataset.copyMsg = serverMsgIDs[0]; }
+            var retryBtn = record.event.querySelector(".retry-btn");
+            if (retryBtn) retryBtn.dataset.retryMsg = serverMsgIDs[0];
+          }
+        }
+        updateMessageStatus(record.msgID, "delivered");
+      } catch(e) {
+        updateMessageStatus(record.msgID, "failed");
+        addEvent("error","发送失败",e.message);
       }
     });
 
-    $("#pushEndpoint").addEventListener("change", () => {
-      const endpoint = $("#pushEndpoint").value;
-      const target = $("#pushTarget");
-      $("#pushTypeWrap").classList.toggle("hidden", endpoint !== "room");
-      $("#pushSpeed").disabled = endpoint !== "all";
-      if (endpoint === "mids") target.value = "1002";
-      if (endpoint === "keys") target.value = clients[2].key;
-      if (endpoint === "room") target.value = "live://1000";
-      if (endpoint === "all") target.value = "";
+    // Push form
+    $("#pushEndpoint").addEventListener("change", function() {
+      var ep = $("#pushEndpoint").value;
+      var target = $("#pushTarget");
+      $("#pushTypeWrap").classList.toggle("hidden", ep!=="room");
+      $("#pushSpeed").disabled = ep!=="all";
+      if (ep==="mids") target.value = "1002";
+      if (ep==="keys") target.value = clients.length>2?clients[2].key:"";
+      if (ep==="room") target.value = "live://1000";
+      if (ep==="all") target.value = "";
     });
 
-    $("#manualPushForm").addEventListener("submit", async (event) => {
-      event.preventDefault();
+    $("#manualPushForm").addEventListener("submit", async function(evt) {
+      evt.preventDefault();
       try {
-        const result = await sendPush(
-          $("#pushEndpoint").value,
-          $("#pushOperation").value,
-          $("#pushTarget").value,
-          $("#pushBody").value,
-          { speed: $("#pushSpeed").value }
-        );
-        addEvent("system", "HTTP Push", "提交成功 " + compact(result, 160));
-      } catch (err) {
-        addEvent("error", "HTTP Push", err.message);
-      }
+        var result = await sendPush($("#pushEndpoint").value, $("#pushOperation").value, $("#pushTarget").value, $("#pushBody").value, {speed:$("#pushSpeed").value});
+        addEvent("system","HTTP Push","提交成功 "+compact(result,160), "",{op:Number($("#pushOperation").value)});
+      } catch(e) { addEvent("error","HTTP Push",e.message); }
     });
 
-    $("#roomForm").addEventListener("submit", (event) => {
-      event.preventDefault();
-      const client = getClient($("#roomClient").value);
-      const room = $("#roomChangeValue").value.trim();
-      if (!client || !room) return;
+    // Room form
+    $("#roomForm").addEventListener("submit", function(evt) {
+      evt.preventDefault();
+      var client = getClient($("#roomClient").value);
+      var room = $("#roomChangeValue").value.trim();
+      if (!client||!room) return;
       try {
-        sendProtocol(client, OP_CHANGE_ROOM, textEncoder.encode(room), "ChangeRoom " + room);
+        sendProtocol(client, OP_CHANGE_ROOM, textEncoder.encode(room), "ChangeRoom "+room);
         client.room = room;
         $("#roomStatus").textContent = room;
         renderClients();
-      } catch (err) {
-        addEvent("error", "ChangeRoom", err.message);
-      }
+      } catch(e) { addEvent("error","ChangeRoom",e.message); }
     });
 
-    let watchAction = "sub";
-    $("#watchForm").addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-watch-action]");
-      if (button) watchAction = button.dataset.watchAction;
+    // Watch form
+    var watchAction = "sub";
+    $("#watchForm").addEventListener("click", function(evt) {
+      var btn = evt.target.closest("button[data-watch-action]");
+      if (btn) watchAction = btn.dataset.watchAction;
     });
-    $("#watchForm").addEventListener("submit", (event) => {
-      event.preventDefault();
-      const client = getClient($("#watchClient").value);
-      const ops = $("#watchOps").value.trim();
-      if (!client || !ops) return;
+    $("#watchForm").addEventListener("submit", function(evt) {
+      evt.preventDefault();
+      var client = getClient($("#watchClient").value);
+      var ops = $("#watchOps").value.trim();
+      if (!client||!ops) return;
       try {
-        sendProtocol(client, watchAction === "sub" ? OP_SUB : OP_UNSUB, textEncoder.encode(ops), (watchAction === "sub" ? "Sub " : "Unsub ") + ops);
-      } catch (err) {
-        addEvent("error", "订阅控制", err.message);
-      }
+        sendProtocol(client, watchAction==="sub"?OP_SUB:OP_UNSUB, textEncoder.encode(ops), (watchAction==="sub"?"Sub ":"Unsub ")+ops);
+      } catch(e) { addEvent("error","订阅控制",e.message); }
     });
 
-    $("#wsSyncForm").addEventListener("submit", (event) => {
-      event.preventDefault();
-      const client = getClient($("#wsSyncClient").value);
+    // WS Sync
+    $("#wsSyncForm").addEventListener("submit", function(evt) {
+      evt.preventDefault();
+      var client = getClient($("#wsSyncClient").value);
       if (!client) return;
       try {
-        sendProtocol(client, OP_SYNC_REQ, marshalSyncReq($("#wsSyncLastSeq").value, $("#wsSyncLimit").value), "SyncReq last_seq=" + $("#wsSyncLastSeq").value);
-      } catch (err) {
-        addEvent("error", "WS SyncReq", err.message);
-      }
+        sendProtocol(client, OP_SYNC_REQ, marshalSyncReq($("#wsSyncLastSeq").value, $("#wsSyncLimit").value), "SyncReq last_seq="+$("#wsSyncLastSeq").value);
+      } catch(e) { addEvent("error","WS SyncReq",e.message); }
     });
 
-    $("#offlinePushForm").addEventListener("submit", async (event) => {
-      event.preventDefault();
+    // Offline push
+    $("#offlinePushForm").addEventListener("submit", async function(evt) {
+      evt.preventDefault();
       try {
-        const params = {
-          mid: $("#offlineMid").value,
-          seq: $("#offlineSeq").value,
-          op: $("#offlineOp").value
-        };
-        const result = assertResult(await postRaw("/goim/push/offline", params, $("#offlineBody").value));
-        addEvent("system", "离线写入", "提交成功 " + compact(result, 160), "mid=" + params.mid + " seq=" + params.seq);
-      } catch (err) {
-        addEvent("error", "离线写入", err.message);
-      }
+        var params = { mid:$("#offlineMid").value, seq:$("#offlineSeq").value, op:$("#offlineOp").value };
+        var result = assertResult(await postRaw("/goim/push/offline",params,$("#offlineBody").value));
+        addEvent("system","离线写入","提交成功 "+compact(result,160), "mid="+params.mid+" seq="+params.seq,{op:Number(params.op)});
+      } catch(e) { addEvent("error","离线写入",e.message); }
     });
 
-    $("#httpSyncForm").addEventListener("submit", async (event) => {
-      event.preventDefault();
+    // HTTP Sync
+    $("#httpSyncForm").addEventListener("submit", async function(evt) {
+      evt.preventDefault();
       try {
-        const params = {
-          mid: $("#httpSyncMid").value,
-          last_seq: $("#httpSyncLastSeq").value,
-          limit: $("#httpSyncLimit").value
-        };
-        const response = await fetch(apiUrl("/goim/sync", params));
-        if (!response.ok) throw new Error("HTTP " + response.status);
-        const buffer = await response.arrayBuffer();
-        const reply = handleSyncReply(null, buffer, "HTTP Sync mid=" + params.mid);
-        if (reply) {
-          $("#httpSyncLastSeq").value = reply.currentSeq;
-          setResult(reply);
-        }
-      } catch (err) {
-        addEvent("error", "HTTP Sync", err.message);
-      }
+        var params = { mid:$("#httpSyncMid").value, last_seq:$("#httpSyncLastSeq").value, limit:$("#httpSyncLimit").value };
+        var r = await fetch(apiUrl("/goim/sync",params));
+        if (!r.ok) throw new Error("HTTP "+r.status);
+        var buffer = await r.arrayBuffer();
+        var reply = handleSyncReply(null, buffer, "HTTP Sync mid="+params.mid);
+        if (reply) { $("#httpSyncLastSeq").value = reply.currentSeq; setResult(reply); }
+      } catch(e) { addEvent("error","HTTP Sync",e.message); }
     });
 
-    $$(".tab-btn").forEach((button) => {
-      button.addEventListener("click", () => {
-        $$(".tab-btn").forEach((item) => item.classList.remove("active"));
-        $$(".tab-panel").forEach((item) => item.classList.remove("active"));
-        button.classList.add("active");
-        $("#tab-" + button.dataset.tab).classList.add("active");
+    // Tab buttons
+    $$(".tab-btn").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        $$(".tab-btn").forEach(function(b){b.classList.remove("active");});
+        $$(".tab-panel").forEach(function(p){p.classList.remove("active");});
+        btn.classList.add("active");
+        $("#tab-"+btn.dataset.tab).classList.add("active");
       });
     });
 
-    $("[data-observe='total']").addEventListener("click", () => {
-      refreshOnlineTotal().catch((err) => setResult("Error: " + err.message));
+    // Observe buttons
+    $("[data-observe='total']").addEventListener("click", function() { refreshOnlineTotal().catch(function(e){setResult("Error: "+e.message);}); });
+    $("[data-observe='room']").addEventListener("click", async function() {
+      try { var params=new URLSearchParams(); params.set("type",$("#onlineType").value||"live"); appendList(params,"rooms",csvValues($("#onlineRooms").value)); var r=assertResult(await fetchJSON("/goim/online/room",params)); setResult(r); } catch(e) { setResult("Error: "+e.message); }
     });
-    $("[data-observe='room']").addEventListener("click", async () => {
-      try {
-        const params = new URLSearchParams();
-        params.set("type", $("#onlineType").value || "live");
-        appendList(params, "rooms", csvValues($("#onlineRooms").value));
-        const result = assertResult(await fetchJSON("/goim/online/room", params));
-        setResult(result);
-      } catch (err) {
-        setResult("Error: " + err.message);
+    $("[data-observe='top']").addEventListener("click", async function() {
+      try { var r=assertResult(await fetchJSON("/goim/online/top",{type:$("#onlineType").value||"live",limit:$("#onlineLimit").value||10})); setResult(r); } catch(e) { setResult("Error: "+e.message); }
+    });
+    $("[data-observe='weighted']").addEventListener("click", async function() {
+      try { var r=assertResult(await fetchJSON("/goim/nodes/weighted",{platform:$("#nodePlatform").value||"web"})); setResult(r); } catch(e) { setResult("Error: "+e.message); }
+    });
+    $("[data-observe='instances']").addEventListener("click", async function() {
+      try { var r=assertResult(await fetchJSON("/goim/nodes/instances")); setResult(r); } catch(e) { setResult("Error: "+e.message); }
+    });
+    $("[data-observe='metrics']").addEventListener("click", async function() {
+      try { var r=await fetch(apiUrl("/metrics")); var t=await r.text(); setResult(t.slice(0,4000)); } catch(e) { setResult("Error: "+e.message); }
+    });
+
+    // Search
+    $("#searchInput").addEventListener("input", applySearchAndFilter);
+    $("#filterToggle").addEventListener("click", function() { $("#filterPanel").classList.toggle("active"); });
+    $("#prevMatch").addEventListener("click", function() { navigateMatch("prev"); });
+    $("#nextMatch").addEventListener("click", function() { navigateMatch("next"); });
+    $("#clearSearch").addEventListener("click", clearSearch);
+    $("#clearFilter").addEventListener("click", clearSearch);
+    $("#filterOp").addEventListener("change", applySearchAndFilter);
+    $("#filterKind").addEventListener("change", applySearchAndFilter);
+    $("#filterFromMid").addEventListener("input", function() { clearTimeout(this._timer); this._timer=setTimeout(applySearchAndFilter,300); });
+    $("#filterTime").addEventListener("change", applySearchAndFilter);
+
+    // View filter
+    $("#viewFilter").addEventListener("change", applyViewFilter);
+
+    // Float new msg button
+    $("#timeline").addEventListener("click", function(evt) {
+      if (evt.target.id==="newMsgFloat") scrollToLatest();
+    });
+    $("#timeline").addEventListener("scroll", function() {
+      if (checkTimelineInView()) $("#newMsgFloat").classList.remove("visible");
+    });
+
+    // Load more — load older messages, insert after loadMoreBtn
+    $("#timeline").addEventListener("click", function(evt) {
+      if (evt.target.id==="loadMoreBtn") {
+        var lb = $("#loadMoreBtn");
+        loadRecentMessages(PAGE_SIZE).then(function(msgs){
+          if (!msgs.length) { lb.classList.add("hidden"); return; }
+          var frag = document.createDocumentFragment();
+          msgs.forEach(function(m) {
+            var item = document.createElement("article");
+            item.className = "event "+(m.type||"system");
+            var metaText = m.meta?" · "+m.meta:"";
+            item.dataset.timestamp = m.timestamp||Date.now();
+            item.dataset.fromMid = m.from_mid||0;
+            item.dataset.toMid = m.to_mid||0;
+            item.dataset.op = m.op||0;
+            if (m.msgID) item.dataset.msgId = m.msgID;
+            if (m.pathKind) item.dataset.pathKind = m.pathKind;
+            item.innerHTML =
+              '<div class="event-title">'+
+                '<span class="event-title-main"><span>'+escapeHTML(m.client_name||"")+'</span></span>'+
+                '<span class="event-title-meta">'+escapeHTML(new Date(m.timestamp).toLocaleTimeString("zh-CN",{hour12:false})+metaText)+'</span>'+
+              '</div>'+
+              '<div class="event-body">'+escapeHTML(m.body||"")+'</div>';
+            allTimelineEvents.unshift(item);
+            frag.appendChild(item);
+          });
+          // Insert older messages right after the loadMoreBtn, before existing events
+          lb.after(frag);
+        });
+      }
+      // Copy msg_id
+      var chip = evt.target.closest("[data-copy-msg]");
+      if (chip) {
+        var txt = chip.dataset.copyMsg;
+        navigator.clipboard.writeText(txt).then(function() {
+          chip.textContent = "已复制!";
+          setTimeout(function(){ chip.textContent = "msg_id="+txt; }, 1500);
+        }).catch(function() {});
+      }
+      // Retry — actually resend the original payload
+      var retry = evt.target.closest("[data-retry-msg]");
+      if (retry) {
+        var msgID = retry.dataset.retryMsg;
+        var record = trackedMessages.get(msgID);
+        if (record && record._retryBody && record._retryMode) {
+          updateMessageStatus(msgID, "pending");
+          addEvent("system","重试","正在重发 msg_id="+msgID,"retry");
+          sendPush(record._retryMode, "9", record._retryTarget, record._retryBody, {speed:0})
+            .then(function(result) {
+              // After HTTP success, mark as delivered (server has it).
+              // If the server returns a new msgID, track that too.
+              var serverMsgIDs = (result && result.data && result.data.msg_ids) || (result && result.data && result.data.msg_id && [result.data.msg_id]) || [];
+              if (serverMsgIDs.length && serverMsgIDs[0] !== msgID) {
+                trackedMessages.delete(msgID);
+                record.msgID = serverMsgIDs[0];
+                trackedMessages.set(serverMsgIDs[0], record);
+                if (record.event) {
+                  record.event.dataset.trackId = serverMsgIDs[0];
+                  record.event.dataset.msgId = serverMsgIDs[0];
+                  var chip2 = record.event.querySelector(".msg-id-chip");
+                  if (chip2) { chip2.textContent = "msg_id="+serverMsgIDs[0]; chip2.dataset.copyMsg = serverMsgIDs[0]; }
+                  var retryBtn2 = record.event.querySelector(".retry-btn");
+                  if (retryBtn2) retryBtn2.dataset.retryMsg = serverMsgIDs[0];
+                }
+              }
+              updateMessageStatus(record.msgID, "delivered");
+            })
+            .catch(function(e) {
+              updateMessageStatus(msgID, "failed");
+              addEvent("error","重试失败","msg_id="+msgID+" "+e.message);
+            });
+        } else {
+          addEvent("error","重试","无法重试：缺少原始消息数据 msg_id="+msgID);
+        }
       }
     });
-    $("[data-observe='top']").addEventListener("click", async () => {
-      try {
-        const result = assertResult(await fetchJSON("/goim/online/top", {
-          type: $("#onlineType").value || "live",
-          limit: $("#onlineLimit").value || 10
-        }));
-        setResult(result);
-      } catch (err) {
-        setResult("Error: " + err.message);
+
+    // Client modal
+    $("#clientForm").addEventListener("submit", function(evt) {
+      evt.preventDefault();
+      var id = $("#clientFormId").value;
+      var data = {
+        name: $("#clientFormName").value.trim(),
+        mid: Number($("#clientFormMid").value),
+        key: $("#clientFormKey").value.trim(),
+        deviceId: $("#clientFormDevice").value.trim(),
+        platform: $("#clientFormPlatform").value,
+        room: $("#clientFormRoom").value.trim()
+      };
+      if (!data.name||!data.key||!data.deviceId) return;
+      if (id) {
+        var client = getClient(id);
+        if (client) {
+          if (client.status==="connected"||client.status==="connecting"||client.status==="reconnecting") {
+            addEvent("error","编辑客户端","已连接的客户端编辑后需断开后生效，已忽略此次修改");
+          } else {
+            Object.assign(client, data);
+          }
+        }
+      } else {
+        clients.push(hydrateClient(data));
+      }
+      saveClients();
+      renderClients();
+      renderSelects();
+      $("#clientModal").classList.remove("active");
+    });
+
+    $("#closeClientModal").addEventListener("click", function() { $("#clientModal").classList.remove("active"); });
+    $("#clientModal").addEventListener("click", function(evt) { if (evt.target===this) this.classList.remove("active"); });
+    $("#generateClientIds").addEventListener("click", function() {
+      var ids = makeClientIds($("#clientFormName").value, $("#clientFormPlatform").value);
+      $("#clientFormKey").value = ids.key;
+      $("#clientFormDevice").value = ids.deviceId;
+    });
+
+    // Storage management
+    $("#clearStorage").addEventListener("click", function() {
+      var range = $("#cleanupRange").value;
+      var labels = { "1h":"最近1小时以后","today":"今天以前","7d":"7天以前","all":"全部" };
+      if (confirm("确定要清理 "+labels[range]+" 的消息历史吗？此操作不可撤销。")) {
+        clearStorageByRange(range);
       }
     });
-    $("[data-observe='weighted']").addEventListener("click", async () => {
-      try {
-        const result = assertResult(await fetchJSON("/goim/nodes/weighted", { platform: $("#nodePlatform").value || "web" }));
-        setResult(result);
-      } catch (err) {
-        setResult("Error: " + err.message);
-      }
-    });
-    $("[data-observe='instances']").addEventListener("click", async () => {
-      try {
-        const result = assertResult(await fetchJSON("/goim/nodes/instances"));
-        setResult(result);
-      } catch (err) {
-        setResult("Error: " + err.message);
-      }
-    });
-    $("[data-observe='metrics']").addEventListener("click", async () => {
-      try {
-        const response = await fetch(apiUrl("/metrics"));
-        const text = await response.text();
-        const lines = text.split("\n")
-          .filter((line) => line && !line.startsWith("#"))
-          .slice(0, 80)
-          .join("\n");
-        setResult(lines || text.slice(0, 4000));
-      } catch (err) {
-        setResult("Error: " + err.message);
+    $("#exportStorage").addEventListener("click", exportMessagesJSON);
+    $("#exportMessages").addEventListener("click", exportMessagesJSON);
+    $("#clearTrace").addEventListener("click", function() { traceItems.length=0; trackedMessages.clear(); renderTrace(); });
+
+    // Page visibility
+    document.addEventListener("visibilitychange", function() {
+      if (!document.hidden) {
+        Object.keys(notifyThrottle).forEach(function(k){delete notifyThrottle[k];});
       }
     });
   }
 
-  function init() {
+  function openAddClient() {
+    editingClientId = "";
+    $("#clientModalTitle").textContent = "添加客户端";
+    $("#clientFormId").value = "";
+    $("#clientFormName").value = "";
+    $("#clientFormMid").value = "";
+    var ids = makeClientIds("", "web");
+    $("#clientFormKey").value = ids.key;
+    $("#clientFormDevice").value = ids.deviceId;
+    $("#clientFormPlatform").value = "web";
+    $("#clientFormRoom").value = $("#defaultRoom").value||"live://1000";
+    $("#clientModal").classList.add("active");
+  }
+
+  function openEditClient(id) {
+    var c = getClient(id); if (!c) return;
+    editingClientId = id;
+    $("#clientModalTitle").textContent = "编辑客户端";
+    $("#clientFormId").value = c.id;
+    $("#clientFormName").value = c.name;
+    $("#clientFormMid").value = c.mid;
+    $("#clientFormKey").value = c.key;
+    $("#clientFormDevice").value = c.deviceId;
+    $("#clientFormPlatform").value = c.platform;
+    $("#clientFormRoom").value = c.room;
+    $("#clientModal").classList.add("active");
+  }
+
+  function deleteClientConfirm(id) {
+    var c = getClient(id); if (!c) return;
+    if (!confirm("确定要删除客户端 '"+c.name+"' (mid="+c.mid+") 吗？")) return;
+    if (c.status==="connected"||c.status==="connecting") disconnectClient(id, true);
+    clients = clients.filter(function(x){return x.id!==id;});
+    saveClients();
+    renderClients();
+    renderSelects();
+  }
+
+  // ============ Init ============
+
+  async function init() {
+    initTheme();
     loadConfig();
-    clients.forEach((client) => {
-      client.room = $("#defaultRoom").value.trim() || client.room;
-    });
+    loadClients();
+
+    // Init IDB
+    try { db = await openDB(); dbReady=true; } catch(e) { addEvent("error","IndexedDB","数据库打开失败: "+e.message); }
+
+    clients.forEach(function(c){ c.room = $("#defaultRoom").value.trim()||c.room; });
     renderClients();
     renderSelects();
     bindEvents();
     $("#pushTypeWrap").classList.add("hidden");
     $("#pushSpeed").disabled = true;
-    addEvent("system", "GoToIM Console", "前端已就绪");
-    refreshOnlineTotal().catch(() => {
-      $("#apiStatus").textContent = "等待 API";
-    });
+    addEvent("system","GoToIM Console","前端已就绪","",{op:0});
+    updateStorageSize();
+
+    // Restore messages from IDB
+    if (dbReady) await restoreTimeline();
+
+    requestNotifyPermission();
+    if ($("#metricsAutoRefresh").checked) startMetricsAutoRefresh();
+
+    refreshOnlineTotal().catch(function() { $("#apiStatus").textContent = "等待 API"; });
     if ($("#autoConnect").checked) {
-      setTimeout(() => clients.forEach((client) => connectClient(client.id)), 500);
+      setTimeout(function() { clients.forEach(function(c){connectClient(c.id);}); }, 500);
     }
   }
 
-  window.addEventListener("beforeunload", () => {
-    clients.forEach((client) => {
-      clearClientTimer(client);
-      if (client.ws) client.ws.close();
-    });
+  window.addEventListener("beforeunload", function() {
+    unloading = true;
+    clients.forEach(function(c) { clearClientTimer(c); if (c.ws) c.ws.close(); });
+    stopMetricsAutoRefresh();
+    flushWrites();
   });
 
   document.addEventListener("DOMContentLoaded", init);

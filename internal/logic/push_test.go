@@ -17,7 +17,7 @@ func TestPushKeys(t *testing.T) {
 		keys = []string{"test_key"}
 		msg  = []byte("hello")
 	)
-	err := lg.PushKeys(c, op, keys, msg)
+	_, err := lg.PushKeys(c, op, keys, msg)
 	assert.Nil(t, err)
 }
 
@@ -31,8 +31,9 @@ func TestPushMids(t *testing.T) {
 		mids = []int64{1, 2, 3}
 		msg  = []byte("hello")
 	)
-	err := lg.PushMids(c, op, mids, msg)
+	msgIDs, err := lg.PushMids(c, op, mids, msg)
 	assert.Nil(t, err)
+	assert.Len(t, msgIDs, 3)
 }
 
 func TestPushRoom(t *testing.T) {
@@ -46,8 +47,9 @@ func TestPushRoom(t *testing.T) {
 		room = "test_room"
 		msg  = []byte("hello")
 	)
-	err := lg.PushRoom(c, op, typ, room, msg)
+	msgID, err := lg.PushRoom(c, op, typ, room, msg)
 	assert.Nil(t, err)
+	assert.NotEmpty(t, msgID)
 }
 
 func TestPushAll(t *testing.T) {
@@ -60,6 +62,7 @@ func TestPushAll(t *testing.T) {
 		speed = int32(100)
 		msg   = []byte("hello")
 	)
-	err := lg.PushAll(c, op, speed, msg)
+	msgID, err := lg.PushAll(c, op, speed, msg)
 	assert.Nil(t, err)
+	assert.NotEmpty(t, msgID)
 }

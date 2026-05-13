@@ -23,11 +23,12 @@ func (s *Server) pushKeys(c *gin.Context) {
 		errors(c, RequestErr, err.Error())
 		return
 	}
-	if err = s.logic.PushKeys(context.TODO(), arg.Op, arg.Keys, msg); err != nil {
+	msgIDs, err := s.logic.PushKeys(context.TODO(), arg.Op, arg.Keys, msg)
+	if err != nil {
 		result(c, nil, RequestErr)
 		return
 	}
-	result(c, nil, OK)
+	result(c, gin.H{"msg_ids": msgIDs}, OK)
 }
 
 func (s *Server) pushMids(c *gin.Context) {
@@ -44,11 +45,12 @@ func (s *Server) pushMids(c *gin.Context) {
 		errors(c, RequestErr, err.Error())
 		return
 	}
-	if err = s.logic.PushMids(context.TODO(), arg.Op, arg.Mids, msg); err != nil {
+	msgIDs, err := s.logic.PushMids(context.TODO(), arg.Op, arg.Mids, msg)
+	if err != nil {
 		errors(c, ServerErr, err.Error())
 		return
 	}
-	result(c, nil, OK)
+	result(c, gin.H{"msg_ids": msgIDs}, OK)
 }
 
 // pushOffline stores a message in the offline queue for later sync retrieval.
@@ -93,11 +95,12 @@ func (s *Server) pushRoom(c *gin.Context) {
 		errors(c, RequestErr, err.Error())
 		return
 	}
-	if err = s.logic.PushRoom(c, arg.Op, arg.Type, arg.Room, msg); err != nil {
+	msgID, err := s.logic.PushRoom(c, arg.Op, arg.Type, arg.Room, msg)
+	if err != nil {
 		errors(c, ServerErr, err.Error())
 		return
 	}
-	result(c, nil, OK)
+	result(c, gin.H{"msg_id": msgID}, OK)
 }
 
 func (s *Server) pushAll(c *gin.Context) {
@@ -114,9 +117,10 @@ func (s *Server) pushAll(c *gin.Context) {
 		errors(c, RequestErr, err.Error())
 		return
 	}
-	if err = s.logic.PushAll(c, arg.Op, arg.Speed, msg); err != nil {
+	msgID, err := s.logic.PushAll(c, arg.Op, arg.Speed, msg)
+	if err != nil {
 		errors(c, ServerErr, err.Error())
 		return
 	}
-	result(c, nil, OK)
+	result(c, gin.H{"msg_id": msgID}, OK)
 }
