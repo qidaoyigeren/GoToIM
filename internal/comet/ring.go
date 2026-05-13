@@ -1,6 +1,8 @@
 package comet
 
 import (
+	"sync/atomic"
+
 	"github.com/Terry-Mao/goim/api/protocol"
 	"github.com/Terry-Mao/goim/internal/comet/conf"
 	"github.com/Terry-Mao/goim/internal/comet/errors"
@@ -45,11 +47,12 @@ func (r *Ring) init(num uint64) {
 
 // Get get a proto from ring.
 func (r *Ring) Get() (proto *protocol.Proto, err error) {
-	if r.rp == r.wp {
+	wp := atomic.LoadUint64(&r.wp)
+	rp := atomic.LoadUint64(&r.rp)
+	if rp == wp {
 		return nil, errors.ErrRingEmpty
 	}
-	proto = &r.data[r.rp&r.mask]
-	return
+	return &r.data[rp&r.mask], nil
 }
 
 // GetAdv incr read index.
@@ -71,7 +74,7 @@ func (r *Ring) Set() (proto *protocol.Proto, err error) {
 
 // SetAdv incr write index.
 func (r *Ring) SetAdv() {
-	r.wp++
+	atomic.StoreUint64(&r.wp, r.wp+1)
 	if conf.Conf.Debug {
 		log.Infof("ring wp: %d, idx: %d", r.wp, r.wp&r.mask)
 	}
