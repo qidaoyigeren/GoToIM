@@ -14,32 +14,3 @@ message Proto {
     int32 seq = 3;
     bytes body = 4;
 }
-
-// MsgBody is the structured message envelope carried inside Proto.body
-message MsgBody {
-    string msg_id    = 1;  // globally unique message ID (snowflake/uuid)
-    int64  from_uid  = 2;  // sender user ID
-    int64  to_uid    = 3;  // receiver user ID (0 for room/broadcast)
-    int64  timestamp = 4;  // unix milliseconds
-    int64  seq       = 5;  // server-assigned per-user monotonic sequence
-    bytes  content   = 6;  // actual business payload
-}
-
-// AckBody is the ACK message carried inside Proto.body
-message AckBody {
-    string msg_id = 1;     // the message ID being acknowledged
-    int64  seq    = 2;     // the sequence number being acknowledged
-}
-
-// SyncReq is the offline message sync request
-message SyncReq {
-    int64 last_seq = 1;    // client's last received seq
-    int32 limit    = 2;    // max messages to return
-}
-
-// SyncReply is the offline message sync response
-message SyncReply {
-    repeated MsgBody messages   = 1;
-    int64 current_seq           = 2;  // server's current max seq
-    bool has_more               = 3;  // whether more messages exist
-}

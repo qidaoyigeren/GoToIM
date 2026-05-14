@@ -2,7 +2,7 @@ package router
 
 import (
 	pb "github.com/Terry-Mao/goim/api/logic"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 // pushMsgBytes serializes a pb.PushMsg to bytes.

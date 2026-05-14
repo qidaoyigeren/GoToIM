@@ -410,7 +410,7 @@ func (s *Server) dispatchTCP(conn *net.TCPConn, wr *bufio.Writer, wp *bytes.Pool
 			whitelist.Printf("key: %s proto ready\n", ch.Key)
 		}
 		if conf.Conf.Debug {
-			log.Infof("key:%s dispatch msg:%v", ch.Key, *p)
+			log.Infof("key:%s dispatch msg:%s", ch.Key, p.String())
 		}
 		switch p {
 		case protocol.ProtoFinish:

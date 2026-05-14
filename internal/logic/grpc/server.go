@@ -6,10 +6,12 @@ import (
 	"time"
 
 	pb "github.com/Terry-Mao/goim/api/logic"
+	"github.com/Terry-Mao/goim/internal/grpcx"
 	"github.com/Terry-Mao/goim/internal/logic"
 	"github.com/Terry-Mao/goim/internal/logic/conf"
 	log "github.com/Terry-Mao/goim/pkg/log"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
@@ -26,8 +28,12 @@ func New(c *conf.RPCServer, l *logic.Logic) *grpc.Server {
 		Timeout:               time.Duration(c.KeepAliveTimeout),
 		MaxConnectionAge:      time.Duration(c.MaxLifeTime),
 	})
-	srv := grpc.NewServer(keepParams)
-	pb.RegisterLogicServer(srv, &server{l})
+	srv := grpc.NewServer(keepParams,
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+		grpc.UnaryInterceptor(grpcx.UnaryInterceptorChain()),
+		grpc.StreamInterceptor(grpcx.StreamInterceptorChain()),
+	)
+	pb.RegisterLogicServer(srv, &server{srv: l})
 	lis, err := net.Listen(c.Network, c.Addr)
 	if err != nil {
 		log.Fatalf("logic grpc net.Listen(%s, %s) error(%v)", c.Network, c.Addr, err)
@@ -41,6 +47,7 @@ func New(c *conf.RPCServer, l *logic.Logic) *grpc.Server {
 }
 
 type server struct {
+	pb.UnimplementedLogicServer
 	srv *logic.Logic
 }
 
@@ -93,4 +100,24 @@ func (s *server) Receive(ctx context.Context, req *pb.ReceiveReq) (*pb.ReceiveRe
 // nodes return nodes.
 func (s *server) Nodes(ctx context.Context, req *pb.NodesReq) (*pb.NodesReply, error) {
 	return s.srv.NodesWeighted(ctx, req.Platform, req.ClientIP), nil
+}
+
+// AckMessage acknowledges a delivered message.
+func (s *server) AckMessage(ctx context.Context, req *pb.AckReq) (*pb.AckReply, error) {
+	if err := s.srv.AckMessage(ctx, req.Mid, req.MsgId); err != nil {
+		return &pb.AckReply{}, err
+	}
+	return &pb.AckReply{}, nil
+}
+
+// SyncOffline syncs offline messages for a user.
+func (s *server) SyncOffline(ctx context.Context, req *pb.SyncOfflineReq) (*pb.SyncOfflineReply, error) {
+	reply, err := s.srv.GetOfflineMessages(ctx, req.Mid, req.LastSeq, req.Limit)
+	if err != nil {
+		return &pb.SyncOfflineReply{}, err
+	}
+	return &pb.SyncOfflineReply{
+		CurrentSeq: reply.CurrentSeq,
+		HasMore:    reply.HasMore,
+	}, nil
 }

@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/IBM/sarama"
 	pb "github.com/Terry-Mao/goim/api/logic"
 	"github.com/Terry-Mao/goim/internal/mq"
 	log "github.com/Terry-Mao/goim/pkg/log"
-	"github.com/golang/protobuf/proto"
-	sarama "gopkg.in/Shopify/sarama.v1"
+	"google.golang.org/protobuf/proto"
 )
 
 // topicFor returns the appropriate topic for the given message type.

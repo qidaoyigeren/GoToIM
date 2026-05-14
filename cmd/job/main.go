@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"net/url"
 	"os"
@@ -8,19 +9,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Terry-Mao/goim/internal/job"
-	"github.com/Terry-Mao/goim/internal/job/conf"
 	"github.com/Terry-Mao/goim/internal/worker"
+	"github.com/Terry-Mao/goim/internal/worker/conf"
 	"github.com/bilibili/discovery/naming"
 
 	log "github.com/Terry-Mao/goim/pkg/log"
+	"github.com/Terry-Mao/goim/pkg/tracing"
 	resolver "github.com/bilibili/discovery/naming/grpc"
 )
 
-var (
-	ver       = "3.0.0"
-	useWorker = flag.Bool("worker", true, "use DeliveryWorker instead of legacy Job")
-)
+const ver = "3.0.0"
 
 func main() {
 	flag.Parse()
@@ -28,20 +26,24 @@ func main() {
 		panic(err)
 	}
 	log.Init(false)
+
+	// Initialize distributed tracing (OTEL_EXPORTER_OTLP_ENDPOINT env var)
+	tp, err := tracing.InitTracer(context.Background(), "goim-job", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	if err != nil {
+		log.Errorf("tracing init error(%v)", err)
+	}
+	defer func() {
+		if tp != nil {
+			_ = tp.Shutdown(context.Background())
+		}
+	}()
+
 	log.Infof("goim-job [version: %s env: %+v] start", ver, conf.Conf.Env)
 
 	// grpc register naming
 	dis := naming.New(conf.Conf.Discovery)
 	resolver.Register(dis)
 
-	if *useWorker {
-		runWorker()
-	} else {
-		runLegacyJob()
-	}
-}
-
-func runWorker() {
 	cfg := conf.Conf
 	topics := collectTopics(cfg.Kafka)
 	w, err := worker.New(worker.Config{
@@ -75,28 +77,6 @@ func runWorker() {
 		switch s {
 		case syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT:
 			w.Close()
-			log.Infof("goim-job [version: %s] exit", ver)
-			log.Sync()
-			return
-		case syscall.SIGHUP:
-		default:
-			return
-		}
-	}
-}
-
-func runLegacyJob() {
-	j := job.New(conf.Conf)
-	go j.Consume()
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
-	for {
-		s := <-c
-		log.Infof("goim-job get a signal %s", s.String())
-		switch s {
-		case syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT:
-			j.Close()
 			log.Infof("goim-job [version: %s] exit", ver)
 			log.Sync()
 			return

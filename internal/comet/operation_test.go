@@ -61,6 +61,14 @@ func (m *mockLogicClient) Nodes(ctx context.Context, in *logic.NodesReq, opts ..
 	return &logic.NodesReply{}, nil
 }
 
+func (m *mockLogicClient) AckMessage(ctx context.Context, in *logic.AckReq, opts ...grpc.CallOption) (*logic.AckReply, error) {
+	return &logic.AckReply{}, nil
+}
+
+func (m *mockLogicClient) SyncOffline(ctx context.Context, in *logic.SyncOfflineReq, opts ...grpc.CallOption) (*logic.SyncOfflineReply, error) {
+	return &logic.SyncOfflineReply{}, nil
+}
+
 func (m *mockLogicClient) getReceiveCalls() []*logic.ReceiveReq {
 	m.mu.Lock()
 	defer m.mu.Unlock()

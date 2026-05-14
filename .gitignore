@@ -19,6 +19,9 @@
 .DS_Store
 Thumbs.db
 
+# vendor
+/vendor
+
 # build
 /cmd/comet/comet
 /cmd/logic/logic

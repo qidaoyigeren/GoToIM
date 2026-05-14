@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/IBM/sarama"
 	"github.com/Terry-Mao/goim/internal/mq"
-	sarama "gopkg.in/Shopify/sarama.v1"
 )
 
 // DLQ is a dead-letter queue backed by a Kafka topic.

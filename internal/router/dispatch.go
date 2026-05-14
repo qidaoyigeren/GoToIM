@@ -19,17 +19,14 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 		}
 	}
 
-	// Idempotency check
-	if status, _ := e.ackHandler.GetMessageStatus(ctx, msgID); status == service.MsgStatusAcked || status == service.MsgStatusDelivered {
-		log.V(1).Infof("msg already delivered: msg_id=%s status=%s", msgID, status)
+	// Atomic claim via HSETNX: if TrackMessage returns an error, another
+	// goroutine already claimed this msgID — skip to avoid duplicate delivery.
+	if err := e.ackHandler.TrackMessage(ctx, msgID, 0, toUID, op, body); err != nil {
+		log.V(1).Infof("msg already tracked: msg_id=%s err=%v", msgID, err)
 		return nil
 	}
 
 	start := time.Now()
-	// Track message for delivery tracking
-	if err := e.ackHandler.TrackMessage(ctx, msgID, 0, toUID, op, body); err != nil {
-		log.Warningf("track message failed: %v", err)
-	}
 
 	// Check if user is online
 	online, sessions := e.sessMgr.IsOnline(ctx, toUID)

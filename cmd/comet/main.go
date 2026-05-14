@@ -19,6 +19,7 @@ import (
 	md "github.com/Terry-Mao/goim/internal/logic/model"
 	"github.com/Terry-Mao/goim/pkg/ip"
 	log "github.com/Terry-Mao/goim/pkg/log"
+	"github.com/Terry-Mao/goim/pkg/tracing"
 	"github.com/bilibili/discovery/naming"
 	resolver "github.com/bilibili/discovery/naming/grpc"
 )
@@ -35,6 +36,18 @@ func main() {
 	}
 	log.Init(false)
 	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	// Initialize distributed tracing (OTEL_EXPORTER_OTLP_ENDPOINT env var)
+	tp, err := tracing.InitTracer(context.Background(), "goim-comet", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	if err != nil {
+		log.Errorf("tracing init error(%v)", err)
+	}
+	defer func() {
+		if tp != nil {
+			_ = tp.Shutdown(context.Background())
+		}
+	}()
+
 	log.Infof("goim-comet [version: %s env: %+v] start", ver, conf.Conf.Env)
 	// register discovery
 	dis := naming.New(conf.Conf.Discovery)

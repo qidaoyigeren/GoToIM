@@ -1,6 +1,9 @@
 package worker
 
 import (
+	"encoding/binary"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -20,7 +23,7 @@ type RoomAggregator struct {
 	closeOnce sync.Once
 }
 
-// NewRoomAggregator creates a new room aggregator.
+// NewRoomAggregator creates a new room aggregator. Replays any existing WAL.
 func NewRoomAggregator(w *DeliveryWorker, id string, batch int, signal time.Duration) *RoomAggregator {
 	r := &RoomAggregator{
 		w:     w,
@@ -57,27 +60,67 @@ func (r *RoomAggregator) pushproc(batch int, sigTime time.Duration) {
 		last time.Time
 		p    *protocol.Proto
 		buf  = bytes.NewWriterSize(int(protocol.MaxBodySize))
+		wal  *os.File
 	)
+	idleTimeout := r.w.idleTimeout()
+	if idleTimeout == 0 {
+		idleTimeout = 15 * time.Minute
+	}
+
 	log.Infof("worker room:%s started", r.id)
-	td := time.AfterFunc(sigTime, func() {
+
+	// Replay any existing WAL
+	if r.w.cfg.WALDir != "" {
+		walPath := filepath.Join(r.w.cfg.WALDir, r.id+".wal")
+		if data, err := os.ReadFile(walPath); err == nil && len(data) > 0 {
+			log.Infof("worker room:%s replaying WAL (%d bytes)", r.id, len(data))
+			_ = r.w.broadcastRoomRawBytes(r.id, data)
+		}
+		// Open WAL for appending
+		f, err := os.OpenFile(walPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err == nil {
+			wal = f
+		}
+	}
+
+	signalTimer := time.AfterFunc(sigTime, func() {
 		select {
 		case r.proto <- roomReadyProto:
 		default:
 		}
 	})
-	defer td.Stop()
+	defer signalTimer.Stop()
+
+	idleTimer := time.NewTimer(idleTimeout)
+	defer idleTimer.Stop()
 
 	for {
-		if p = <-r.proto; p == nil {
+		select {
+		case p = <-r.proto:
+		case <-idleTimer.C:
+			// Idle timeout: flush any remaining, remove from worker, exit
+			if n > 0 {
+				data := buf.Buffer()
+				_ = r.w.broadcastRoomRawBytes(r.id, data)
+			}
+			cleanWAL(wal)
+			log.Infof("worker room:%s idle timeout, exit", r.id)
+			r.w.delRoom(r.id)
+			return
+		}
+
+		if p == nil {
 			break
 		} else if p != roomReadyProto {
 			p.WriteTo(buf)
 			if n++; n == 1 {
 				last = time.Now()
-				td.Reset(sigTime)
+				signalTimer.Reset(sigTime)
+				idleTimer.Reset(idleTimeout)
 				continue
 			} else if n < batch {
 				if sigTime > time.Since(last) {
+					idleTimer.Reset(idleTimeout)
 					continue
 				}
 			}
@@ -86,10 +129,37 @@ func (r *RoomAggregator) pushproc(batch int, sigTime time.Duration) {
 				break
 			}
 		}
-		_ = r.w.broadcastRoomRawBytes(r.id, buf.Buffer())
+
+		data := buf.Buffer()
+		writeWAL(wal, data)
+		_ = r.w.broadcastRoomRawBytes(r.id, data)
+		cleanWAL(wal)
 		buf = bytes.NewWriterSize(buf.Size())
 		n = 0
-		td.Reset(time.Minute)
+		signalTimer.Reset(time.Minute)
+		idleTimer.Reset(idleTimeout)
 	}
+	cleanWAL(wal)
 	log.Infof("worker room:%s exit", r.id)
+}
+
+// writeWAL appends a batch to the write-ahead log.
+func writeWAL(wal *os.File, data []byte) {
+	if wal == nil {
+		return
+	}
+	var lenBuf [4]byte
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data)))
+	wal.Write(lenBuf[:])
+	wal.Write(data)
+	wal.Sync()
+}
+
+// cleanWAL truncates the WAL after a successful flush.
+func cleanWAL(wal *os.File) {
+	if wal == nil {
+		return
+	}
+	wal.Truncate(0)
+	wal.Seek(0, 0)
 }

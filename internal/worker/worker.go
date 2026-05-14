@@ -8,7 +8,7 @@ import (
 	pb "github.com/Terry-Mao/goim/api/logic"
 	"github.com/Terry-Mao/goim/internal/mq"
 	"github.com/Terry-Mao/goim/internal/mq/kafka"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 
 	log "github.com/Terry-Mao/goim/pkg/log"
 )
@@ -17,6 +17,7 @@ import (
 // dispatches them to Comet servers via gRPC. It replaces the
 // legacy internal/job/ Kafka consumer with the MQ abstraction.
 type DeliveryWorker struct {
+	cfg      Config
 	consumer mq.Consumer
 	comets   *CometClientPool
 	reporter *ACKReporter
@@ -31,10 +32,12 @@ type Config struct {
 	Brokers       []string
 	ConsumerGroup string
 	Topics        []string
-	RoutineChan   int // per-Comet channel buffer size (default 1024)
-	RoutineSize   int // goroutines per Comet (default 32)
-	RoomBatch     int // room message batch size (default 20)
-	RoomSignal    time.Duration
+	RoutineChan   int           // per-Comet channel buffer size (default 1024)
+	RoutineSize   int           // goroutines per Comet (default 32)
+	RoomBatch     int           // room message batch size (default 20)
+	RoomSignal    time.Duration // batch flush signal interval (default 1s)
+	RoomIdle      time.Duration // idle timeout before room eviction (default 15m)
+	WALDir        string        // directory for room WAL files (empty = disabled)
 }
 
 // New creates a new DeliveryWorker.
@@ -46,6 +49,7 @@ func New(cfg Config) (*DeliveryWorker, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	w := &DeliveryWorker{
+		cfg:      cfg,
 		consumer: consumer,
 		comets:   NewCometClientPool(),
 		reporter: &ACKReporter{},
@@ -121,10 +125,29 @@ func (w *DeliveryWorker) getRoom(roomID string) *RoomAggregator {
 	if !ok {
 		w.roomsMu.Lock()
 		if r, ok = w.rooms[roomID]; !ok {
-			r = NewRoomAggregator(w, roomID, 20, time.Second)
+			signal := w.cfg.RoomSignal
+			if signal == 0 {
+				signal = time.Second
+			}
+			r = NewRoomAggregator(w, roomID, w.cfg.RoomBatch, signal)
 			w.rooms[roomID] = r
 		}
 		w.roomsMu.Unlock()
 	}
 	return r
+}
+
+// delRoom removes a room aggregator from the worker.
+func (w *DeliveryWorker) delRoom(roomID string) {
+	w.roomsMu.Lock()
+	if r, ok := w.rooms[roomID]; ok {
+		r.Close()
+		delete(w.rooms, roomID)
+	}
+	w.roomsMu.Unlock()
+}
+
+// idleTimeout returns the configured room idle timeout.
+func (w *DeliveryWorker) idleTimeout() time.Duration {
+	return w.cfg.RoomIdle
 }

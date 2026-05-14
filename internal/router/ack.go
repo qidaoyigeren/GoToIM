@@ -23,11 +23,16 @@ const (
 type ACKHandler struct {
 	dao     dao.MessageDAO
 	pushDAO dao.PushDAO
+	idCache *IdempotencyChecker // in-memory cache for terminal message fast-path
 }
 
 // NewACKHandler creates a new ACKHandler.
 func NewACKHandler(d dao.MessageDAO, pd dao.PushDAO) *ACKHandler {
-	return &ACKHandler{dao: d, pushDAO: pd}
+	return &ACKHandler{
+		dao:     d,
+		pushDAO: pd,
+		idCache: NewIdempotencyChecker(d),
+	}
 }
 
 // HandleACK processes a client ACK.
@@ -46,19 +51,29 @@ func (a *ACKHandler) HandleACK(ctx context.Context, uid int64, msgID string) err
 		}
 	}
 
+	// Warm the in-memory cache for future duplicate checks.
+	a.idCache.MarkSeen(msgID)
+
 	metrics.MsgAckTotal.Inc()
 	log.Infof("ack processed: uid=%d msg_id=%s", uid, msgID)
 	return nil
 }
 
 // TrackMessage stores message metadata for delivery tracking (idempotent).
+// Uses atomic HSETNX to claim the message, preventing concurrent duplicate tracking.
+// Returns nil if this goroutine successfully claimed the message.
+// Returns an error if another goroutine already claimed it (duplicate call).
 func (a *ACKHandler) TrackMessage(ctx context.Context, msgID string, fromUID, toUID int64, op int32, body []byte) error {
-	existing, _ := a.dao.GetMessageStatus(ctx, msgID)
-	if len(existing) > 0 {
-		return nil
+	// Atomic claim via HSETNX — only one goroutine wins.
+	added, err := a.dao.SetMessageStatusNX(ctx, msgID, "status", MsgStatusPending)
+	if err != nil {
+		return fmt.Errorf("track message: %w", err)
 	}
+	if !added {
+		return fmt.Errorf("message already tracked: %s", msgID)
+	}
+	// Set remaining fields.
 	fields := map[string]interface{}{
-		"status":     MsgStatusPending,
 		"from_uid":   fromUID,
 		"to_uid":     toUID,
 		"op":         op,
@@ -72,7 +87,11 @@ func (a *ACKHandler) TrackMessage(ctx context.Context, msgID string, fromUID, to
 
 // MarkDelivered marks a message as delivered.
 func (a *ACKHandler) MarkDelivered(ctx context.Context, msgID string) error {
-	return a.dao.UpdateMessageStatus(ctx, msgID, MsgStatusDelivered)
+	if err := a.dao.UpdateMessageStatus(ctx, msgID, MsgStatusDelivered); err != nil {
+		return err
+	}
+	a.idCache.MarkSeen(msgID)
+	return nil
 }
 
 // MarkFailed marks a message as failed.

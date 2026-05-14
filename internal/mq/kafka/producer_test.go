@@ -3,9 +3,9 @@ package kafka
 import (
 	"testing"
 
+	"github.com/IBM/sarama"
 	"github.com/Terry-Mao/goim/internal/mq"
 	"github.com/stretchr/testify/assert"
-	sarama "gopkg.in/Shopify/sarama.v1"
 )
 
 func TestTopicFor(t *testing.T) {

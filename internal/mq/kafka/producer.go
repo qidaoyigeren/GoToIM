@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/IBM/sarama"
 	pb "github.com/Terry-Mao/goim/api/logic"
 	"github.com/Terry-Mao/goim/internal/mq"
-	"github.com/golang/protobuf/proto"
-	sarama "gopkg.in/Shopify/sarama.v1"
+	"google.golang.org/protobuf/proto"
 )
 
 // Producer implements mq.Producer via Kafka SyncProducer.

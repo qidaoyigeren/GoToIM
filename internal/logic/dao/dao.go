@@ -4,17 +4,17 @@ import (
 	"context"
 	"time"
 
+	sarama "github.com/IBM/sarama"
 	"github.com/Terry-Mao/goim/internal/logic/conf"
 	"github.com/Terry-Mao/goim/internal/mq"
 	mqkafka "github.com/Terry-Mao/goim/internal/mq/kafka"
 	"github.com/gomodule/redigo/redis"
-	kafka "gopkg.in/Shopify/sarama.v1"
 )
 
 // Dao dao.
 type Dao struct {
 	c           *conf.Config
-	kafkaPub    kafka.SyncProducer
+	kafkaPub    sarama.SyncProducer
 	mqProducer  mq.Producer // optional: MQ abstraction (nil when not configured)
 	redis       *redis.Pool
 	redisExpire int32
@@ -38,12 +38,12 @@ func New(c *conf.Config) *Dao {
 	return d
 }
 
-func newKafkaPub(c *conf.Kafka) kafka.SyncProducer {
-	kc := kafka.NewConfig()
-	kc.Producer.RequiredAcks = kafka.WaitForAll // Wait for all in-sync replicas to ack the message
-	kc.Producer.Retry.Max = 10                  // Retry up to 10 times to produce the message
+func newKafkaPub(c *conf.Kafka) sarama.SyncProducer {
+	kc := sarama.NewConfig()
+	kc.Producer.RequiredAcks = sarama.WaitForAll // Wait for all in-sync replicas to ack the message
+	kc.Producer.Retry.Max = 10                   // Retry up to 10 times to produce the message
 	kc.Producer.Return.Successes = true
-	pub, err := kafka.NewSyncProducer(c.Brokers, kc)
+	pub, err := sarama.NewSyncProducer(c.Brokers, kc)
 	if err != nil {
 		panic(err)
 	}

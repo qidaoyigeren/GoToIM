@@ -207,6 +207,11 @@ func (l *Logic) PushToUser(c context.Context, msgID string, toUID int64, op int3
 	return l.router.RouteByUser(c, msgID, toUID, op, body, seq)
 }
 
+// AckMessage handles a message ACK from a client.
+func (l *Logic) AckMessage(c context.Context, mid int64, msgID string) error {
+	return l.router.HandleACK(c, mid, msgID)
+}
+
 // GetOfflineMessages returns offline messages for a user since lastSeq.
 func (l *Logic) GetOfflineMessages(c context.Context, mid int64, lastSeq int64, limit int32) (*protocol.SyncReplyBody, error) {
 	return l.syncSvc.GetOfflineMessages(c, mid, lastSeq, limit)

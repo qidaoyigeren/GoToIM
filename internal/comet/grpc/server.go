@@ -10,9 +10,11 @@ import (
 	"github.com/Terry-Mao/goim/internal/comet"
 	"github.com/Terry-Mao/goim/internal/comet/conf"
 	"github.com/Terry-Mao/goim/internal/comet/errors"
+	"github.com/Terry-Mao/goim/internal/grpcx"
 	log "github.com/Terry-Mao/goim/pkg/log"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 )
@@ -26,8 +28,12 @@ func New(c *conf.RPCServer, s *comet.Server) *grpc.Server {
 		Timeout:               time.Duration(c.KeepAliveTimeout),
 		MaxConnectionAge:      time.Duration(c.MaxLifeTime),
 	})
-	srv := grpc.NewServer(keepParams)
-	pb.RegisterCometServer(srv, &server{s})
+	srv := grpc.NewServer(keepParams,
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+		grpc.UnaryInterceptor(grpcx.UnaryInterceptorChain()),
+		grpc.StreamInterceptor(grpcx.StreamInterceptorChain()),
+	)
+	pb.RegisterCometServer(srv, &server{srv: s})
 	lis, err := net.Listen(c.Network, c.Addr)
 	if err != nil {
 		log.Fatalf("comet grpc net.Listen(%s, %s) error(%v)", c.Network, c.Addr, err)
@@ -41,6 +47,7 @@ func New(c *conf.RPCServer, s *comet.Server) *grpc.Server {
 }
 
 type server struct {
+	pb.UnimplementedCometServer
 	srv *comet.Server
 }
 

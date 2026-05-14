@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 // Server is http server.
@@ -22,7 +23,7 @@ type Server struct {
 // New new a http server.
 func New(c *conf.HTTPServer, l *logic.Logic) *Server {
 	engine := gin.New()
-	engine.Use(loggerHandler, recoverHandler)
+	engine.Use(otelgin.Middleware("goim-logic"), loggerHandler, recoverHandler)
 	s := &Server{
 		engine: engine,
 		logic:  l,
