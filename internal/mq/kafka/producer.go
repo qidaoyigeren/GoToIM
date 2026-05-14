@@ -60,9 +60,13 @@ func (p *Producer) topicFor(pushTopic, specTopic string) string {
 // Uses uid as the Kafka partition key to guarantee per-user ordering within a partition.
 func (p *Producer) EnqueueToUser(ctx context.Context, uid int64, msg *mq.Message) error {
 	topic := p.topicFor(p.pushTopic, p.pushTopic)
+	key := msg.Key
+	if key == "" {
+		key = strconv.FormatInt(uid, 10)
+	}
 	km := &sarama.ProducerMessage{
 		Topic: topic,
-		Key:   sarama.StringEncoder(strconv.FormatInt(uid, 10)),
+		Key:   sarama.StringEncoder(key),
 		Value: sarama.ByteEncoder(msg.Value),
 	}
 	_, _, err := p.pub.SendMessage(km)

@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// 按设备 key 列表推送消息
 func (s *Server) pushKeys(c *gin.Context) {
 	var arg struct {
 		Op   int32    `form:"operation"`
@@ -31,6 +32,7 @@ func (s *Server) pushKeys(c *gin.Context) {
 	result(c, gin.H{"msg_ids": msgIDs}, OK)
 }
 
+// 按用户 mid（成员ID）列表推送消息
 func (s *Server) pushMids(c *gin.Context) {
 	var arg struct {
 		Op   int32   `form:"operation"`
@@ -53,6 +55,7 @@ func (s *Server) pushMids(c *gin.Context) {
 	result(c, gin.H{"msg_ids": msgIDs}, OK)
 }
 
+// 将消息存入离线队列，供后续同步拉取
 // pushOffline stores a message in the offline queue for later sync retrieval.
 // POST /goim/push/offline?mid=1001&seq=42 with message body
 func (s *Server) pushOffline(c *gin.Context) {
@@ -79,6 +82,7 @@ func (s *Server) pushOffline(c *gin.Context) {
 	result(c, nil, OK)
 }
 
+// 向指定房间广播消息
 func (s *Server) pushRoom(c *gin.Context) {
 	var arg struct {
 		Op   int32  `form:"operation" binding:"required"`
@@ -103,6 +107,7 @@ func (s *Server) pushRoom(c *gin.Context) {
 	result(c, gin.H{"msg_id": msgID}, OK)
 }
 
+// 全量广播，支持 speed 参数控制推送速率
 func (s *Server) pushAll(c *gin.Context) {
 	var arg struct {
 		Op    int32 `form:"operation" binding:"required"`

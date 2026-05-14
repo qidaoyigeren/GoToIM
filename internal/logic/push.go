@@ -46,7 +46,7 @@ func (l *Logic) PushKeys(c context.Context, op int32, keys []string, msg []byte)
 	msgIDs = append(msgIDs, msgID)
 	body := wrapAsMsgBody(msgID, uid, msg)
 	for server, skeys := range pushKeys {
-		if err = l.dao.PushMsg(c, op, server, skeys, body); err != nil {
+		if err = l.dao.PushViaMQ(c, op, server, skeys, body); err != nil {
 			return msgIDs, err
 		}
 	}
