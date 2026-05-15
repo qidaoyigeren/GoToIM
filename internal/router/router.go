@@ -75,7 +75,8 @@ func (e *DispatchEngine) GetMessageStatus(ctx context.Context, msgID string) (st
 }
 
 // DirectPush pushes a message directly to specific sessions via gRPC.
+// Returns the list of sessions that failed (nil if all succeeded).
 // Used by SyncService for offline message sync.
-func (e *DispatchEngine) DirectPush(ctx context.Context, sessions []*service.Session, op int32, body []byte) error {
+func (e *DispatchEngine) DirectPush(ctx context.Context, sessions []*service.Session, op int32, body []byte) ([]*service.Session, error) {
 	return directPush(ctx, e.pusher, sessions, op, body)
 }

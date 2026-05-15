@@ -195,11 +195,20 @@ func (m *mockPushDAO) PublishACK(ctx context.Context, msgID string, uid int64, s
 }
 
 // mockCometPusher implements CometPusher for testing.
+// pushErr is returned for all keys when perKeyErrs is not set.
+// perKeyErrs allows simulating partial failures: keys in the map fail, others succeed.
 type mockCometPusher struct {
-	pushErr error
+	pushErr    error
+	perKeyErrs map[string]error
 }
 
 func (m *mockCometPusher) PushMsg(ctx context.Context, server string, keys []string, op int32, body []byte) error {
+	if len(keys) > 0 && m.perKeyErrs != nil {
+		if err, ok := m.perKeyErrs[keys[0]]; ok {
+			return err
+		}
+		return nil
+	}
 	return m.pushErr
 }
 
@@ -269,4 +278,34 @@ func TestRouteByUserFallsBackToMQ(t *testing.T) {
 	// Verify fallback used uid as partition key
 	assert.Len(t, prod.enqueued, 1)
 	assert.Equal(t, "5002", prod.enqueued[0].Key)
+}
+
+func TestRouteByUserDirectPushPartialFailure(t *testing.T) {
+	prod := &mockProducer{}
+	msgDAO := newMockMessageDAO()
+	sessDAO := newMockSessionDAO()
+
+	// Simulate 3 devices: key1(success), key2(fail), key3(success)
+	pusher := &mockCometPusher{
+		perKeyErrs: map[string]error{
+			"key2": assert.AnError,
+		},
+	}
+
+	sessDAO.AddSession(context.Background(), "sid1", 5003, "key1", "dev1", "web", "comet-1")
+	sessDAO.AddSession(context.Background(), "sid2", 5003, "key2", "dev2", "ios", "comet-2")
+	sessDAO.AddSession(context.Background(), "sid3", 5003, "key3", "dev3", "android", "comet-1")
+	sessMgr := service.NewSessionManager(sessDAO, 30*time.Minute)
+
+	engine := NewDispatchEngine(&mockPushDAO{}, msgDAO, sessMgr, pusher)
+	engine.SetMQProducer(prod)
+
+	err := engine.RouteByUser(context.Background(), "msg-004", 5003, 9, []byte("partial test"), 1)
+	assert.Nil(t, err)
+
+	// Reliable path should be triggered for the failed session only
+	assert.Len(t, prod.enqueued, 1)
+	assert.Equal(t, int64(5003), prod.lastUID)
+	// The message Key should be the uid string
+	assert.Equal(t, "5003", prod.enqueued[0].Key)
 }

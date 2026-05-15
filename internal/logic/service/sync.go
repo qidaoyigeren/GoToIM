@@ -18,7 +18,7 @@ type DirectPusher interface {
 	// sessions: 目标会话列表（通常属于同一用户的不同设备）
 	// op: 操作码，标识消息类型（如 OpSyncReply 表示同步回复）
 	// body: 已序列化的协议体字节数组
-	DirectPush(ctx context.Context, sessions []*Session, op int32, body []byte) error
+	DirectPush(ctx context.Context, sessions []*Session, op int32, body []byte) ([]*Session, error)
 }
 
 // SyncService 负责离线消息同步和多设备消息同步。
@@ -157,7 +157,7 @@ func (s *SyncService) OnUserOnline(ctx context.Context, uid int64, lastSeq int64
 			if sess == nil {
 				continue
 			}
-			s.pusher.DirectPush(ctx, []*Session{sess}, protocol.OpSyncReply, syncBytes)
+			_, _ = s.pusher.DirectPush(ctx, []*Session{sess}, protocol.OpSyncReply, syncBytes)
 		}
 	}
 
