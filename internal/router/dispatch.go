@@ -158,7 +158,7 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 	// ── 步骤 4：离线 或 直连全部失败 → 走可靠通道（slow path） ──────────
 	// reliableEnqueue 做两件事：
 	//   1. 将消息写入离线队列（Redis ZSet），供用户下次上线时拉取
-	//   2. 将消息投递到 Kafka（producer），由 Job 模块消费后推送给 Comet
+	//   2. 将消息投递到 Kafka（producer），由 DeliveryWorker（internal/worker/dispatch.go）消费后推送给 Comet
 	err := e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, sessions)
 	if err == nil {
 		metrics.PushTotal.WithLabelValues("kafka", "success").Inc()
@@ -173,9 +173,13 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 // RouteByRoom —— 房间/群组消息投递
 // ============================================================================
 //
-// 将消息推送到某个聊天室/直播间的所有成员。投递策略取决于是否有 Kafka producer：
-//   - 有 producer → 消息写入 Kafka Room Topic，由 Job 模块广播给房间成员
-//   - 无 producer → 直接调用 DAO 层广播（兼容降级模式，走 HTTP/gRPC 直推）
+// 将消息推送到某个聊天室/直播间的所有成员。
+//
+// 双通道策略（Kafka 优先 + 直推兜底）：
+//  1. 优先将消息写入 Kafka Room Topic，由 DeliveryWorker 消费后广播
+//  2. 若 Kafka 写入失败且有 broadcaster 兜底 → 直接 gRPC 广播到所有 Comet 节点
+//     （每个 Comet 自行路由到房间内的客户端）
+//  3. 无 producer 且无 broadcaster → 走 DAO 旧路径（同样是 Kafka，纯代码兼容）
 //
 // 参数说明：
 //
@@ -183,13 +187,24 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 //	roomKey - 房间唯一标识（如直播间 ID、群组 ID）
 //	body    - 消息体（protobuf 序列化后的二进制数据）
 func (e *DispatchEngine) RouteByRoom(ctx context.Context, op int32, roomKey string, body []byte) error {
+	// 优先走 Kafka
 	if e.producer != nil {
-		// Kafka 路径：将消息序列化为 pb.PushMsg（type=pbRoom），写入 Kafka Room Topic
-		// Job 模块消费后根据 roomKey 找到房间内所有成员并逐一下发
 		pushMsg := pushMsgBytes(pbRoom, op, "", nil, roomKey, body, 0)
-		return e.producer.EnqueueToRoom(ctx, roomKey, &mq.Message{Key: roomKey, Value: pushMsg})
+		if err := e.producer.EnqueueToRoom(ctx, roomKey, &mq.Message{Key: roomKey, Value: pushMsg}); err != nil {
+			// Kafka 写入失败 → 兜底：直接 gRPC 广播到所有 Comet 节点
+			log.Warningf("kafka enqueue room failed, falling back to direct broadcast: room=%s err=%v", roomKey, err)
+			metrics.PushTotal.WithLabelValues("kafka", "failed").Inc()
+			if e.broadcaster != nil {
+				return e.broadcaster.BroadcastRoom(ctx, op, roomKey, body)
+			}
+			return err
+		}
+		return nil
 	}
-	// 降级路径：无 Kafka 时直接通过 DAO 广播（适用于开发/测试环境）
+	// 无 Kafka → 兜底：直接广播或 DAO
+	if e.broadcaster != nil {
+		return e.broadcaster.BroadcastRoom(ctx, op, roomKey, body)
+	}
 	return e.dao.BroadcastRoomMsg(ctx, op, roomKey, body)
 }
 
@@ -198,7 +213,8 @@ func (e *DispatchEngine) RouteByRoom(ctx context.Context, op int32, roomKey stri
 // ============================================================================
 //
 // 将消息推送给所有在线用户（如系统维护公告、全员通知等）。
-// 与 RouteByRoom 同理，优先走 Kafka 广播，无 producer 时走 DAO 降级。
+//
+// 双通道策略：优先 Kafka → 失败则直接 gRPC 广播到所有 Comet 节点。
 //
 // 参数说明：
 //
@@ -207,9 +223,20 @@ func (e *DispatchEngine) RouteByRoom(ctx context.Context, op int32, roomKey stri
 //	body  - 消息体
 func (e *DispatchEngine) RouteBroadcast(ctx context.Context, op, speed int32, body []byte) error {
 	if e.producer != nil {
-		// Kafka 路径：将消息序列化为 pb.PushMsg（type=pbBroadcast），包含 speed 限速参数
 		pushMsg := pushMsgBytes(pbBroadcast, op, "", nil, "", body, speed)
-		return e.producer.EnqueueBroadcast(ctx, &mq.Message{Value: pushMsg}, speed)
+		if err := e.producer.EnqueueBroadcast(ctx, &mq.Message{Value: pushMsg}, speed); err != nil {
+			// Kafka 写入失败 → 兜底：直接 gRPC 广播到所有 Comet 节点
+			log.Warningf("kafka enqueue broadcast failed, falling back to direct broadcast: err=%v", err)
+			metrics.PushTotal.WithLabelValues("kafka", "failed").Inc()
+			if e.broadcaster != nil {
+				return e.broadcaster.BroadcastAll(ctx, op, speed, body)
+			}
+			return err
+		}
+		return nil
+	}
+	if e.broadcaster != nil {
+		return e.broadcaster.BroadcastAll(ctx, op, speed, body)
 	}
 	return e.dao.BroadcastMsg(ctx, op, speed, body)
 }
@@ -280,7 +307,7 @@ func directPush(ctx context.Context, pusher CometPusher, sessions []*service.Ses
 //
 //  2. Kafka 投递（异步解耦）
 //     将消息序列化为 pb.PushMsg（type=pbPush），写入 Kafka User Topic。
-//     Job 模块消费后：
+//     DeliveryWorker（internal/worker/dispatch.go）消费后：
 //     - 若用户在线 → 通过 gRPC 推送给 Comet → 客户端
 //     - 若用户离线 → 消息已存离线队列，用户上线后拉取
 //     Kafka 的分区键为用户 ID（toUID），保证同一用户的消息有序。
@@ -288,7 +315,7 @@ func directPush(ctx context.Context, pusher CometPusher, sessions []*service.Ses
 // 连接键（keys）提取逻辑：
 //   - 优先使用活跃 session 的真实连接 key（如 TCP 连接的 fd 标识）
 //   - 若无活跃 session（用户离线），使用占位 key "uid:xxx"，
-//     后续由 Job 消费时识别并走离线队列拉取路径
+//     后续由 DeliveryWorker 消费时识别并走离线队列拉取路径
 //
 // 参数说明：
 //
@@ -320,7 +347,7 @@ func (e *DispatchEngine) reliableEnqueue(ctx context.Context, msgID string, toUI
 		}
 	}
 	// 用户离线时 sessions 为空，使用占位 key "uid:xxx"。
-	// Job 消费时通过 "uid:" 前缀识别这是离线用户消息，走离线拉取流程。
+	// DeliveryWorker 消费时通过 "uid:" 前缀识别这是离线用户消息，走离线拉取流程。
 	if len(keys) == 0 {
 		keys = []string{fmt.Sprintf("uid:%d", toUID)}
 	}

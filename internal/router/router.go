@@ -18,18 +18,26 @@ type CometPusher interface {
 	PushMsg(ctx context.Context, server string, keys []string, op int32, body []byte) error
 }
 
+// DirectBroadcaster broadcasts messages directly to all Comet servers via gRPC.
+// Used as fallback when Kafka is unavailable for room/broadcast messages.
+type DirectBroadcaster interface {
+	BroadcastRoom(ctx context.Context, op int32, roomKey string, body []byte) error
+	BroadcastAll(ctx context.Context, op, speed int32, body []byte) error
+}
+
 // DispatchEngine routes messages to the correct delivery channel.
 // It encapsulates the dual-channel push architecture:
 //   - Online users: direct gRPC to Comet (fast path)
 //   - Offline/failed: MQ reliable path
 type DispatchEngine struct {
-	producer   mq.Producer
-	dao        dao.PushDAO
-	msgDAO     dao.MessageDAO
-	sessMgr    *service.SessionManager
-	ackHandler *ACKHandler
-	pusher     CometPusher
-	idGen      IDGenerator
+	producer    mq.Producer
+	broadcaster DirectBroadcaster // optional: direct broadcast fallback when Kafka is down
+	dao         dao.PushDAO
+	msgDAO      dao.MessageDAO
+	sessMgr     *service.SessionManager
+	ackHandler  *ACKHandler
+	pusher      CometPusher
+	idGen       IDGenerator
 }
 
 // NewDispatchEngine creates a new DispatchEngine.
@@ -52,6 +60,11 @@ func (e *DispatchEngine) SetIDGenerator(gen IDGenerator) {
 // SetMQProducer sets the MQ producer for the reliable delivery path.
 func (e *DispatchEngine) SetMQProducer(p mq.Producer) {
 	e.producer = p
+}
+
+// SetBroadcastFallback sets the direct broadcast fallback for when Kafka is unavailable.
+func (e *DispatchEngine) SetBroadcastFallback(b DirectBroadcaster) {
+	e.broadcaster = b
 }
 
 // HandleACK processes a client ACK for a delivered message.

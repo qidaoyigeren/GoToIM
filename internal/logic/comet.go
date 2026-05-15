@@ -135,6 +135,84 @@ func (p *CometPusher) KickConnection(ctx context.Context, server, key string) er
 	return err
 }
 
+// BroadcastRoom broadcasts a message to a room across all Comet servers.
+// Each Comet server looks up which of its connected clients are in the room
+// and delivers the message to them.
+func (p *CometPusher) BroadcastRoom(ctx context.Context, op int32, roomKey string, body []byte) error {
+	buf := bytes.NewWriterSize(len(body) + 64)
+	pb := &protocol.Proto{
+		Ver:  1,
+		Op:   op,
+		Body: body,
+	}
+	pb.WriteTo(buf)
+	pb.Body = buf.Buffer()
+	pb.Op = protocol.OpRaw
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	var lastErr error
+	okCount := 0
+	for server, client := range p.clients {
+		if _, err := client.BroadcastRoom(ctx, &comet.BroadcastRoomReq{
+			RoomID: roomKey,
+			Proto:  pb,
+		}); err != nil {
+			lastErr = err
+			log.Warningf("broadcast room to %s failed: %v", server, err)
+		} else {
+			okCount++
+		}
+	}
+	if okCount == 0 && lastErr != nil {
+		return fmt.Errorf("all comet broadcast room failed: %w", lastErr)
+	}
+	return nil
+}
+
+// BroadcastAll broadcasts a message to all Comet servers.
+func (p *CometPusher) BroadcastAll(ctx context.Context, op, speed int32, body []byte) error {
+	buf := bytes.NewWriterSize(len(body) + 64)
+	pb := &protocol.Proto{
+		Ver:  1,
+		Op:   op,
+		Body: body,
+	}
+	pb.WriteTo(buf)
+	pb.Body = buf.Buffer()
+	pb.Op = protocol.OpRaw
+
+	p.mu.RLock()
+	n := len(p.clients)
+	p.mu.RUnlock()
+	if n > 0 {
+		speed /= int32(n)
+	}
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	var lastErr error
+	okCount := 0
+	for server, client := range p.clients {
+		if _, err := client.Broadcast(ctx, &comet.BroadcastReq{
+			ProtoOp: op,
+			Proto:   pb,
+			Speed:   speed,
+		}); err != nil {
+			lastErr = err
+			log.Warningf("broadcast to %s failed: %v", server, err)
+		} else {
+			okCount++
+		}
+	}
+	if okCount == 0 && lastErr != nil {
+		return fmt.Errorf("all comet broadcast failed: %w", lastErr)
+	}
+	return nil
+}
+
 // Close closes all gRPC connections.
 func (p *CometPusher) Close() {
 	p.mu.Lock()

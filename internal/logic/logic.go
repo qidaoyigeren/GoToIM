@@ -81,6 +81,7 @@ func New(c *conf.Config) (l *Logic) {
 	if l.dao.MQProducer() != nil {
 		l.router.SetMQProducer(l.dao.MQProducer())
 	}
+	l.router.SetBroadcastFallback(l.cometPusher)
 
 	l.syncSvc = service.NewSyncService(l.dao, l.sessionMgr, l.router)
 

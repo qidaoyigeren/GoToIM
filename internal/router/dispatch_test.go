@@ -18,9 +18,16 @@ type mockProducer struct {
 	delayedMsgs  []*mq.Message
 	delayedUID   int64
 	delayedDelay int64
+	// error injection
+	userErr      error
+	roomErr      error
+	broadcastErr error
 }
 
 func (m *mockProducer) EnqueueToUser(ctx context.Context, uid int64, msg *mq.Message) error {
+	if m.userErr != nil {
+		return m.userErr
+	}
 	m.lastUID = uid
 	m.enqueued = append(m.enqueued, msg)
 	return nil
@@ -31,10 +38,16 @@ func (m *mockProducer) EnqueueToUsers(ctx context.Context, uids []int64, msg *mq
 }
 
 func (m *mockProducer) EnqueueToRoom(ctx context.Context, roomID string, msg *mq.Message) error {
+	if m.roomErr != nil {
+		return m.roomErr
+	}
 	return nil
 }
 
 func (m *mockProducer) EnqueueBroadcast(ctx context.Context, msg *mq.Message, speed int32) error {
+	if m.broadcastErr != nil {
+		return m.broadcastErr
+	}
 	return nil
 }
 
@@ -50,6 +63,25 @@ func (m *mockProducer) EnqueueDelayed(ctx context.Context, uid int64, msg *mq.Me
 }
 
 func (m *mockProducer) Close() error { return nil }
+
+// mockDirectBroadcaster implements DirectBroadcaster for testing.
+type mockDirectBroadcaster struct {
+	rooms       []string
+	alls        []int32 // speeds
+	broadcasted bool
+}
+
+func (m *mockDirectBroadcaster) BroadcastRoom(ctx context.Context, op int32, roomKey string, body []byte) error {
+	m.rooms = append(m.rooms, roomKey)
+	m.broadcasted = true
+	return nil
+}
+
+func (m *mockDirectBroadcaster) BroadcastAll(ctx context.Context, op, speed int32, body []byte) error {
+	m.alls = append(m.alls, speed)
+	m.broadcasted = true
+	return nil
+}
 
 // mockSessionDAO implements dao.SessionDAO for testing.
 type mockSessionDAO struct {
@@ -308,4 +340,82 @@ func TestRouteByUserDirectPushPartialFailure(t *testing.T) {
 	assert.Equal(t, int64(5003), prod.lastUID)
 	// The message Key should be the uid string
 	assert.Equal(t, "5003", prod.enqueued[0].Key)
+}
+
+func TestRouteByRoomKafkaFailsFallbackToBroadcaster(t *testing.T) {
+	prod := &mockProducer{roomErr: assert.AnError}
+	broadcaster := &mockDirectBroadcaster{}
+	msgDAO := newMockMessageDAO()
+	pusher := &mockCometPusher{}
+
+	engine := NewDispatchEngine(&mockPushDAO{}, msgDAO, nil, pusher)
+	engine.SetMQProducer(prod)
+	engine.SetBroadcastFallback(broadcaster)
+
+	err := engine.RouteByRoom(context.Background(), 9, "room-1", []byte("room fallback test"))
+	assert.Nil(t, err)
+
+	// Broadcaster should have been called as fallback
+	assert.True(t, broadcaster.broadcasted)
+	assert.Contains(t, broadcaster.rooms, "room-1")
+}
+
+func TestRouteByRoomKafkaFailsNoBroadcasterReturnsError(t *testing.T) {
+	prod := &mockProducer{roomErr: assert.AnError}
+	msgDAO := newMockMessageDAO()
+	pusher := &mockCometPusher{}
+
+	engine := NewDispatchEngine(&mockPushDAO{}, msgDAO, nil, pusher)
+	engine.SetMQProducer(prod)
+	// No broadcaster set
+
+	err := engine.RouteByRoom(context.Background(), 9, "room-2", []byte("room no fallback test"))
+	assert.Error(t, err)
+}
+
+func TestRouteBroadcastKafkaFailsFallbackToBroadcaster(t *testing.T) {
+	prod := &mockProducer{broadcastErr: assert.AnError}
+	broadcaster := &mockDirectBroadcaster{}
+	msgDAO := newMockMessageDAO()
+	pusher := &mockCometPusher{}
+
+	engine := NewDispatchEngine(&mockPushDAO{}, msgDAO, nil, pusher)
+	engine.SetMQProducer(prod)
+	engine.SetBroadcastFallback(broadcaster)
+
+	err := engine.RouteBroadcast(context.Background(), 9, 100, []byte("broadcast fallback test"))
+	assert.Nil(t, err)
+
+	// Broadcaster should have been called as fallback
+	assert.True(t, broadcaster.broadcasted)
+	assert.Contains(t, broadcaster.alls, int32(100))
+}
+
+func TestRouteBroadcastNoProducerUsesBroadcaster(t *testing.T) {
+	broadcaster := &mockDirectBroadcaster{}
+	msgDAO := newMockMessageDAO()
+	pusher := &mockCometPusher{}
+
+	engine := NewDispatchEngine(&mockPushDAO{}, msgDAO, nil, pusher)
+	// No producer set
+	engine.SetBroadcastFallback(broadcaster)
+
+	err := engine.RouteBroadcast(context.Background(), 9, 50, []byte("broadcast no kafka test"))
+	assert.Nil(t, err)
+	assert.True(t, broadcaster.broadcasted)
+}
+
+func TestRouteByRoomNoProducerUsesBroadcaster(t *testing.T) {
+	broadcaster := &mockDirectBroadcaster{}
+	msgDAO := newMockMessageDAO()
+	pusher := &mockCometPusher{}
+
+	engine := NewDispatchEngine(&mockPushDAO{}, msgDAO, nil, pusher)
+	// No producer set
+	engine.SetBroadcastFallback(broadcaster)
+
+	err := engine.RouteByRoom(context.Background(), 9, "room-3", []byte("room no kafka test"))
+	assert.Nil(t, err)
+	assert.True(t, broadcaster.broadcasted)
+	assert.Contains(t, broadcaster.rooms, "room-3")
 }
