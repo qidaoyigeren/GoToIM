@@ -13,6 +13,10 @@ build:
 	$(GOBUILD) -o target/comet cmd/comet/main.go
 	$(GOBUILD) -o target/logic cmd/logic/main.go
 	$(GOBUILD) -o target/job cmd/job/main.go
+	$(GOBUILD) -o target/notify-server cmd/notify-server/main.go
+
+build-notify:
+	$(GOBUILD) -o target/notify-server cmd/notify-server/main.go
 
 test:
 	$(GOTEST) -v ./...
