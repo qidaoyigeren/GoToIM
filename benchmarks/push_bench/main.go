@@ -2,7 +2,7 @@
 //
 // Usage:
 //
-//	go run benchmarks/push_bench/main.go -receivers=100 -rate=1000 -duration=60s
+//	go run benchmarks/push_bench/main.go -receivers=200 -rate=1000 -duration=30s
 package main
 
 import (
@@ -49,10 +49,12 @@ type PushResult struct {
 type PushReport struct {
 	StartTime     time.Time    `json:"start_time"`
 	EndTime       time.Time    `json:"end_time"`
+	Receivers     int          `json:"receivers"`
+	TargetRate    int          `json:"target_rate"`
 	TotalSent     int64        `json:"total_sent"`
 	TotalReceived int64        `json:"total_received"`
 	FailedSent    int64        `json:"failed_sent"`
-	MsgsPerSec    float64      `json:"msgs_per_sec"`
+	ActualQPS     float64      `json:"actual_qps"`
 	AvgLatencyMs  float64      `json:"avg_latency_ms"`
 	P50LatencyMs  float64      `json:"p50_latency_ms"`
 	P95LatencyMs  float64      `json:"p95_latency_ms"`
@@ -64,9 +66,9 @@ type PushReport struct {
 func init() {
 	flag.StringVar(&logicHost, "logic-host", "localhost:3111", "logic HTTP address")
 	flag.StringVar(&cometHost, "comet-host", "localhost:3101", "comet TCP address")
-	flag.IntVar(&receivers, "receivers", 5000, "number of receiver connections")
-	flag.IntVar(&rate, "rate", 10000, "target messages per second")
-	flag.DurationVar(&benchDur, "duration", 60*time.Second, "benchmark duration")
+	flag.IntVar(&receivers, "receivers", 200, "number of receiver connections")
+	flag.IntVar(&rate, "rate", 500, "target messages per second (actual limited by HTTP latency)")
+	flag.DurationVar(&benchDur, "duration", 30*time.Second, "benchmark duration")
 	flag.StringVar(&outputFile, "output", "push_results.json", "output JSON file")
 }
 
@@ -77,8 +79,10 @@ func main() {
 	fmt.Printf("Receivers: %d, Rate: %d msg/s, Duration: %s\n", receivers, rate, benchDur)
 
 	report := &PushReport{
-		StartTime: time.Now(),
-		Results:   make([]PushResult, 0, rate*int(benchDur.Seconds())),
+		StartTime:  time.Now(),
+		Receivers:  receivers,
+		TargetRate: rate,
+		Results:    make([]PushResult, 0, rate*int(benchDur.Seconds())),
 	}
 
 	var (
@@ -105,6 +109,7 @@ func main() {
 		}
 	}
 	fmt.Printf("  %d receivers connected\n", len(conns))
+	report.Receivers = len(conns)
 
 	if len(conns) == 0 {
 		fmt.Println("No receivers connected, aborting.")
@@ -120,10 +125,11 @@ func main() {
 	fmt.Printf("\n--- Phase 2: Sending messages at %d msg/s for %s ---\n", rate, benchDur)
 	httpClient := &http.Client{
 		Transport: &http.Transport{
-			MaxIdleConns:        200,
-			MaxIdleConnsPerHost: 200,
+			MaxIdleConns:        500,
+			MaxIdleConnsPerHost: 500,
+			MaxConnsPerHost:     500,
 		},
-		Timeout: 10 * time.Second,
+		Timeout: 30 * time.Second,
 	}
 
 	ticker := time.NewTicker(time.Second / time.Duration(rate))
@@ -133,34 +139,31 @@ func main() {
 
 	senderMid := int64(9999)
 	receiverIdx := 0
+	targetCount := int(rate) * int(benchDur.Seconds())
 
-sendLoop:
-	for {
+	for i := 0; i < targetCount; i++ {
 		select {
 		case <-timer.C:
-			break sendLoop
+			goto done
 		case <-ticker.C:
-			targetMid := receiverMids[receiverIdx%len(receiverMids)]
-			receiverIdx++
-			ts := time.Now().UnixMilli()
-			payload := fmt.Sprintf(`{"ts":%d,"from":%d,"msg":"bench"}`, ts, senderMid)
-
-			go func(mid int64, body string, sendTs int64) {
-				url := fmt.Sprintf("http://%s/goim/push/mids?operation=9&mids=%d", logicHost, mid)
-				resp, err := httpClient.Post(url, "application/json", bytes.NewBufferString(body))
-				if err != nil {
-					atomic.AddInt64(&failedSent, 1)
-					return
-				}
-				resp.Body.Close()
-				atomic.AddInt64(&totalSent, 1)
-			}(targetMid, payload, ts)
 		}
-	}
+		targetMid := receiverMids[receiverIdx%len(receiverMids)]
+		receiverIdx++
+		ts := time.Now().UnixMilli()
+		payload := fmt.Sprintf(`{"ts":%d,"from":%d,"msg":"bench"}`, ts, senderMid)
 
-	time.Sleep(5 * time.Second)
+		url := fmt.Sprintf("http://%s/goim/push/mids?operation=9&mids=%d", logicHost, targetMid)
+		resp, err := httpClient.Post(url, "application/json", bytes.NewBufferString(payload))
+		if err != nil {
+			atomic.AddInt64(&failedSent, 1)
+			continue
+		}
+		resp.Body.Close()
+		atomic.AddInt64(&totalSent, 1)
+	}
+done:
 	close(quit)
-	time.Sleep(time.Second)
+	time.Sleep(3 * time.Second)
 
 	report.EndTime = time.Now()
 	report.TotalSent = atomic.LoadInt64(&totalSent)
@@ -169,7 +172,7 @@ sendLoop:
 
 	elapsed := report.EndTime.Sub(report.StartTime).Seconds()
 	if elapsed > 0 {
-		report.MsgsPerSec = float64(report.TotalSent) / elapsed
+		report.ActualQPS = float64(report.TotalSent) / elapsed
 	}
 
 	latencies := make([]float64, 0, len(report.Results))
@@ -192,10 +195,13 @@ sendLoop:
 	}
 
 	fmt.Printf("\n=== Results ===\n")
+	fmt.Printf("Receivers: %d, Target rate: %d msg/s\n", report.Receivers, report.TargetRate)
 	fmt.Printf("Sent: %d, Received: %d, Failed: %d\n", report.TotalSent, report.TotalReceived, report.FailedSent)
-	fmt.Printf("QPS: %.1f\n", report.MsgsPerSec)
-	fmt.Printf("E2E Latency: avg=%.2fms p50=%.2fms p95=%.2fms p99=%.2fms max=%.2fms\n",
-		report.AvgLatencyMs, report.P50LatencyMs, report.P95LatencyMs, report.P99LatencyMs, report.MaxLatencyMs)
+	fmt.Printf("Actual QPS: %.1f\n", report.ActualQPS)
+	if len(latencies) > 0 {
+		fmt.Printf("E2E Latency: avg=%.2fms p50=%.2fms p95=%.2fms p99=%.2fms max=%.2fms\n",
+			report.AvgLatencyMs, report.P50LatencyMs, report.P95LatencyMs, report.P99LatencyMs, report.MaxLatencyMs)
+	}
 
 	for _, conn := range conns {
 		conn.Close()
@@ -247,8 +253,7 @@ func readPump(conn net.Conn, mid int64, mu *sync.Mutex, report *PushReport, tota
 		if err != nil {
 			return
 		}
-		switch op {
-		case opRaw:
+		if op == opRaw {
 			content := extractMsgBodyContent(body)
 			var msg struct {
 				Ts   int64 `json:"ts"`
