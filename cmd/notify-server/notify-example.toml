@@ -1,0 +1,13 @@
+# goim Notify Server — Order Notification Platform
+# Copy this file and adjust for your environment.
+
+listen = ":3121"
+logic_addr = "localhost:3111"
+
+[simulation]
+default_qps = 100
+flash_sale_users = 10000
+flash_sale_burst_ms = 2000
+order_lifecycle_min = "3s"
+order_lifecycle_max = "10s"
+user_pool_size = 10000

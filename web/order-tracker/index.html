@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Order Notification Platform — goim</title>
+<style>
+:root {
+  --bg: #f0f2f5;
+  --panel: #ffffff;
+  --ink: #1a1a2e;
+  --muted: #8b8fa3;
+  --line: #e8eaef;
+  --blue: #4f6ef7;
+  --blue-soft: #eef1ff;
+  --green: #22c55e;
+  --green-soft: #f0fdf4;
+  --amber: #f59e0b;
+  --amber-soft: #fffbeb;
+  --red: #ef4444;
+  --red-soft: #fef2f2;
+  --purple: #8b5cf6;
+  --teal: #14b8a6;
+  --shadow: 0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+header {
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: var(--shadow);
+}
+header h1 { font-size: 18px; font-weight: 700; }
+header .badge { font-size: 12px; padding: 2px 10px; border-radius: 12px; font-weight: 600; }
+.badge.connected { background: var(--green-soft); color: #166534; }
+.badge.disconnected { background: var(--red-soft); color: #991b1b; }
+.badge.connecting { background: var(--amber-soft); color: #92400e; }
+
+.layout {
+  display: grid;
+  grid-template-columns: 220px 1fr 280px;
+  gap: 12px;
+  padding: 12px;
+  height: calc(100% - 53px);
+  overflow: hidden;
+}
+
+.panel {
+  background: var(--panel);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.panel-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.panel-body { flex: 1; overflow-y: auto; padding: 8px; }
+
+button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+button:hover { border-color: var(--blue); background: var(--blue-soft); }
+button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+button.primary:hover { opacity: 0.9; background: var(--blue); }
+button.danger { background: var(--red); border-color: var(--red); color: #fff; }
+button.small { padding: 3px 8px; font-size: 11px; border-radius: 4px; }
+button:disabled { opacity: 0.5; cursor: default; }
+
+.user-card {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.user-card:hover { border-color: var(--blue); background: var(--blue-soft); }
+.user-card.active { border-color: var(--blue); background: var(--blue-soft); }
+.user-card .uid { font-weight: 600; font-size: 13px; }
+.user-card .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+.status-dot.online { background: var(--green); }
+.status-dot.offline { background: var(--muted); }
+
+.notif-item {
+  padding: 10px 12px;
+  border-left: 3px solid var(--line);
+  margin-bottom: 6px;
+  border-radius: 0 6px 6px 0;
+  background: #fafbfc;
+  transition: all 0.2s;
+  position: relative;
+}
+.notif-item.order_status { border-left-color: var(--blue); }
+.notif-item.flash_sale { border-left-color: var(--purple); background: #faf5ff; }
+.notif-item.logistics { border-left-color: var(--teal); }
+.notif-item.system { border-left-color: var(--muted); }
+.notif-item .notif-title { font-weight: 600; font-size: 13px; }
+.notif-item .notif-content { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.notif-item .notif-time { font-size: 10px; color: var(--muted); margin-top: 4px; }
+.notif-item .ack-badge {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 600;
+  position: absolute;
+  top: 10px;
+  right: 12px;
+}
+.ack-badge.pending { background: #fef3c7; color: #92400e; }
+.ack-badge.delivered { background: #dbeafe; color: #1e40af; }
+.ack-badge.acked { background: var(--green-soft); color: #166534; }
+.ack-badge.failed { background: var(--red-soft); color: #991b1b; }
+
+.order-card {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 6px;
+}
+.order-card .order-id { font-weight: 600; font-size: 13px; }
+.order-card .order-status {
+  display: inline-block;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+.order-status.created { background: #fef3c7; color: #92400e; }
+.order-status.paid { background: #dbeafe; color: #1e40af; }
+.order-status.confirmed { background: #e0e7ff; color: #3730a3; }
+.order-status.shipped { background: #fce7f3; color: #9d174d; }
+.order-status.delivered { background: var(--green-soft); color: #166534; }
+.order-status.cancelled { background: var(--red-soft); color: #991b1b; }
+
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 8px; }
+.stat-box {
+  padding: 10px;
+  border-radius: 8px;
+  background: #f9fafb;
+  border: 1px solid var(--line);
+  text-align: center;
+}
+.stat-box .stat-value { font-size: 20px; font-weight: 700; }
+.stat-box .stat-label { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+.progress-bar {
+  height: 4px;
+  background: var(--line);
+  border-radius: 2px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+.progress-bar .fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.fill.grpc { background: var(--green); }
+.fill.kafka { background: var(--amber); }
+
+.sim-controls { padding: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+.sim-controls button { flex: 1; min-width: 60px; }
+
+.empty-state {
+  text-align: center;
+  color: var(--muted);
+  padding: 40px 20px;
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Order Notification Platform</h1>
+  <div>
+    <span style="font-size:12px;color:var(--muted);margin-right:8px">Comet</span>
+    <span id="wsBadge" class="badge disconnected">未连接</span>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- Left Panel: Users & Orders -->
+  <div class="panel">
+    <div class="panel-header">Users & Orders</div>
+    <div class="panel-body" id="ordersPanel">
+      <div class="empty-state">等待连接...</div>
+    </div>
+  </div>
+
+  <!-- Center Panel: Notification Timeline -->
+  <div class="panel">
+    <div class="panel-header">Notification Timeline</div>
+    <div class="panel-body" id="timelinePanel">
+      <div class="empty-state">暂无通知</div>
+    </div>
+  </div>
+
+  <!-- Right Panel: Stats & Controls -->
+  <div class="panel">
+    <div class="panel-header">Live Stats</div>
+    <div class="panel-body">
+      <div class="stats-grid" id="statsGrid">
+        <div class="stat-box"><div class="stat-value" id="statPushRate">0</div><div class="stat-label">Push Rate/s</div></div>
+        <div class="stat-box"><div class="stat-value" id="statTotal">0</div><div class="stat-label">Total Pushed</div></div>
+        <div class="stat-box"><div class="stat-value" id="statAckRate">0%</div><div class="stat-label">ACK Rate</div></div>
+        <div class="stat-box"><div class="stat-value" id="statP99">0ms</div><div class="stat-label">P99 Latency</div></div>
+      </div>
+      <div style="padding:8px;">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Delivery Path</div>
+        <div class="progress-bar">
+          <div style="display:flex;">
+            <div class="fill grpc" id="barGrpc" style="width:0%"></div>
+            <div class="fill kafka" id="barKafka" style="width:0%"></div>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);text-align:right;margin-top:2px;">
+          <span style="color:var(--green)">gRPC</span> /
+          <span style="color:var(--amber)">Kafka</span>
+        </div>
+      </div>
+      <div class="sim-controls">
+        <button class="small" onclick="startSim('lifecycle')" title="Demo a full order lifecycle">Demo</button>
+        <button class="small" onclick="startSim('normal')" title="Steady traffic">Normal</button>
+        <button class="small" onclick="startSim('peak')" title="High traffic">Peak</button>
+        <button class="small primary" onclick="startSim('flash_sale')" title="Burst test">Flash Sale</button>
+        <button class="small danger" onclick="stopSim()">Stop</button>
+      </div>
+      <div id="simStatus" style="font-size:10px;color:var(--muted);text-align:center;padding:4px;">Simulation: idle</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Protocol constants (matching goim api/protocol/operation.go)
+// ============================================================
+const RAW_HEADER_LEN = 16;
+const OP_AUTH = 7;
+const OP_AUTH_REPLY = 8;
+const OP_HEARTBEAT = 2;
+const OP_HEARTBEAT_REPLY = 3;
+const OP_RAW = 9;
+const OP_SEND_MSG_ACK = 18;
+const OP_PUSH_MSG_ACK = 19;
+
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
+// ============================================================
+// State
+// ============================================================
+const COMET_WS = 'ws://localhost:3102/sub';
+const NOTIFY_API = 'http://localhost:3121/api';
+const USER_ID = '1001';
+
+let ws = null;
+let seq = 1;
+let wsConnected = false;
+let notifications = [];
+let orders = [];
+let statsTimer = null;
+let reconnectTimer = null;
+let reconnectAttempts = 0;
+let manualClose = false;
+
+// ============================================================
+// WebSocket Protocol
+// ============================================================
+function buildProto(op, seq, body) {
+  let bytes = body ? (body instanceof Uint8Array ? body : new Uint8Array(body)) : new Uint8Array(0);
+  let buf = new ArrayBuffer(RAW_HEADER_LEN + bytes.byteLength);
+  let v = new DataView(buf);
+  v.setInt32(0, RAW_HEADER_LEN + bytes.byteLength);
+  v.setInt16(4, RAW_HEADER_LEN);
+  v.setInt16(6, 1);
+  v.setInt32(8, op);
+  v.setInt32(12, seq);
+  new Uint8Array(buf, RAW_HEADER_LEN).set(bytes);
+  return buf;
+}
+
+function parseProto(data) {
+  let v = new DataView(data);
+  return {
+    packLen: v.getInt32(0),
+    headerLen: v.getInt16(4),
+    ver: v.getInt16(6),
+    op: v.getInt32(8),
+    seq: v.getInt32(12),
+    body: data.slice(v.getInt16(4), v.getInt32(0))
+  };
+}
+
+// ============================================================
+// WebSocket Connection
+// ============================================================
+function connect() {
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+  manualClose = false;
+  updateWsBadge('connecting');
+
+  ws = new WebSocket(COMET_WS);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = function() {
+    let token = {
+      mid: parseInt(USER_ID),
+      key: 'uid:' + USER_ID,
+      room_id: 'order_notify_room',
+      platform: 'web',
+      device_id: 'order-tracker-001',
+      accepts: [OP_RAW, OP_SEND_MSG_ACK, OP_PUSH_MSG_ACK],
+      last_seq: 0
+    };
+    try {
+      ws.send(buildProto(OP_AUTH, seq++, textEncoder.encode(JSON.stringify(token))));
+    } catch(e) { console.error('Auth send failed:', e); }
+  };
+
+  ws.onmessage = function(evt) {
+    try {
+      let proto = parseProto(evt.data);
+      handleProto(proto);
+    } catch(e) {
+      console.error('Proto parse error:', e);
+    }
+  };
+
+  ws.onclose = function() {
+    wsConnected = false;
+    updateWsBadge('disconnected');
+    if (!manualClose) scheduleReconnect();
+  };
+
+  ws.onerror = function() {
+    console.error('WebSocket error');
+  };
+}
+
+function handleProto(proto) {
+  switch (proto.op) {
+    case OP_AUTH_REPLY:
+      wsConnected = true;
+      reconnectAttempts = 0;
+      updateWsBadge('connected');
+      fetchOrders();
+      break;
+
+    case OP_HEARTBEAT_REPLY:
+      break;
+
+    case OP_RAW:
+    case OP_PUSH_MSG_ACK:
+      handlePushMessage(proto.body);
+      break;
+
+    case OP_SEND_MSG_ACK:
+      // Server acknowledged our sent message
+      break;
+  }
+}
+
+function handlePushMessage(body) {
+  let text = textDecoder.decode(body);
+  let data = null;
+  try { data = JSON.parse(text); } catch(e) { return; }
+
+  if (!data || !data.type) return;
+
+  let notif = {
+    type: data.type,
+    title: data.title || '',
+    content: data.content || '',
+    notify_id: data.notify_id || '',
+    order_id: data.order_id || '',
+    timestamp: data.timestamp || Date.now(),
+    status: 'delivered'
+  };
+
+  notifications.unshift(notif);
+  renderTimeline();
+}
+
+function scheduleReconnect() {
+  if (manualClose) return;
+  if (reconnectAttempts >= 10) return;
+  let delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+  reconnectAttempts++;
+  updateWsBadge('connecting');
+  reconnectTimer = setTimeout(function() {
+    connect();
+  }, delay);
+}
+
+function disconnect() {
+  manualClose = true;
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  if (ws) { ws.close(); ws = null; }
+  wsConnected = false;
+  updateWsBadge('disconnected');
+}
+
+function updateWsBadge(status) {
+  let badge = document.getElementById('wsBadge');
+  badge.className = 'badge ' + status;
+  if (status === 'connected') badge.textContent = '已连接';
+  else if (status === 'connecting') badge.textContent = '连接中...';
+  else badge.textContent = '未连接';
+}
+
+// ============================================================
+// API Calls to Notify Server
+// ============================================================
+async function apiCall(path, method, body) {
+  try {
+    let opts = { method: method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    let resp = await fetch(NOTIFY_API + path, opts);
+    return await resp.json();
+  } catch(e) {
+    console.error('API call failed:', path, e);
+    return null;
+  }
+}
+
+async function fetchOrders() {
+  let result = await apiCall('/orders/user/' + USER_ID, 'GET');
+  if (result && result.code === 0) {
+    orders = result.data || [];
+    renderOrders();
+  }
+}
+
+async function fetchStats() {
+  let result = await apiCall('/platform/stats', 'GET');
+  if (result && result.code === 0) {
+    updateStats(result.data);
+  }
+  let simResult = await apiCall('/simulate/status', 'GET');
+  if (simResult && simResult.code === 0) {
+    updateSimStatus(simResult.data);
+  }
+}
+
+async function startSim(mode) {
+  let qps = mode === 'flash_sale' ? 5000 : (mode === 'peak' ? 500 : 100);
+  let users = mode === 'flash_sale' ? 10000 : 1000;
+  await apiCall('/simulate/start', 'POST', { mode: mode, qps: qps, users: users });
+}
+
+async function stopSim() {
+  await apiCall('/simulate/stop', 'POST');
+}
+
+// ============================================================
+// Render Functions
+// ============================================================
+function renderOrders() {
+  let panel = document.getElementById('ordersPanel');
+  if (!orders.length) {
+    panel.innerHTML = '<div class="empty-state">暂无订单</div>';
+    return;
+  }
+  panel.innerHTML = orders.map(function(o) {
+    let statusClass = o.status || 'created';
+    let statusText = {created:'已创建',paid:'已支付',confirmed:'已确认',shipped:'已发货',delivered:'已签收',cancelled:'已取消',delivery_failed:'配送异常'}[o.status]||o.status;
+    return '<div class="order-card">' +
+      '<div class="order-id">' + escapeHtml(o.order_id) + '</div>' +
+      '<div class="order-status ' + statusClass + '">' + statusText + '</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:4px;">¥' + (o.total||0).toFixed(2) + '</div>' +
+      '</div>';
+  }).join('');
+}
+
+function renderTimeline() {
+  let panel = document.getElementById('timelinePanel');
+  if (!notifications.length) {
+    panel.innerHTML = '<div class="empty-state">暂无通知 — 启动一个模拟来查看实时推送</div>';
+    return;
+  }
+  panel.innerHTML = notifications.slice(0, 50).map(function(n) {
+    let timeStr = new Date(n.timestamp).toLocaleTimeString('zh-CN', {hour12:false});
+    let typeLabel = {order_status:'订单',flash_sale:'闪购',logistics:'物流',system:'系统'}[n.type]||n.type;
+    return '<div class="notif-item ' + n.type + '">' +
+      '<span style="font-size:10px;color:var(--muted);">' + typeLabel + '</span>' +
+      '<span class="ack-badge ' + n.status + '">' + ({pending:'等待',delivered:'已送达',acked:'已读',failed:'失败'}[n.status]||n.status) + '</span>' +
+      '<div class="notif-title">' + escapeHtml(n.title) + '</div>' +
+      '<div class="notif-content">' + escapeHtml(n.content) + '</div>' +
+      '<div class="notif-time">' + timeStr + ' · ' + escapeHtml(n.notify_id) + '</div>' +
+      '</div>';
+  }).join('');
+}
+
+function updateStats(stats) {
+  document.getElementById('statPushRate').textContent = Math.round(stats.push_rate_per_sec || 0);
+  document.getElementById('statTotal').textContent = (stats.total_pushed || 0).toLocaleString();
+  document.getElementById('statAckRate').textContent = ((stats.ack_rate || 0) * 100).toFixed(1) + '%';
+  document.getElementById('statP99').textContent = (stats.latency_p99_ms || 0).toFixed(1) + 'ms';
+
+  let grpcPct = ((stats.delivery_path && stats.delivery_path.grpc_direct) || 0) * 100;
+  let kafkaPct = ((stats.delivery_path && stats.delivery_path.kafka_fallback) || 0) * 100;
+  document.getElementById('barGrpc').style.width = grpcPct + '%';
+  document.getElementById('barKafka').style.width = kafkaPct + '%';
+}
+
+function updateSimStatus(sim) {
+  let el = document.getElementById('simStatus');
+  if (sim && sim.active) {
+    el.textContent = 'Simulation: ' + sim.mode + ' | QPS: ~' + Math.round(sim.qps||0) + ' | Uptime: ' + (sim.uptime_seconds||0) + 's';
+  } else {
+    el.textContent = 'Simulation: idle';
+  }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ============================================================
+// Init
+// ============================================================
+connect();
+statsTimer = setInterval(fetchStats, 2000);
+
+// Clean up on page unload
+window.addEventListener('beforeunload', function() {
+  manualClose = true;
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  if (statsTimer) clearInterval(statsTimer);
+  if (ws) ws.close();
+});
+</script>
+</body>
+</html>
