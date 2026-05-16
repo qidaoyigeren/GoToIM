@@ -54,6 +54,7 @@ func (r *RoomAggregator) Close() {
 	})
 }
 
+// 房间消息的聚合攒批循环
 func (r *RoomAggregator) pushproc(batch int, sigTime time.Duration) {
 	var (
 		n    int

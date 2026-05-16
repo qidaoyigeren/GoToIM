@@ -1,16 +1,16 @@
 {
-  "start_time": "2026-05-16T14:19:27.1286834+08:00",
-  "end_time": "2026-05-16T14:19:53.7055048+08:00",
+  "start_time": "2026-05-16T14:27:12.3829707+08:00",
+  "end_time": "2026-05-16T14:27:39.1546153+08:00",
   "receivers": 200,
   "total_produced": 20000,
   "total_received": 20000,
-  "produce_elapsed_sec": 0.1789171,
-  "consume_elapsed_sec": 15.0004919,
-  "produce_rate_msg_per_sec": 111783.61375184373,
-  "worker_rate_msg_per_sec": 1333.2896103227122,
-  "avg_latency_ms": 274.9844,
-  "p50_latency_ms": 273,
-  "p95_latency_ms": 514,
-  "p99_latency_ms": 541,
-  "max_latency_ms": 552
+  "produce_elapsed_sec": 0.1792151,
+  "consume_elapsed_sec": 15.000181,
+  "produce_rate_msg_per_sec": 111597.73925299822,
+  "worker_rate_msg_per_sec": 1333.3172446385813,
+  "avg_latency_ms": 292.3435,
+  "p50_latency_ms": 291,
+  "p95_latency_ms": 525,
+  "p99_latency_ms": 550,
+  "max_latency_ms": 559
 }

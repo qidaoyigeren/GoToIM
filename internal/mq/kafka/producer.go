@@ -12,9 +12,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Producer implements mq.Producer via Kafka SyncProducer.
-// Produces the same pb.PushMsg wire format as the legacy dao/kafka.go,
-// so existing Job consumers can read messages without changes.
+// Producer 通过 Kafka SyncProducer 实现 mq.Producer 接口。
+// 生产与旧版 dao/kafka.go 相同 pb.PushMsg 线格式的消息，
+// 确保现有的 Job 消费者无需修改即可读取消息。
 type Producer struct {
 	pub       sarama.SyncProducer
 	pushTopic string
@@ -24,9 +24,9 @@ type Producer struct {
 	fallback  string
 }
 
-// NewProducer creates a Kafka-backed mq.Producer.
-// pushTopic/roomTopic/allTopic/ackTopic are the split-topic names;
-// fallback is the legacy single topic used when a split topic is empty.
+// NewProducer 创建一个基于 Kafka 的 mq.Producer。
+// pushTopic/roomTopic/allTopic/ackTopic 是拆分后的各 Topic 名称；
+// fallback 是旧版单一 Topic，当某个拆分 Topic 为空时使用。
 func NewProducer(brokers []string, pushTopic, roomTopic, allTopic, ackTopic, fallback string) (*Producer, error) {
 	kc := sarama.NewConfig()
 	kc.Producer.RequiredAcks = sarama.WaitForAll
@@ -56,8 +56,8 @@ func (p *Producer) topicFor(pushTopic, specTopic string) string {
 	return p.fallback
 }
 
-// EnqueueToUser enqueues a per-user message via the push topic.
-// Uses uid as the Kafka partition key to guarantee per-user ordering within a partition.
+// EnqueueToUser 将单用户消息发送到推送 Topic。
+// 使用 uid 作为 Kafka 分区键，保证同一用户的消息在分区内有序。
 func (p *Producer) EnqueueToUser(ctx context.Context, uid int64, msg *mq.Message) error {
 	topic := p.topicFor(p.pushTopic, p.pushTopic)
 	key := msg.Key
@@ -73,8 +73,8 @@ func (p *Producer) EnqueueToUser(ctx context.Context, uid int64, msg *mq.Message
 	return err
 }
 
-// EnqueueToUsers enqueues a message to multiple users.
-// Each user's message is sent with their uid as partition key for ordering.
+// EnqueueToUsers 将同一消息发送给多个用户。
+// 每条消息以对应用户的 uid 作为分区键发送，保证分区内有序。
 func (p *Producer) EnqueueToUsers(ctx context.Context, uids []int64, msg *mq.Message) error {
 	topic := p.topicFor(p.pushTopic, p.pushTopic)
 	for _, uid := range uids {
@@ -90,7 +90,7 @@ func (p *Producer) EnqueueToUsers(ctx context.Context, uids []int64, msg *mq.Mes
 	return nil
 }
 
-// EnqueueToRoom enqueues a room broadcast message.
+// EnqueueToRoom 将房间广播消息发送到房间 Topic。
 func (p *Producer) EnqueueToRoom(ctx context.Context, roomID string, msg *mq.Message) error {
 	topic := p.topicFor(p.roomTopic, p.roomTopic)
 	km := &sarama.ProducerMessage{
@@ -102,7 +102,7 @@ func (p *Producer) EnqueueToRoom(ctx context.Context, roomID string, msg *mq.Mes
 	return err
 }
 
-// EnqueueBroadcast enqueues a global broadcast message.
+// EnqueueBroadcast 将全服广播消息发送到全局 Topic。
 func (p *Producer) EnqueueBroadcast(ctx context.Context, msg *mq.Message, speed int32) error {
 	topic := p.topicFor(p.allTopic, p.allTopic)
 	km := &sarama.ProducerMessage{
@@ -114,7 +114,7 @@ func (p *Producer) EnqueueBroadcast(ctx context.Context, msg *mq.Message, speed 
 	return err
 }
 
-// EnqueueACK publishes an ACK event to the ACK topic.
+// EnqueueACK 将消息送达确认事件发布到 ACK Topic。
 func (p *Producer) EnqueueACK(ctx context.Context, msgID string, uid int64, status string) error {
 	if p.ackTopic == "" {
 		return nil
@@ -138,9 +138,9 @@ func (p *Producer) EnqueueACK(ctx context.Context, msgID string, uid int64, stat
 	return err
 }
 
-// EnqueueDelayed enqueues a message with a delivery delay.
-// Uses a Kafka header (goim_delayed_until) to mark the target delivery time.
-// Consumers should check this header and skip processing until the time arrives.
+// EnqueueDelayed 发送一条延迟投递的消息。
+// 通过 Kafka Header（goim_delayed_until）标记目标投递时间，
+// 消费者应检查该 Header，在到达时间之前跳过处理。
 func (p *Producer) EnqueueDelayed(ctx context.Context, uid int64, msg *mq.Message, delayMs int64) error {
 	topic := p.topicFor(p.pushTopic, p.pushTopic)
 	deliverAt := time.Now().UnixMilli() + delayMs
@@ -164,7 +164,7 @@ func (p *Producer) EnqueueDelayed(ctx context.Context, uid int64, msg *mq.Messag
 	return err
 }
 
-// Close closes the underlying Kafka producer.
+// Close 关闭底层的 Kafka 生产者。
 func (p *Producer) Close() error {
 	return p.pub.Close()
 }
