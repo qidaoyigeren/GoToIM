@@ -2,7 +2,7 @@
 //
 // Usage:
 //
-//	go run benchmarks/push_bench.go -logic-host=localhost:3111 -comet-host=localhost:3102 -receivers=100 -rate=1000 -duration=60s -output=push_results.json
+//	go run benchmarks/push_bench/main.go -receivers=100 -rate=1000 -duration=60s
 package main
 
 import (
@@ -63,9 +63,9 @@ type PushReport struct {
 
 func init() {
 	flag.StringVar(&logicHost, "logic-host", "localhost:3111", "logic HTTP address")
-	flag.StringVar(&cometHost, "comet-host", "localhost:3102", "comet WebSocket address")
-	flag.IntVar(&receivers, "receivers", 100, "number of receiver connections")
-	flag.IntVar(&rate, "rate", 1000, "target messages per second")
+	flag.StringVar(&cometHost, "comet-host", "localhost:3101", "comet TCP address")
+	flag.IntVar(&receivers, "receivers", 5000, "number of receiver connections")
+	flag.IntVar(&rate, "rate", 10000, "target messages per second")
 	flag.DurationVar(&benchDur, "duration", 60*time.Second, "benchmark duration")
 	flag.StringVar(&outputFile, "output", "push_results.json", "output JSON file")
 }
@@ -89,7 +89,6 @@ func main() {
 		receiverMids = make([]int64, receivers)
 	)
 
-	// Phase 1: Establish receiver connections (TCP, simpler than WS for benchmarks)
 	fmt.Printf("\n--- Phase 1: Establishing %d receivers ---\n", receivers)
 	conns := make([]net.Conn, 0, receivers)
 	for i := 0; i < receivers; i++ {
@@ -112,19 +111,17 @@ func main() {
 		return
 	}
 
-	// Read pump for each receiver
 	quit := make(chan struct{})
 	for i, conn := range conns {
 		mid := receiverMids[i]
 		go readPump(conn, mid, &mu, report, &totalRecv, quit)
 	}
 
-	// Phase 2: Send messages
 	fmt.Printf("\n--- Phase 2: Sending messages at %d msg/s for %s ---\n", rate, benchDur)
 	httpClient := &http.Client{
 		Transport: &http.Transport{
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 100,
+			MaxIdleConns:        200,
+			MaxIdleConnsPerHost: 200,
 		},
 		Timeout: 10 * time.Second,
 	}
@@ -161,7 +158,6 @@ sendLoop:
 		}
 	}
 
-	// Wait for remaining messages to arrive
 	time.Sleep(5 * time.Second)
 	close(quit)
 	time.Sleep(time.Second)
@@ -171,7 +167,6 @@ sendLoop:
 	report.TotalReceived = atomic.LoadInt64(&totalRecv)
 	report.FailedSent = atomic.LoadInt64(&failedSent)
 
-	// Calculate stats
 	elapsed := report.EndTime.Sub(report.StartTime).Seconds()
 	if elapsed > 0 {
 		report.MsgsPerSec = float64(report.TotalSent) / elapsed
@@ -190,7 +185,6 @@ sendLoop:
 		report.MaxLatencyMs = latencies[len(latencies)-1]
 	}
 
-	// Output
 	data, _ := json.MarshalIndent(report, "", "  ")
 	if outputFile != "" {
 		os.WriteFile(outputFile, data, 0644)
@@ -203,7 +197,6 @@ sendLoop:
 	fmt.Printf("E2E Latency: avg=%.2fms p50=%.2fms p95=%.2fms p99=%.2fms max=%.2fms\n",
 		report.AvgLatencyMs, report.P50LatencyMs, report.P95LatencyMs, report.P99LatencyMs, report.MaxLatencyMs)
 
-	// Close all connections
 	for _, conn := range conns {
 		conn.Close()
 	}
@@ -215,7 +208,6 @@ func connectReceiver(mid int64) (net.Conn, error) {
 		return nil, err
 	}
 
-	// Auth
 	token := fmt.Sprintf(`{"mid":%d,"key":"bench-recv-%d","room_id":"test://1","platform":"bench","accepts":[9]}`, mid, mid)
 	if err := writeProto(conn, opAuth, 1, []byte(token)); err != nil {
 		conn.Close()
@@ -228,7 +220,6 @@ func connectReceiver(mid int64) (net.Conn, error) {
 	}
 	conn.SetReadDeadline(time.Time{})
 
-	// Heartbeat goroutine
 	go func() {
 		seq := int32(2)
 		ticker := time.NewTicker(240 * time.Second)
@@ -258,14 +249,14 @@ func readPump(conn net.Conn, mid int64, mu *sync.Mutex, report *PushReport, tota
 		}
 		switch op {
 		case opRaw:
-			// Parse latency from body
+			content := extractMsgBodyContent(body)
 			var msg struct {
 				Ts   int64 `json:"ts"`
 				From int64 `json:"from"`
 			}
-			if json.Unmarshal(body, &msg) == nil && msg.Ts > 0 {
+			if json.Unmarshal(content, &msg) == nil && msg.Ts > 0 {
 				recvTs := time.Now().UnixMilli()
-				latency := float64(recvTs-msg.Ts) / float64(time.Millisecond)
+				latency := float64(recvTs - msg.Ts)
 				atomic.AddInt64(totalRecv, 1)
 				mu.Lock()
 				report.Results = append(report.Results, PushResult{
@@ -279,6 +270,18 @@ func readPump(conn net.Conn, mid int64, mu *sync.Mutex, report *PushReport, tota
 			}
 		}
 	}
+}
+
+func extractMsgBodyContent(body []byte) []byte {
+	if len(body) < 2 {
+		return body
+	}
+	msgIDLen := int(binary.BigEndian.Uint16(body[0:2]))
+	offset := 2 + msgIDLen + 8 + 8 + 8 + 8
+	if offset < len(body) {
+		return body[offset:]
+	}
+	return body
 }
 
 func writeProto(conn net.Conn, op int32, seq int32, body []byte) error {

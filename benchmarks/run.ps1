@@ -9,7 +9,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$CometWs = "$($CometTcp.Split(':')[0]):3102"
+$CometWs = "$($CometTcp.Split(':')[0]):3101"
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $OutputDir = ".\benchmarks\results\$Timestamp"
 

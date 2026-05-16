@@ -1,0 +1,54 @@
+direction: right
+
+decision: "RouteByUser\n双通道决策\ninternal/router/dispatch.go:91" {
+  shape: diamond
+  style.fill: "#FFF9C4"
+}
+
+online: "IsOnline?\nsessMgr.IsOnline()" {
+  shape: diamond
+  style.fill: "#C8E6C9"
+}
+
+direct: "直连通道 (Fast Path)\n────────────\ndirectPush()\ngRPC → Comet\n500ms 超时" {
+  shape: rectangle
+  style.fill: "#E1BEE7"
+}
+
+reliable: "可靠通道 (Slow Path)\n────────────\nreliableEnqueue()\nZADD 离线队列 + Kafka\n→ Worker → Comet" {
+  shape: rectangle
+  style.fill: "#FFCDD2"
+}
+
+result_ok: "全部成功\n→ MarkDelivered\n→ return nil" {
+  shape: rectangle
+  style.fill: "#C8E6C9"
+  style.border-radius: 20
+}
+
+result_partial: "部分失败\n→ MarkDelivered\n→ 失败设备走可靠通道" {
+  shape: rectangle
+  style.fill: "#FFF9C4"
+  style.border-radius: 20
+}
+
+result_fail: "全部失败\n→ 全量走可靠通道" {
+  shape: rectangle
+  style.fill: "#FFCDD2"
+  style.border-radius: 20
+}
+
+hs: "HSETNX 抢占成功" {
+  shape: rectangle
+  style.fill: "#E3F2FD"
+}
+
+decision -> hs -> online: "msgID 去重"
+online -> direct: "在线"
+online -> reliable: "离线"
+
+direct -> result_ok: "全部成功"
+direct -> result_partial: "部分失败"
+direct -> result_fail: "全部失败"
+result_partial -> reliable: "失败设备补推"
+result_fail -> reliable: "全量兜底"

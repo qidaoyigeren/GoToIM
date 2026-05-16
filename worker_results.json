@@ -1,0 +1,16 @@
+{
+  "start_time": "2026-05-16T13:54:22.712825+08:00",
+  "end_time": "2026-05-16T13:54:48.576301+08:00",
+  "receivers": 50,
+  "total_produced": 1000,
+  "total_received": 1000,
+  "produce_elapsed_sec": 0.1177053,
+  "consume_elapsed_sec": 15.0005522,
+  "produce_rate_msg_per_sec": 8495.794157102526,
+  "worker_rate_msg_per_sec": 66.66421253478921,
+  "avg_latency_ms": 85.982,
+  "p50_latency_ms": 85,
+  "p95_latency_ms": 102,
+  "p99_latency_ms": 104,
+  "max_latency_ms": 104
+}

@@ -7,7 +7,7 @@ set -e
 
 COMET_TCP=${1:-localhost:3101}
 LOGIC_HTTP=${2:-localhost:3111}
-COMET_WS="${COMET_TCP%%:*}:3102"
+COMET_WS="${COMET_TCP%%:*}:3101"
 DURATION=${3:-60s}
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 OUTPUT_DIR="./benchmarks/results/${TIMESTAMP}"
