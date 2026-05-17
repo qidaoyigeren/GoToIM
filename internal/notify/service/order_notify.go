@@ -2,10 +2,13 @@ package service
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/Terry-Mao/goim/api/protocol"
 	"github.com/Terry-Mao/goim/internal/notify/model"
 )
 
@@ -34,6 +37,9 @@ type StatsCollector struct {
 	ActiveConns    int64
 	OnlineUsers    int64
 	OfflinePending int64
+	pushTimes      map[string]time.Time // notifyID -> push time
+	pendingAcks    map[string]int64     // notifyID -> expected ACK count
+	latencies      []float64            // recent latencies for percentile calc
 }
 
 // NewOrderNotifyService creates a new OrderNotifyService.
@@ -43,7 +49,7 @@ func NewOrderNotifyService(pushClient *PushClient) *OrderNotifyService {
 		userOrders:    make(map[string][]string),
 		notifications: make(map[string][]*model.Notification),
 		pushClient:    pushClient,
-		stats:         &StatsCollector{startTime: time.Now()},
+		stats:         newStatsCollector(),
 	}
 }
 
@@ -127,6 +133,21 @@ func (s *OrderNotifyService) GetStatsCollector() *StatsCollector {
 	return s.stats
 }
 
+// RefreshRealtimeStats fetches real connection counts from goim Logic.
+func (s *OrderNotifyService) RefreshRealtimeStats() {
+	online, err := s.pushClient.FetchOnlineTotal()
+	if err != nil {
+		return
+	}
+	s.stats.mu.Lock()
+	s.stats.ActiveConns = online.ConnCount
+	s.stats.OnlineUsers = online.UserCount
+	s.stats.OfflinePending = online.OfflinePending
+	s.stats.GrpcDirect = online.DirectPushed
+	s.stats.KafkaFallback = online.KafkaFallback
+	s.stats.mu.Unlock()
+}
+
 // GetStats returns current platform statistics.
 func (s *OrderNotifyService) GetStats() model.PlatformStats {
 	s.stats.mu.RLock()
@@ -169,8 +190,15 @@ func (s *OrderNotifyService) createNotification(userID string, nType model.Notif
 
 func (s *OrderNotifyService) sendNotification(notif *model.Notification) {
 	payload := BuildNotificationJSON(string(notif.Type), notif.Title, notif.Content, notif.NotifyID, notif.OrderID)
-	keys := extractKeysFromMids([]string{notif.UserID})
-	_, err := s.pushClient.PushJSONToUser(10, keys, payload) // OpRaw = 10
+	pushStartedAt := time.Now()
+	mid, parseErr := strconv.ParseInt(notif.UserID, 10, 64)
+	var err error
+	if parseErr == nil {
+		_, err = s.pushClient.PushJSONToUsers(protocol.OpRaw, []int64{mid}, payload)
+	} else {
+		keys := extractKeysFromMids([]string{notif.UserID})
+		_, err = s.pushClient.PushJSONToUser(protocol.OpRaw, keys, payload)
+	}
 
 	s.mu.Lock()
 	if err != nil {
@@ -182,6 +210,7 @@ func (s *OrderNotifyService) sendNotification(notif *model.Notification) {
 
 	s.stats.mu.Lock()
 	s.stats.TotalPushed++
+	s.stats.recordPendingAck(notif.NotifyID, 1, pushStartedAt)
 	s.stats.mu.Unlock()
 }
 
@@ -207,14 +236,77 @@ func (s *OrderNotifyService) SendCustomNotification(userID string, nType model.N
 	return notif
 }
 
-// RecordAck increments the acked counter.
-func (s *OrderNotifyService) RecordAck() {
+// RecordAck increments the acked counter and records latency from push to ack.
+// It returns false for empty, unknown, or duplicate notification ACKs.
+func (s *OrderNotifyService) RecordAck(notifyID string) bool {
+	if notifyID == "" {
+		return false
+	}
+
 	s.stats.mu.Lock()
+	defer s.stats.mu.Unlock()
+
+	pushTime, ok := s.stats.pushTimes[notifyID]
+	if !ok {
+		return false
+	}
+	remaining := s.stats.pendingAcks[notifyID]
+	if remaining <= 0 {
+		delete(s.stats.pushTimes, notifyID)
+		delete(s.stats.pendingAcks, notifyID)
+		return false
+	}
+
 	s.stats.TotalAcked++
 	if s.stats.TotalPushed > 0 {
 		s.stats.AckRate = float64(s.stats.TotalAcked) / float64(s.stats.TotalPushed)
 	}
-	s.stats.mu.Unlock()
+
+	latency := float64(time.Since(pushTime).Microseconds()) / 1000.0 // ms
+	s.stats.latencies = append(s.stats.latencies, latency)
+	if remaining == 1 {
+		delete(s.stats.pushTimes, notifyID)
+		delete(s.stats.pendingAcks, notifyID)
+	} else {
+		s.stats.pendingAcks[notifyID] = remaining - 1
+	}
+
+	// Keep recent samples; percentile sorting uses a copy below.
+	if len(s.stats.latencies) > 1000 {
+		s.stats.latencies = s.stats.latencies[len(s.stats.latencies)-1000:]
+	}
+
+	samples := append([]float64(nil), s.stats.latencies...)
+	sort.Float64s(samples)
+	n := len(samples)
+	if n > 0 {
+		s.stats.LatencyP50Ms = samples[n*50/100]
+		s.stats.LatencyP99Ms = samples[n*99/100]
+		s.stats.LatencyMaxMs = samples[n-1]
+	}
+	return true
+}
+
+func newStatsCollector() *StatsCollector {
+	return &StatsCollector{
+		startTime:   time.Now(),
+		pushTimes:   make(map[string]time.Time),
+		pendingAcks: make(map[string]int64),
+	}
+}
+
+func (s *StatsCollector) recordPendingAck(notifyID string, count int64, pushedAt time.Time) {
+	if notifyID == "" || count <= 0 {
+		return
+	}
+	if s.pushTimes == nil {
+		s.pushTimes = make(map[string]time.Time)
+	}
+	if s.pendingAcks == nil {
+		s.pendingAcks = make(map[string]int64)
+	}
+	s.pushTimes[notifyID] = pushedAt
+	s.pendingAcks[notifyID] += count
 }
 
 var (

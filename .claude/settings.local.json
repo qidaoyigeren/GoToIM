@@ -6,7 +6,8 @@
       "Bash(go list *)",
       "Bash(go get *)",
       "Bash(go build *)",
-      "Bash(go test *)"
+      "Bash(go test *)",
+      "Bash(git -C d:/GoLang/goim log --oneline -20)"
     ]
   }
 }

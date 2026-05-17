@@ -68,6 +68,43 @@ func (c *PushClient) PushToRoom(op int32, roomType, roomID string, msg []byte) (
 	return "", nil
 }
 
+// OnlineTotal holds the response from Logic's online/total endpoint.
+type OnlineTotal struct {
+	IPCount        int64 `json:"ip_count"`
+	ConnCount      int64 `json:"conn_count"`
+	UserCount      int64 `json:"user_count"`
+	OfflinePending int64 `json:"offline_pending"`
+	DirectPushed   int64 `json:"direct_pushed"`
+	KafkaFallback  int64 `json:"kafka_fallback"`
+}
+
+// FetchOnlineTotal fetches the total online connection count from goim Logic.
+func (c *PushClient) FetchOnlineTotal() (*OnlineTotal, error) {
+	u := fmt.Sprintf("http://%s/goim/online/total", c.logicAddr)
+	resp, err := c.client.Get(u)
+	if err != nil {
+		return nil, fmt.Errorf("fetch online total failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read online total response failed: %w", err)
+	}
+
+	var result struct {
+		Code int         `json:"code"`
+		Data OnlineTotal `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal online total response failed: %w", err)
+	}
+	if result.Code != 0 {
+		return nil, fmt.Errorf("logic online total error: code=%d", result.Code)
+	}
+	return &result.Data, nil
+}
+
 // PushAll broadcasts a message to all connected clients.
 func (c *PushClient) PushAll(op int32, speed int32, msg []byte) (string, error) {
 	params := url.Values{}

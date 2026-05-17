@@ -41,10 +41,5 @@ func (s *Server) onlineRoom(c *gin.Context) {
 }
 
 func (s *Server) onlineTotal(c *gin.Context) {
-	ipCount, connCount := s.logic.OnlineTotal(context.TODO())
-	res := map[string]interface{}{
-		"ip_count":   ipCount,
-		"conn_count": connCount,
-	}
-	result(c, res, OK)
+	result(c, s.logic.OnlineSummary(context.TODO()), OK)
 }

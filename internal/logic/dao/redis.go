@@ -617,4 +617,59 @@ func (d *Dao) GetOfflineQueueSize(c context.Context, uid int64) (size int64, err
 	return
 }
 
+// CountActiveUsers returns the number of users that currently have at least one
+// active session hash entry.
+func (d *Dao) CountActiveUsers(c context.Context) (count int64, err error) {
+	return d.countNonEmptyKeys(c, "user_sessions:*", "HLEN")
+}
+
+// CountOfflinePending returns the total number of messages pending in all user
+// offline queues.
+func (d *Dao) CountOfflinePending(c context.Context) (count int64, err error) {
+	return d.countNonEmptyKeys(c, "offline:*", "ZCARD")
+}
+
+func (d *Dao) countNonEmptyKeys(c context.Context, pattern, countCommand string) (count int64, err error) {
+	conn := d.redis.Get()
+	defer conn.Close()
+
+	cursor := 0
+	for {
+		select {
+		case <-c.Done():
+			return count, c.Err()
+		default:
+		}
+
+		var keys []string
+		values, scanErr := redis.Values(conn.Do("SCAN", cursor, "MATCH", pattern, "COUNT", 100))
+		if scanErr != nil {
+			log.Errorf("conn.Do(SCAN %s) error(%v)", pattern, scanErr)
+			return count, scanErr
+		}
+		if _, scanErr = redis.Scan(values, &cursor, &keys); scanErr != nil {
+			log.Errorf("redis.Scan(%s) error(%v)", pattern, scanErr)
+			return count, scanErr
+		}
+
+		for _, key := range keys {
+			n, countErr := redis.Int64(conn.Do(countCommand, key))
+			if countErr != nil {
+				log.Errorf("conn.Do(%s %s) error(%v)", countCommand, key, countErr)
+				return count, countErr
+			}
+			if countCommand == "HLEN" {
+				if n > 0 {
+					count++
+				}
+			} else {
+				count += n
+			}
+		}
+		if cursor == 0 {
+			return count, nil
+		}
+	}
+}
+
 // ============ Retry Queue Operations ============

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Terry-Mao/goim/api/protocol"
 	"github.com/Terry-Mao/goim/internal/notify/model"
 )
 
@@ -45,6 +46,7 @@ func (s *FlashSaleService) CreateFlashSale(title, description string, targetUIDs
 
 	titleTxt, content := FlashSaleNotification(title, description)
 	payload := BuildNotificationJSON("flash_sale", titleTxt, content, sale.SaleID, "")
+	pushedAt := time.Now()
 
 	if len(targetUIDs) == 0 {
 		// Broadcast to all online users via room broadcast
@@ -52,27 +54,32 @@ func (s *FlashSaleService) CreateFlashSale(title, description string, targetUIDs
 		if err != nil {
 			return sale, fmt.Errorf("marshal flash sale payload: %w", err)
 		}
-		_, err = s.pushClient.PushToRoom(10, "live", "flash_sale_all", body)
+		_, err = s.pushClient.PushToRoom(protocol.OpRaw, "live", "flash_sale_all", body)
 		if err != nil {
 			return sale, fmt.Errorf("broadcast flash sale failed: %w", err)
 		}
 		s.stats.mu.Lock()
 		s.stats.TotalPushed++
+		s.stats.recordPendingAck(sale.SaleID, 1, pushedAt)
 		s.stats.mu.Unlock()
 	} else if len(targetUIDs) <= 100 {
-		// Small batch: push to each user individually for reliability
-		var wg sync.WaitGroup
+		// Small batch: still use user-level routing so Logic can choose direct
+		// delivery or reliable fallback per user and expose real path metrics.
+		intMids := make([]int64, 0, len(targetUIDs))
 		for _, uid := range targetUIDs {
-			wg.Add(1)
-			go func(uid string) {
-				defer wg.Done()
-				keys := extractKeysFromMids([]string{uid})
-				_, _ = s.pushClient.PushJSONToUser(10, keys, payload)
-			}(uid)
+			if id, err := strconv.ParseInt(uid, 10, 64); err == nil {
+				intMids = append(intMids, id)
+			}
 		}
-		wg.Wait()
+		if len(intMids) == 0 {
+			return sale, fmt.Errorf("flash sale has no valid numeric target users")
+		}
+		if _, err := s.pushClient.PushJSONToUsers(protocol.OpRaw, intMids, payload); err != nil {
+			return sale, fmt.Errorf("small batch flash sale failed: %w", err)
+		}
 		s.stats.mu.Lock()
-		s.stats.TotalPushed += int64(len(targetUIDs))
+		s.stats.TotalPushed += int64(len(intMids))
+		s.stats.recordPendingAck(sale.SaleID, int64(len(intMids)), pushedAt)
 		s.stats.mu.Unlock()
 	} else {
 		// Large batch: use PushMids for throughput
@@ -82,12 +89,16 @@ func (s *FlashSaleService) CreateFlashSale(title, description string, targetUIDs
 				intMids = append(intMids, id)
 			}
 		}
-		_, err := s.pushClient.PushJSONToUsers(10, intMids, payload)
+		if len(intMids) == 0 {
+			return sale, fmt.Errorf("flash sale has no valid numeric target users")
+		}
+		_, err := s.pushClient.PushJSONToUsers(protocol.OpRaw, intMids, payload)
 		if err != nil {
 			return sale, fmt.Errorf("batch push flash sale failed: %w", err)
 		}
 		s.stats.mu.Lock()
-		s.stats.TotalPushed += int64(len(targetUIDs))
+		s.stats.TotalPushed += int64(len(intMids))
+		s.stats.recordPendingAck(sale.SaleID, int64(len(intMids)), pushedAt)
 		s.stats.mu.Unlock()
 	}
 

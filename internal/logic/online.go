@@ -6,11 +6,23 @@ import (
 	"strings"
 
 	"github.com/Terry-Mao/goim/internal/logic/model"
+	log "github.com/Terry-Mao/goim/pkg/log"
 )
 
 var (
 	_emptyTops = make([]*model.Top, 0)
 )
+
+// OnlineSummary contains the aggregate online and backlog metrics used by
+// operational dashboards.
+type OnlineSummary struct {
+	IPCount        int64 `json:"ip_count"`
+	ConnCount      int64 `json:"conn_count"`
+	UserCount      int64 `json:"user_count"`
+	OfflinePending int64 `json:"offline_pending"`
+	DirectPushed   int64 `json:"direct_pushed"`
+	KafkaFallback  int64 `json:"kafka_fallback"`
+}
 
 // OnlineTop get the top online.
 func (l *Logic) OnlineTop(c context.Context, typ string, n int) (tops []*model.Top, err error) {
@@ -57,4 +69,32 @@ func (l *Logic) OnlineTotal(c context.Context) (int64, int64) {
 	l.nodesMu.RLock()
 	defer l.nodesMu.RUnlock()
 	return l.totalIPs, l.totalConns
+}
+
+// OnlineSummary returns connection counts from service discovery plus session
+// and offline queue totals from Redis.
+func (l *Logic) OnlineSummary(c context.Context) OnlineSummary {
+	ips, conns := l.OnlineTotal(c)
+	delivery := l.router.Stats()
+	summary := OnlineSummary{
+		IPCount:       ips,
+		ConnCount:     conns,
+		DirectPushed:  delivery.Direct,
+		KafkaFallback: delivery.Kafka,
+	}
+
+	userCount, err := l.dao.CountActiveUsers(c)
+	if err != nil {
+		log.Warningf("count active users failed: %v", err)
+	} else {
+		summary.UserCount = userCount
+	}
+
+	offlinePending, err := l.dao.CountOfflinePending(c)
+	if err != nil {
+		log.Warningf("count offline pending failed: %v", err)
+	} else {
+		summary.OfflinePending = offlinePending
+	}
+	return summary
 }

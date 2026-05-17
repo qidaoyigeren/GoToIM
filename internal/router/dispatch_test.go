@@ -267,6 +267,7 @@ func TestRouteByUserUsesUIDAsPartitionKey(t *testing.T) {
 	assert.Equal(t, int64(9999), prod.lastUID)
 	// The message Key should be the uid string, not a connection key
 	assert.Equal(t, "9999", prod.enqueued[0].Key)
+	assert.Equal(t, DeliveryStats{Kafka: 1}, engine.Stats())
 }
 
 func TestRouteByUserDirectPushSuccess(t *testing.T) {
@@ -288,6 +289,7 @@ func TestRouteByUserDirectPushSuccess(t *testing.T) {
 
 	// Direct push succeeded, so producer should NOT be called
 	assert.Len(t, prod.enqueued, 0)
+	assert.Equal(t, DeliveryStats{Direct: 1}, engine.Stats())
 }
 
 func TestRouteByUserFallsBackToMQ(t *testing.T) {
@@ -310,6 +312,7 @@ func TestRouteByUserFallsBackToMQ(t *testing.T) {
 	// Verify fallback used uid as partition key
 	assert.Len(t, prod.enqueued, 1)
 	assert.Equal(t, "5002", prod.enqueued[0].Key)
+	assert.Equal(t, DeliveryStats{Kafka: 1}, engine.Stats())
 }
 
 func TestRouteByUserDirectPushPartialFailure(t *testing.T) {
@@ -340,6 +343,7 @@ func TestRouteByUserDirectPushPartialFailure(t *testing.T) {
 	assert.Equal(t, int64(5003), prod.lastUID)
 	// The message Key should be the uid string
 	assert.Equal(t, "5003", prod.enqueued[0].Key)
+	assert.Equal(t, DeliveryStats{Direct: 1, Kafka: 1}, engine.Stats())
 }
 
 func TestRouteByRoomKafkaFailsFallbackToBroadcaster(t *testing.T) {
@@ -358,6 +362,7 @@ func TestRouteByRoomKafkaFailsFallbackToBroadcaster(t *testing.T) {
 	// Broadcaster should have been called as fallback
 	assert.True(t, broadcaster.broadcasted)
 	assert.Contains(t, broadcaster.rooms, "room-1")
+	assert.Equal(t, DeliveryStats{Direct: 1}, engine.Stats())
 }
 
 func TestRouteByRoomKafkaFailsNoBroadcasterReturnsError(t *testing.T) {
@@ -389,6 +394,7 @@ func TestRouteBroadcastKafkaFailsFallbackToBroadcaster(t *testing.T) {
 	// Broadcaster should have been called as fallback
 	assert.True(t, broadcaster.broadcasted)
 	assert.Contains(t, broadcaster.alls, int32(100))
+	assert.Equal(t, DeliveryStats{Direct: 1}, engine.Stats())
 }
 
 func TestRouteBroadcastNoProducerUsesBroadcaster(t *testing.T) {
@@ -403,6 +409,7 @@ func TestRouteBroadcastNoProducerUsesBroadcaster(t *testing.T) {
 	err := engine.RouteBroadcast(context.Background(), 9, 50, []byte("broadcast no kafka test"))
 	assert.Nil(t, err)
 	assert.True(t, broadcaster.broadcasted)
+	assert.Equal(t, DeliveryStats{Direct: 1}, engine.Stats())
 }
 
 func TestRouteByRoomNoProducerUsesBroadcaster(t *testing.T) {
@@ -418,4 +425,5 @@ func TestRouteByRoomNoProducerUsesBroadcaster(t *testing.T) {
 	assert.Nil(t, err)
 	assert.True(t, broadcaster.broadcasted)
 	assert.Contains(t, broadcaster.rooms, "room-3")
+	assert.Equal(t, DeliveryStats{Direct: 1}, engine.Stats())
 }

@@ -130,6 +130,7 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 			if err := e.ackHandler.MarkDelivered(ctx, msgID); err != nil {
 				log.Warningf("mark delivered failed: %v", err)
 			}
+			e.directTotal.Add(1)
 			metrics.PushTotal.WithLabelValues("direct", "success").Inc()
 			metrics.PushLatency.WithLabelValues("direct").Observe(time.Since(start).Seconds())
 			return nil
@@ -143,7 +144,9 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 				log.Warningf("mark delivered failed: %v", err)
 			}
 			err := e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, failedSessions)
+			e.directTotal.Add(1)
 			if err == nil {
+				e.kafkaTotal.Add(1)
 				metrics.PushTotal.WithLabelValues("kafka", "partial_success").Inc()
 			} else {
 				metrics.PushTotal.WithLabelValues("kafka", "failed").Inc()
@@ -161,6 +164,7 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 	//   2. 将消息投递到 Kafka（producer），由 DeliveryWorker（internal/worker/dispatch.go）消费后推送给 Comet
 	err := e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, sessions)
 	if err == nil {
+		e.kafkaTotal.Add(1)
 		metrics.PushTotal.WithLabelValues("kafka", "success").Inc()
 		metrics.PushLatency.WithLabelValues("kafka").Observe(time.Since(start).Seconds())
 	} else {
@@ -195,17 +199,30 @@ func (e *DispatchEngine) RouteByRoom(ctx context.Context, op int32, roomKey stri
 			log.Warningf("kafka enqueue room failed, falling back to direct broadcast: room=%s err=%v", roomKey, err)
 			metrics.PushTotal.WithLabelValues("kafka", "failed").Inc()
 			if e.broadcaster != nil {
-				return e.broadcaster.BroadcastRoom(ctx, op, roomKey, body)
+				if err := e.broadcaster.BroadcastRoom(ctx, op, roomKey, body); err != nil {
+					return err
+				}
+				e.directTotal.Add(1)
+				return nil
 			}
 			return err
 		}
+		e.kafkaTotal.Add(1)
 		return nil
 	}
 	// 无 Kafka → 兜底：直接广播或 DAO
 	if e.broadcaster != nil {
-		return e.broadcaster.BroadcastRoom(ctx, op, roomKey, body)
+		if err := e.broadcaster.BroadcastRoom(ctx, op, roomKey, body); err != nil {
+			return err
+		}
+		e.directTotal.Add(1)
+		return nil
 	}
-	return e.dao.BroadcastRoomMsg(ctx, op, roomKey, body)
+	if err := e.dao.BroadcastRoomMsg(ctx, op, roomKey, body); err != nil {
+		return err
+	}
+	e.kafkaTotal.Add(1)
+	return nil
 }
 
 // ============================================================================
@@ -229,16 +246,29 @@ func (e *DispatchEngine) RouteBroadcast(ctx context.Context, op, speed int32, bo
 			log.Warningf("kafka enqueue broadcast failed, falling back to direct broadcast: err=%v", err)
 			metrics.PushTotal.WithLabelValues("kafka", "failed").Inc()
 			if e.broadcaster != nil {
-				return e.broadcaster.BroadcastAll(ctx, op, speed, body)
+				if err := e.broadcaster.BroadcastAll(ctx, op, speed, body); err != nil {
+					return err
+				}
+				e.directTotal.Add(1)
+				return nil
 			}
 			return err
 		}
+		e.kafkaTotal.Add(1)
 		return nil
 	}
 	if e.broadcaster != nil {
-		return e.broadcaster.BroadcastAll(ctx, op, speed, body)
+		if err := e.broadcaster.BroadcastAll(ctx, op, speed, body); err != nil {
+			return err
+		}
+		e.directTotal.Add(1)
+		return nil
 	}
-	return e.dao.BroadcastMsg(ctx, op, speed, body)
+	if err := e.dao.BroadcastMsg(ctx, op, speed, body); err != nil {
+		return err
+	}
+	e.kafkaTotal.Add(1)
+	return nil
 }
 
 // ============================================================================

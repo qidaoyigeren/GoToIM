@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/Terry-Mao/goim/internal/notify/conf"
@@ -19,18 +20,23 @@ type Server struct {
 	srv       *http.Server
 	handler   *handler.Handler
 	simulator *simulator.Engine
+	statsStop chan struct{}
+	statsDone chan struct{}
+	statsOnce sync.Once
 }
 
 // New creates a new Server from config.
 func New(cfg *conf.Config) *Server {
 	engine := gin.New()
-	engine.Use(gin.Logger(), gin.Recovery())
+	engine.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
 
 	pushClient := service.NewPushClient(cfg.LogicAddr)
 	orderSvc := service.NewOrderNotifyService(pushClient)
 	flashSaleSvc := service.NewFlashSaleService(pushClient, orderSvc.GetStatsCollector())
 
 	h := handler.New(orderSvc, flashSaleSvc)
+
+	statsStop, statsDone := startStatsRefresher(orderSvc, 3*time.Second)
 
 	simEngine := simulator.NewEngine(orderSvc, flashSaleSvc, cfg)
 	h.SetSimulator(simEngine)
@@ -39,6 +45,8 @@ func New(cfg *conf.Config) *Server {
 		engine:    engine,
 		handler:   h,
 		simulator: simEngine,
+		statsStop: statsStop,
+		statsDone: statsDone,
 	}
 
 	s.initRouter()
@@ -72,6 +80,28 @@ func (s *Server) initRouter() {
 	api.POST("/simulate/start", s.handler.HandleSimulateStart)
 	api.POST("/simulate/stop", s.handler.HandleSimulateStop)
 	api.GET("/simulate/status", s.handler.HandleSimulateStatus)
+	api.POST("/ack", s.handler.HandleACK)
+}
+
+func startStatsRefresher(orderSvc *service.OrderNotifyService, interval time.Duration) (chan struct{}, chan struct{}) {
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		orderSvc.RefreshRealtimeStats()
+		for {
+			select {
+			case <-ticker.C:
+				orderSvc.RefreshRealtimeStats()
+			case <-stop:
+				return
+			}
+		}
+	}()
+	return stop, done
 }
 
 // Close gracefully shuts down the server.
@@ -79,6 +109,12 @@ func (s *Server) Close() {
 	if s.simulator != nil {
 		s.simulator.Stop()
 	}
+	s.statsOnce.Do(func() {
+		if s.statsStop != nil {
+			close(s.statsStop)
+			<-s.statsDone
+		}
+	})
 	if s.srv != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -89,4 +125,19 @@ func (s *Server) Close() {
 // StartSimulator starts the load generator. Call this after server is running.
 func (s *Server) StartSimulator(mode string, qps, users int) error {
 	return s.simulator.Start(mode, qps, users)
+}
+
+func corsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Header("Access-Control-Max-Age", "86400")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
+	}
 }

@@ -61,6 +61,23 @@ func (h *Handler) HandleSimulateStop(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"message": "simulation stopped"}})
 }
 
+// HandleACK handles POST /api/ack — called by frontend when it receives a push message.
+func (h *Handler) HandleACK(c *gin.Context) {
+	var req struct {
+		NotifyID string `json:"notify_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": -400, "message": err.Error()})
+		return
+	}
+	if req.NotifyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": -400, "message": "notify_id is required"})
+		return
+	}
+	recorded := h.orderSvc.RecordAck(req.NotifyID)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"recorded": recorded}})
+}
+
 // HandleSimulateStatus handles GET /api/simulate/status.
 func (h *Handler) HandleSimulateStatus(c *gin.Context) {
 	if h.simulator == nil {

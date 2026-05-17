@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/Terry-Mao/goim/internal/logic/dao"
 	"github.com/Terry-Mao/goim/internal/logic/service"
@@ -38,6 +39,14 @@ type DispatchEngine struct {
 	ackHandler  *ACKHandler
 	pusher      CometPusher
 	idGen       IDGenerator
+	directTotal atomic.Int64
+	kafkaTotal  atomic.Int64
+}
+
+// DeliveryStats is a snapshot of delivery path counters.
+type DeliveryStats struct {
+	Direct int64
+	Kafka  int64
 }
 
 // NewDispatchEngine creates a new DispatchEngine.
@@ -65,6 +74,14 @@ func (e *DispatchEngine) SetMQProducer(p mq.Producer) {
 // SetBroadcastFallback sets the direct broadcast fallback for when Kafka is unavailable.
 func (e *DispatchEngine) SetBroadcastFallback(b DirectBroadcaster) {
 	e.broadcaster = b
+}
+
+// Stats returns delivery path counters accumulated by the dispatch engine.
+func (e *DispatchEngine) Stats() DeliveryStats {
+	return DeliveryStats{
+		Direct: e.directTotal.Load(),
+		Kafka:  e.kafkaTotal.Load(),
+	}
 }
 
 // HandleACK processes a client ACK for a delivered message.

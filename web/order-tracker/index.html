@@ -3,566 +3,1472 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Order Notification Platform — goim</title>
+<title>OrderFlow Console - goim</title>
 <style>
 :root {
-  --bg: #f0f2f5;
-  --panel: #ffffff;
-  --ink: #1a1a2e;
-  --muted: #8b8fa3;
-  --line: #e8eaef;
-  --blue: #4f6ef7;
-  --blue-soft: #eef1ff;
-  --green: #22c55e;
-  --green-soft: #f0fdf4;
-  --amber: #f59e0b;
-  --amber-soft: #fffbeb;
-  --red: #ef4444;
-  --red-soft: #fef2f2;
-  --purple: #8b5cf6;
-  --teal: #14b8a6;
-  --shadow: 0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04);
+  --bg: #f5f7fb;
+  --surface: #ffffff;
+  --surface-alt: #f8fafc;
+  --ink: #20242e;
+  --muted: #6b7280;
+  --faint: #98a1b2;
+  --line: #dde3ee;
+  --line-strong: #c8d1df;
+  --blue: #2563eb;
+  --cyan: #0891b2;
+  --green: #16a34a;
+  --amber: #d97706;
+  --red: #dc2626;
+  --violet: #7c3aed;
+  --shadow: 0 10px 28px rgba(20, 31, 55, 0.08);
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; }
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
 body {
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  margin: 0;
+  font-family: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
   background: var(--bg);
   color: var(--ink);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.45;
 }
-
-header {
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-  padding: 12px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  box-shadow: var(--shadow);
+button, input, select {
+  font: inherit;
 }
-header h1 { font-size: 18px; font-weight: 700; }
-header .badge { font-size: 12px; padding: 2px 10px; border-radius: 12px; font-weight: 600; }
-.badge.connected { background: var(--green-soft); color: #166534; }
-.badge.disconnected { background: var(--red-soft); color: #991b1b; }
-.badge.connecting { background: var(--amber-soft); color: #92400e; }
-
-.layout {
-  display: grid;
-  grid-template-columns: 220px 1fr 280px;
-  gap: 12px;
-  padding: 12px;
-  height: calc(100% - 53px);
-  overflow: hidden;
+button {
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background .16s ease, border-color .16s ease, transform .16s ease;
 }
-
-.panel {
-  background: var(--panel);
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
-  overflow: hidden;
+button:hover { border-color: var(--blue); background: #f3f7ff; }
+button:active { transform: translateY(1px); }
+button:disabled { opacity: .48; cursor: default; transform: none; }
+button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+button.primary:hover { background: #1d4ed8; }
+button.danger { background: #fff5f5; border-color: #fecaca; color: var(--red); }
+button.danger:hover { background: #fee2e2; }
+input, select {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  padding: 6px 9px;
+  background: #fff;
+  color: var(--ink);
+  outline: none;
+}
+input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+.app {
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
-.panel-header {
-  padding: 10px 14px;
+.topbar {
+  min-height: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 18px;
+  background: rgba(255,255,255,.92);
   border-bottom: 1px solid var(--line);
-  font-weight: 600;
-  font-size: 13px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: blur(10px);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 250px;
+}
+.brand-mark {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #111827;
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+.brand h1 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.1;
+}
+.brand p {
+  margin: 4px 0 0;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  font-size: 12px;
 }
-.panel-body { flex: 1; overflow-y: auto; padding: 8px; }
-
-button {
+.top-actions {
+  display: grid;
+  grid-template-columns: 160px 64px 70px auto auto;
+  gap: 8px;
+  align-items: center;
+}
+.field-label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.status-pill {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
   border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--ink);
-  border-radius: 6px;
-  padding: 6px 14px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  transition: all 0.15s;
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
 }
-button:hover { border-color: var(--blue); background: var(--blue-soft); }
-button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
-button.primary:hover { opacity: 0.9; background: var(--blue); }
-button.danger { background: var(--red); border-color: var(--red); color: #fff; }
-button.small { padding: 3px 8px; font-size: 11px; border-radius: 4px; }
-button:disabled { opacity: 0.5; cursor: default; }
-
-.user-card {
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  margin-bottom: 6px;
-  cursor: pointer;
-  transition: all 0.15s;
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
 }
-.user-card:hover { border-color: var(--blue); background: var(--blue-soft); }
-.user-card.active { border-color: var(--blue); background: var(--blue-soft); }
-.user-card .uid { font-weight: 600; font-size: 13px; }
-.user-card .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
-.status-dot.online { background: var(--green); }
-.status-dot.offline { background: var(--muted); }
-
-.notif-item {
-  padding: 10px 12px;
-  border-left: 3px solid var(--line);
-  margin-bottom: 6px;
-  border-radius: 0 6px 6px 0;
-  background: #fafbfc;
-  transition: all 0.2s;
-  position: relative;
+.status-pill.ok .status-dot { background: var(--green); }
+.status-pill.warn .status-dot { background: var(--amber); }
+.status-pill.bad .status-dot { background: var(--red); }
+.status-pill.ok { color: #166534; background: #f0fdf4; border-color: #bbf7d0; }
+.status-pill.warn { color: #92400e; background: #fffbeb; border-color: #fde68a; }
+.status-pill.bad { color: #991b1b; background: #fef2f2; border-color: #fecaca; }
+.page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
 }
-.notif-item.order_status { border-left-color: var(--blue); }
-.notif-item.flash_sale { border-left-color: var(--purple); background: #faf5ff; }
-.notif-item.logistics { border-left-color: var(--teal); }
-.notif-item.system { border-left-color: var(--muted); }
-.notif-item .notif-title { font-weight: 600; font-size: 13px; }
-.notif-item .notif-content { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.notif-item .notif-time { font-size: 10px; color: var(--muted); margin-top: 4px; }
-.notif-item .ack-badge {
-  display: inline-block;
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 8px;
-  font-weight: 600;
-  position: absolute;
-  top: 10px;
-  right: 12px;
+.metric-band {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  gap: 10px;
 }
-.ack-badge.pending { background: #fef3c7; color: #92400e; }
-.ack-badge.delivered { background: #dbeafe; color: #1e40af; }
-.ack-badge.acked { background: var(--green-soft); color: #166534; }
-.ack-badge.failed { background: var(--red-soft); color: #991b1b; }
-
-.order-card {
-  padding: 10px 12px;
+.metric {
+  min-height: 92px;
+  padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  margin-bottom: 6px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
-.order-card .order-id { font-weight: 600; font-size: 13px; }
-.order-card .order-status {
-  display: inline-block;
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 8px;
-  font-weight: 600;
-  margin-top: 4px;
+.metric .label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
 }
-.order-status.created { background: #fef3c7; color: #92400e; }
-.order-status.paid { background: #dbeafe; color: #1e40af; }
-.order-status.confirmed { background: #e0e7ff; color: #3730a3; }
-.order-status.shipped { background: #fce7f3; color: #9d174d; }
-.order-status.delivered { background: var(--green-soft); color: #166534; }
-.order-status.cancelled { background: var(--red-soft); color: #991b1b; }
-
-.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 8px; }
-.stat-box {
-  padding: 10px;
-  border-radius: 8px;
-  background: #f9fafb;
+.metric .value {
+  margin-top: 8px;
+  font-size: clamp(22px, 3vw, 32px);
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+.metric .hint {
+  margin-top: 7px;
+  color: var(--faint);
+  font-size: 12px;
+}
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(270px, 310px) minmax(0, 1fr) minmax(300px, 360px);
+  gap: 14px;
+}
+.surface {
+  min-height: 0;
   border: 1px solid var(--line);
-  text-align: center;
-}
-.stat-box .stat-value { font-size: 20px; font-weight: 700; }
-.stat-box .stat-label { font-size: 10px; color: var(--muted); margin-top: 2px; }
-
-.progress-bar {
-  height: 4px;
-  background: var(--line);
-  border-radius: 2px;
-  margin-top: 6px;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
   overflow: hidden;
 }
-.progress-bar .fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
-.fill.grpc { background: var(--green); }
-.fill.kafka { background: var(--amber); }
-
-.sim-controls { padding: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
-.sim-controls button { flex: 1; min-width: 60px; }
-
-.empty-state {
-  text-align: center;
+.surface-header {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.surface-title {
+  font-weight: 800;
+}
+.surface-subtitle {
   color: var(--muted);
-  padding: 40px 20px;
+  font-size: 12px;
+}
+.surface-body {
+  padding: 14px;
+}
+.scroll-body {
+  overflow: auto;
+  min-height: 0;
+}
+.rail, .center-stack, .inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+.control-section {
+  display: grid;
+  gap: 10px;
+}
+.control-title {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.control-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.control-grid button {
+  width: 100%;
+}
+.divider {
+  height: 1px;
+  background: var(--line);
+  margin: 3px 0;
+}
+.pipeline-panel {
+  min-height: 260px;
+}
+.pipeline-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 16px;
+  align-items: start;
+}
+.order-headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.order-headline strong {
+  font-size: 18px;
+}
+.status-chip, .type-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 750;
+  border: 1px solid transparent;
+}
+.status-created { color: #92400e; background: #fffbeb; border-color: #fde68a; }
+.status-paid { color: #1d4ed8; background: #eff6ff; border-color: #bfdbfe; }
+.status-confirmed { color: #5b21b6; background: #f5f3ff; border-color: #ddd6fe; }
+.status-shipped { color: #0e7490; background: #ecfeff; border-color: #a5f3fc; }
+.status-delivered { color: #166534; background: #f0fdf4; border-color: #bbf7d0; }
+.status-cancelled, .status-delivery_failed { color: #991b1b; background: #fef2f2; border-color: #fecaca; }
+.order-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.meta-box {
+  min-height: 58px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-alt);
+}
+.meta-box span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+.meta-box strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 15px;
+}
+.pipeline {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(84px, 1fr));
+  gap: 8px;
+}
+.stage {
+  min-height: 82px;
+  position: relative;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.stage.done { border-color: #b7e4c7; background: #f8fff9; }
+.stage.current { border-color: var(--blue); box-shadow: inset 0 0 0 1px rgba(37,99,235,.25); }
+.stage.exception { border-color: #fecaca; background: #fff7f7; }
+.stage-dot-large {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+.stage.done .stage-dot-large { background: var(--green); }
+.stage.current .stage-dot-large { background: var(--blue); }
+.stage.exception .stage-dot-large { background: var(--red); }
+.stage strong {
   font-size: 13px;
 }
+.stage span:last-child {
+  color: var(--muted);
+  font-size: 11px;
+}
+.order-list {
+  display: grid;
+  gap: 8px;
+}
+.order-row {
+  width: 100%;
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  text-align: left;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.order-row.active {
+  border-color: var(--blue);
+  background: #f6f9ff;
+}
+.order-row strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.order-row small {
+  color: var(--muted);
+}
+.timeline-list {
+  display: grid;
+  gap: 9px;
+}
+.event {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: #fff;
+}
+.event.order_status { border-left-color: var(--blue); }
+.event.logistics { border-left-color: var(--cyan); }
+.event.flash_sale { border-left-color: var(--violet); }
+.event.system { border-left-color: var(--muted); }
+.event .event-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.event h3 {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.event p {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.event small {
+  color: var(--faint);
+  overflow-wrap: anywhere;
+}
+.type-order_status { color: #1d4ed8; background: #eff6ff; border-color: #bfdbfe; }
+.type-logistics { color: #0e7490; background: #ecfeff; border-color: #a5f3fc; }
+.type-flash_sale { color: #6d28d9; background: #f5f3ff; border-color: #ddd6fe; }
+.type-system { color: #475569; background: #f8fafc; border-color: #cbd5e1; }
+.ack-state {
+  color: #166534;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.ack-state.pending {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+.path-bars {
+  display: grid;
+  gap: 9px;
+}
+.bar-row {
+  display: grid;
+  gap: 5px;
+}
+.bar-label {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.bar-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf1f7;
+}
+.bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  transition: width .25s ease;
+}
+.bar-fill.direct { background: var(--green); }
+.bar-fill.fallback { background: var(--amber); }
+.health-table {
+  display: grid;
+  gap: 8px;
+}
+.health-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+}
+.health-row:last-child { border-bottom: 0; }
+.health-row strong { color: var(--ink); }
+.empty-state {
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-alt);
+  padding: 18px;
+}
+.toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 40;
+  max-width: min(420px, calc(100vw - 36px));
+  padding: 11px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #111827;
+  color: #fff;
+  box-shadow: var(--shadow);
+}
+.toast.bad { background: #991b1b; }
+.toast.ok { background: #166534; }
 
-@media (max-width: 900px) {
-  .layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
+@media (max-width: 1180px) {
+  .metric-band { grid-template-columns: repeat(3, minmax(120px, 1fr)); }
+  .workspace { grid-template-columns: 280px minmax(0, 1fr); }
+  .inspector { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 820px) {
+  .topbar { align-items: stretch; flex-direction: column; }
+  .brand { min-width: 0; }
+  .top-actions { width: 100%; grid-template-columns: 1fr 64px 70px; }
+  .top-actions .status-pill { grid-column: span 1; }
+  .metric-band { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+  .workspace { grid-template-columns: 1fr; }
+  .inspector { display: flex; }
+  .pipeline-summary { grid-template-columns: 1fr; }
+  .pipeline { grid-template-columns: 1fr; }
+}
+@media (max-width: 520px) {
+  .page { padding: 10px; }
+  .metric-band { grid-template-columns: 1fr; }
+  .top-actions { grid-template-columns: 1fr 1fr; }
+  .order-meta { grid-template-columns: 1fr; }
 }
 </style>
 </head>
 <body>
-
-<header>
-  <h1>Order Notification Platform</h1>
-  <div>
-    <span style="font-size:12px;color:var(--muted);margin-right:8px">Comet</span>
-    <span id="wsBadge" class="badge disconnected">未连接</span>
-  </div>
-</header>
-
-<div class="layout">
-  <!-- Left Panel: Users & Orders -->
-  <div class="panel">
-    <div class="panel-header">Users & Orders</div>
-    <div class="panel-body" id="ordersPanel">
-      <div class="empty-state">等待连接...</div>
-    </div>
-  </div>
-
-  <!-- Center Panel: Notification Timeline -->
-  <div class="panel">
-    <div class="panel-header">Notification Timeline</div>
-    <div class="panel-body" id="timelinePanel">
-      <div class="empty-state">暂无通知</div>
-    </div>
-  </div>
-
-  <!-- Right Panel: Stats & Controls -->
-  <div class="panel">
-    <div class="panel-header">Live Stats</div>
-    <div class="panel-body">
-      <div class="stats-grid" id="statsGrid">
-        <div class="stat-box"><div class="stat-value" id="statPushRate">0</div><div class="stat-label">Push Rate/s</div></div>
-        <div class="stat-box"><div class="stat-value" id="statTotal">0</div><div class="stat-label">Total Pushed</div></div>
-        <div class="stat-box"><div class="stat-value" id="statAckRate">0%</div><div class="stat-label">ACK Rate</div></div>
-        <div class="stat-box"><div class="stat-value" id="statP99">0ms</div><div class="stat-label">P99 Latency</div></div>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">OF</div>
+      <div>
+        <h1>OrderFlow 控制台</h1>
+        <p>实时订单状态与通知管道</p>
       </div>
-      <div style="padding:8px;">
-        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Delivery Path</div>
-        <div class="progress-bar">
-          <div style="display:flex;">
-            <div class="fill grpc" id="barGrpc" style="width:0%"></div>
-            <div class="fill kafka" id="barKafka" style="width:0%"></div>
+    </div>
+    <div class="top-actions">
+      <label class="field-label" for="userIdInput">用户 UID
+        <input id="userIdInput" value="1001" inputmode="numeric" autocomplete="off">
+      </label>
+      <button id="applyUserBtn" type="button">切换</button>
+      <button id="connectBtn" type="button">重连</button>
+      <div id="apiBadge" class="status-pill warn"><span class="status-dot"></span><span>API 检测中</span></div>
+      <div id="wsBadge" class="status-pill bad"><span class="status-dot"></span><span>Comet 离线</span></div>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="metric-band" aria-label="实时指标">
+      <div class="metric"><div class="label">推送速率</div><div id="statPushRate" class="value">0/s</div><div class="hint">notify-server 统计</div></div>
+      <div class="metric"><div class="label">累计推送</div><div id="statTotal" class="value">0</div><div class="hint">订单与营销通知</div></div>
+      <div class="metric"><div class="label">ACK 回执率</div><div id="statAckRate" class="value">0%</div><div class="hint">前端收到后的确认</div></div>
+      <div class="metric"><div class="label">P99 延迟</div><div id="statP99" class="value">0ms</div><div class="hint">notify 到 ACK</div></div>
+      <div class="metric"><div class="label">在线连接</div><div id="statActive" class="value">0</div><div class="hint">Comet 长连接</div></div>
+      <div class="metric"><div class="label">离线待补偿</div><div id="statOffline" class="value">0</div><div class="hint">可靠路径积压</div></div>
+    </section>
+
+    <div class="workspace">
+      <aside class="rail">
+        <section class="surface">
+          <div class="surface-header">
+            <div>
+              <div class="surface-title">管道操作</div>
+              <div class="surface-subtitle" id="currentUserLabel">UID 1001</div>
+            </div>
           </div>
-        </div>
-        <div style="font-size:10px;color:var(--muted);text-align:right;margin-top:2px;">
-          <span style="color:var(--green)">gRPC</span> /
-          <span style="color:var(--amber)">Kafka</span>
-        </div>
-      </div>
-      <div class="sim-controls">
-        <button class="small" onclick="startSim('lifecycle')" title="Demo a full order lifecycle">Demo</button>
-        <button class="small" onclick="startSim('normal')" title="Steady traffic">Normal</button>
-        <button class="small" onclick="startSim('peak')" title="High traffic">Peak</button>
-        <button class="small primary" onclick="startSim('flash_sale')" title="Burst test">Flash Sale</button>
-        <button class="small danger" onclick="stopSim()">Stop</button>
-      </div>
-      <div id="simStatus" style="font-size:10px;color:var(--muted);text-align:center;padding:4px;">Simulation: idle</div>
+          <div class="surface-body control-section">
+            <div class="control-title">订单链路</div>
+            <div class="control-grid">
+              <button id="createOrderBtn" class="primary" type="button">创建订单</button>
+              <button id="advanceOrderBtn" type="button">推进状态</button>
+              <button id="logisticsBtn" type="button">物流更新</button>
+              <button id="userLifecycleBtn" type="button">本用户链路</button>
+            </div>
+            <div class="divider"></div>
+            <div class="control-title">流量场景</div>
+            <div class="control-grid">
+              <button data-sim="normal" type="button">稳态流量</button>
+              <button data-sim="peak" type="button">峰值压测</button>
+              <button data-sim="flash_sale" type="button">闪购广播</button>
+              <button id="flashSaleBtn" type="button">定向闪购</button>
+            </div>
+            <button id="stopSimBtn" class="danger" type="button">停止仿真</button>
+          </div>
+        </section>
+
+        <section class="surface" style="flex:1;">
+          <div class="surface-header">
+            <div>
+              <div class="surface-title">订单队列</div>
+              <div class="surface-subtitle">当前用户最近订单</div>
+            </div>
+            <button id="refreshOrdersBtn" type="button">刷新</button>
+          </div>
+          <div class="surface-body scroll-body" style="max-height: 430px;">
+            <div id="ordersPanel" class="order-list"></div>
+          </div>
+        </section>
+      </aside>
+
+      <section class="center-stack">
+        <section class="surface pipeline-panel">
+          <div class="surface-header">
+            <div>
+              <div class="surface-title">订单状态管道</div>
+              <div class="surface-subtitle">创建、支付、商家确认、履约、签收</div>
+            </div>
+            <span id="selectedOrderBadge" class="status-chip status-created">未选择</span>
+          </div>
+          <div id="pipelinePanel" class="surface-body"></div>
+        </section>
+
+        <section class="surface" style="flex:1;">
+          <div class="surface-header">
+            <div>
+              <div class="surface-title">实时事件流</div>
+              <div class="surface-subtitle">WebSocket 推送、同步补偿与 ACK 状态</div>
+            </div>
+            <button id="clearTimelineBtn" type="button">清空</button>
+          </div>
+          <div class="surface-body scroll-body" style="max-height: 520px;">
+            <div id="timelinePanel" class="timeline-list"></div>
+          </div>
+        </section>
+      </section>
+
+      <aside class="inspector">
+        <section class="surface">
+          <div class="surface-header">
+            <div>
+              <div class="surface-title">投递路径</div>
+              <div class="surface-subtitle">直推与可靠补偿比例</div>
+            </div>
+          </div>
+          <div class="surface-body path-bars">
+            <div class="bar-row">
+              <div class="bar-label"><span>gRPC direct</span><span id="pathDirectText">0%</span></div>
+              <div class="bar-track"><div id="pathDirectBar" class="bar-fill direct"></div></div>
+            </div>
+            <div class="bar-row">
+              <div class="bar-label"><span>Kafka fallback</span><span id="pathFallbackText">0%</span></div>
+              <div class="bar-track"><div id="pathFallbackBar" class="bar-fill fallback"></div></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="surface">
+          <div class="surface-header">
+            <div>
+              <div class="surface-title">运行状态</div>
+              <div class="surface-subtitle">服务、仿真与客户端游标</div>
+            </div>
+          </div>
+          <div class="surface-body health-table">
+            <div class="health-row"><span>Comet</span><strong id="healthWs">离线</strong></div>
+            <div class="health-row"><span>Notify API</span><strong id="healthApi">检测中</strong></div>
+            <div class="health-row"><span>仿真模式</span><strong id="healthSim">idle</strong></div>
+            <div class="health-row"><span>客户端游标</span><strong id="healthSeq">0</strong></div>
+            <div class="health-row"><span>最近错误</span><strong id="healthError">无</strong></div>
+          </div>
+        </section>
+      </aside>
     </div>
-  </div>
+  </main>
 </div>
 
+<div id="toast" class="toast" hidden></div>
+
 <script>
-// ============================================================
-// Protocol constants (matching goim api/protocol/operation.go)
-// ============================================================
 const RAW_HEADER_LEN = 16;
 const OP_AUTH = 7;
 const OP_AUTH_REPLY = 8;
 const OP_HEARTBEAT = 2;
 const OP_HEARTBEAT_REPLY = 3;
 const OP_RAW = 9;
-const OP_SEND_MSG_ACK = 18;
 const OP_PUSH_MSG_ACK = 19;
+const OP_SYNC_REQ = 20;
+const OP_SYNC_REPLY = 21;
 
+const COMET_WS = 'ws://localhost:3102/sub';
+const NOTIFY_API = 'http://localhost:3121/api';
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-// ============================================================
-// State
-// ============================================================
-const COMET_WS = 'ws://localhost:3102/sub';
-const NOTIFY_API = 'http://localhost:3121/api';
-const USER_ID = '1001';
+const statusMeta = {
+  created: { label: '待支付', className: 'status-created', step: 0, lane: '订单创建' },
+  paid: { label: '已支付', className: 'status-paid', step: 1, lane: '支付成功' },
+  confirmed: { label: '商家确认', className: 'status-confirmed', step: 2, lane: '商家确认' },
+  shipped: { label: '配送中', className: 'status-shipped', step: 3, lane: '履约配送' },
+  delivered: { label: '已签收', className: 'status-delivered', step: 4, lane: '用户签收' },
+  cancelled: { label: '已取消', className: 'status-cancelled', step: -1, lane: '订单关闭' },
+  delivery_failed: { label: '配送异常', className: 'status-delivery_failed', step: -1, lane: '异常补偿' }
+};
+const stageList = [
+  { key: 'created', title: '订单创建', note: '库存锁定' },
+  { key: 'paid', title: '支付完成', note: '资金确认' },
+  { key: 'confirmed', title: '商家确认', note: '准备出库' },
+  { key: 'shipped', title: '物流履约', note: '在途更新' },
+  { key: 'delivered', title: '用户签收', note: '交易完成' }
+];
+const nextStatus = {
+  created: 'paid',
+  paid: 'confirmed',
+  confirmed: 'shipped',
+  shipped: 'delivered'
+};
+const typeMeta = {
+  order_status: { label: '订单', className: 'type-order_status' },
+  logistics: { label: '物流', className: 'type-logistics' },
+  flash_sale: { label: '闪购', className: 'type-flash_sale' },
+  system: { label: '系统', className: 'type-system' }
+};
+const sampleProducts = [
+  { product_name: '履约优先包', quantity: 1, price: 39 },
+  { product_name: '智能门锁 S2', quantity: 1, price: 699 },
+  { product_name: '冷链生鲜礼盒', quantity: 1, price: 168 },
+  { product_name: '同城即时配送券', quantity: 2, price: 12 }
+];
 
-let ws = null;
-let seq = 1;
-let wsConnected = false;
-let notifications = [];
-let orders = [];
-let statsTimer = null;
-let reconnectTimer = null;
-let reconnectAttempts = 0;
-let manualClose = false;
+const state = {
+  userId: localStorage.getItem('orderflow:userId') || '1001',
+  ws: null,
+  seq: 1,
+  wsStatus: 'disconnected',
+  apiStatus: 'checking',
+  manualClose: false,
+  reconnectAttempts: 0,
+  orders: [],
+  selectedOrderId: '',
+  notifications: [],
+  stats: {},
+  sim: { active: false },
+  lastSeq: Number(localStorage.getItem('orderflow:lastSeq') || 0),
+  lastError: '',
+  statsTimer: null,
+  ordersTimer: null,
+  heartbeatTimer: null,
+  reconnectTimer: null,
+  localLifecycleTimer: null,
+  toastTimer: null
+};
 
-// ============================================================
-// WebSocket Protocol
-// ============================================================
+const el = {};
+
+function bindElements() {
+  [
+    'userIdInput','applyUserBtn','connectBtn','apiBadge','wsBadge','currentUserLabel',
+    'statPushRate','statTotal','statAckRate','statP99','statActive','statOffline',
+    'createOrderBtn','advanceOrderBtn','logisticsBtn','userLifecycleBtn','flashSaleBtn',
+    'stopSimBtn','refreshOrdersBtn','ordersPanel','selectedOrderBadge','pipelinePanel',
+    'timelinePanel','clearTimelineBtn','pathDirectText','pathFallbackText','pathDirectBar',
+    'pathFallbackBar','healthWs','healthApi','healthSim','healthSeq','healthError','toast'
+  ].forEach(function(id) { el[id] = document.getElementById(id); });
+}
+
+function init() {
+  bindElements();
+  el.userIdInput.value = state.userId;
+  el.applyUserBtn.addEventListener('click', applyUser);
+  el.connectBtn.addEventListener('click', function() { reconnectNow(); });
+  el.createOrderBtn.addEventListener('click', function() { createOrder(false); });
+  el.advanceOrderBtn.addEventListener('click', function() { advanceSelectedOrder(); });
+  el.logisticsBtn.addEventListener('click', function() { sendLogisticsUpdate(); });
+  el.userLifecycleBtn.addEventListener('click', function() { runUserLifecycle(); });
+  el.flashSaleBtn.addEventListener('click', function() { sendFlashSaleToUser(); });
+  el.stopSimBtn.addEventListener('click', stopSim);
+  el.refreshOrdersBtn.addEventListener('click', fetchOrders);
+  el.clearTimelineBtn.addEventListener('click', function() {
+    state.notifications = [];
+    renderTimeline();
+  });
+  document.querySelectorAll('[data-sim]').forEach(function(btn) {
+    btn.addEventListener('click', function() { startSim(btn.dataset.sim); });
+  });
+  el.ordersPanel.addEventListener('click', function(evt) {
+    const row = evt.target.closest('[data-order-id]');
+    if (!row) return;
+    state.selectedOrderId = row.dataset.orderId;
+    renderOrders();
+    renderPipeline();
+  });
+
+  renderAll();
+  connect();
+  fetchOrders();
+  fetchStats();
+  state.statsTimer = setInterval(fetchStats, 2000);
+  state.ordersTimer = setInterval(fetchOrders, 6000);
+}
+
+function applyUser() {
+  const next = el.userIdInput.value.trim();
+  if (!next) {
+    showToast('请输入用户 UID', 'bad');
+    return;
+  }
+  state.userId = next;
+  state.selectedOrderId = '';
+  state.orders = [];
+  state.notifications = [];
+  state.lastSeq = 0;
+  localStorage.setItem('orderflow:userId', state.userId);
+  localStorage.setItem('orderflow:lastSeq', '0');
+  reconnectNow();
+  fetchOrders();
+  renderAll();
+  showToast('已切换到 UID ' + state.userId, 'ok');
+}
+
+function reconnectNow() {
+  state.manualClose = true;
+  if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+  stopHeartbeat();
+  if (state.ws) state.ws.close();
+  state.ws = null;
+  state.reconnectAttempts = 0;
+  state.manualClose = false;
+  connect();
+}
+
+function connect() {
+  if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
+  state.manualClose = false;
+  setWsStatus('connecting');
+
+  const ws = new WebSocket(COMET_WS);
+  state.ws = ws;
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = function() {
+    const token = {
+      mid: parseInt(state.userId, 10),
+      key: 'uid:' + state.userId,
+      room_id: 'order_notify_room',
+      platform: 'web',
+      device_id: 'orderflow-console-' + state.userId,
+      accepts: [OP_RAW, OP_SYNC_REPLY],
+      last_seq: state.lastSeq || 0
+    };
+    ws.send(buildProto(OP_AUTH, state.seq++, textEncoder.encode(JSON.stringify(token))));
+  };
+
+  ws.onmessage = function(evt) {
+    try {
+      const proto = parseProto(evt.data);
+      handleProto(proto);
+    } catch (err) {
+      state.lastError = err.message || String(err);
+      renderHealth();
+    }
+  };
+
+  ws.onerror = function() {
+    state.lastError = 'WebSocket 连接异常';
+    renderHealth();
+  };
+
+  ws.onclose = function() {
+    stopHeartbeat();
+    setWsStatus('disconnected');
+    if (!state.manualClose) scheduleReconnect();
+  };
+}
+
+function setWsStatus(status) {
+  state.wsStatus = status;
+  renderStatusBadges();
+  renderHealth();
+}
+
+function scheduleReconnect() {
+  if (state.reconnectAttempts >= 10) return;
+  const delay = Math.min(1000 * Math.pow(2, state.reconnectAttempts), 30000);
+  state.reconnectAttempts++;
+  setWsStatus('connecting');
+  state.reconnectTimer = setTimeout(connect, delay);
+}
+
+function startHeartbeat() {
+  stopHeartbeat();
+  state.heartbeatTimer = setInterval(function() {
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      state.ws.send(buildProto(OP_HEARTBEAT, state.seq++, new Uint8Array(0)));
+    }
+  }, 25000);
+}
+
+function stopHeartbeat() {
+  if (state.heartbeatTimer) {
+    clearInterval(state.heartbeatTimer);
+    state.heartbeatTimer = null;
+  }
+}
+
 function buildProto(op, seq, body) {
-  let bytes = body ? (body instanceof Uint8Array ? body : new Uint8Array(body)) : new Uint8Array(0);
-  let buf = new ArrayBuffer(RAW_HEADER_LEN + bytes.byteLength);
-  let v = new DataView(buf);
-  v.setInt32(0, RAW_HEADER_LEN + bytes.byteLength);
-  v.setInt16(4, RAW_HEADER_LEN);
-  v.setInt16(6, 1);
-  v.setInt32(8, op);
-  v.setInt32(12, seq);
+  const bytes = toUint8(body);
+  const buf = new ArrayBuffer(RAW_HEADER_LEN + bytes.byteLength);
+  const view = new DataView(buf);
+  view.setInt32(0, RAW_HEADER_LEN + bytes.byteLength);
+  view.setInt16(4, RAW_HEADER_LEN);
+  view.setInt16(6, 1);
+  view.setInt32(8, op);
+  view.setInt32(12, seq);
   new Uint8Array(buf, RAW_HEADER_LEN).set(bytes);
   return buf;
 }
 
 function parseProto(data) {
-  let v = new DataView(data);
+  if (!(data instanceof ArrayBuffer)) throw new Error('WebSocket payload is not binary');
+  if (data.byteLength < RAW_HEADER_LEN) throw new Error('protocol frame too short');
+  const view = new DataView(data);
+  const packLen = view.getInt32(0);
+  const headerLen = view.getInt16(4);
+  if (headerLen !== RAW_HEADER_LEN || packLen > data.byteLength || packLen < headerLen) {
+    throw new Error('invalid protocol frame');
+  }
   return {
-    packLen: v.getInt32(0),
-    headerLen: v.getInt16(4),
-    ver: v.getInt16(6),
-    op: v.getInt32(8),
-    seq: v.getInt32(12),
-    body: data.slice(v.getInt16(4), v.getInt32(0))
-  };
-}
-
-// ============================================================
-// WebSocket Connection
-// ============================================================
-function connect() {
-  if (ws && ws.readyState === WebSocket.OPEN) return;
-  manualClose = false;
-  updateWsBadge('connecting');
-
-  ws = new WebSocket(COMET_WS);
-  ws.binaryType = 'arraybuffer';
-
-  ws.onopen = function() {
-    let token = {
-      mid: parseInt(USER_ID),
-      key: 'uid:' + USER_ID,
-      room_id: 'order_notify_room',
-      platform: 'web',
-      device_id: 'order-tracker-001',
-      accepts: [OP_RAW, OP_SEND_MSG_ACK, OP_PUSH_MSG_ACK],
-      last_seq: 0
-    };
-    try {
-      ws.send(buildProto(OP_AUTH, seq++, textEncoder.encode(JSON.stringify(token))));
-    } catch(e) { console.error('Auth send failed:', e); }
-  };
-
-  ws.onmessage = function(evt) {
-    try {
-      let proto = parseProto(evt.data);
-      handleProto(proto);
-    } catch(e) {
-      console.error('Proto parse error:', e);
-    }
-  };
-
-  ws.onclose = function() {
-    wsConnected = false;
-    updateWsBadge('disconnected');
-    if (!manualClose) scheduleReconnect();
-  };
-
-  ws.onerror = function() {
-    console.error('WebSocket error');
+    packLen: packLen,
+    headerLen: headerLen,
+    ver: view.getInt16(6),
+    op: view.getInt32(8),
+    seq: view.getInt32(12),
+    body: data.slice(headerLen, packLen)
   };
 }
 
 function handleProto(proto) {
-  switch (proto.op) {
-    case OP_AUTH_REPLY:
-      wsConnected = true;
-      reconnectAttempts = 0;
-      updateWsBadge('connected');
-      fetchOrders();
-      break;
-
-    case OP_HEARTBEAT_REPLY:
-      break;
-
-    case OP_RAW:
-    case OP_PUSH_MSG_ACK:
-      handlePushMessage(proto.body);
-      break;
-
-    case OP_SEND_MSG_ACK:
-      // Server acknowledged our sent message
-      break;
+  if (proto.op === OP_AUTH_REPLY) {
+    state.reconnectAttempts = 0;
+    setWsStatus('connected');
+    startHeartbeat();
+    requestSync();
+    fetchOrders();
+    addLocalEvent('system', 'Comet 已连接', 'UID ' + state.userId + ' 已进入订单通知管道');
+    return;
+  }
+  if (proto.op === OP_HEARTBEAT_REPLY) return;
+  if (proto.op === OP_RAW) {
+    handlePushPayload(proto.body, 'live');
+    return;
+  }
+  if (proto.op === OP_SYNC_REPLY) {
+    handleSyncReply(proto.body);
   }
 }
 
-function handlePushMessage(body) {
-  let text = textDecoder.decode(body);
-  let data = null;
-  try { data = JSON.parse(text); } catch(e) { return; }
+function handleSyncReply(body) {
+  const bytes = toUint8(body);
+  if (bytes.byteLength < 13) return;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const currentSeq = readUint64(view, 0);
+  const count = view.getUint32(9);
+  let offset = 13;
+  for (let i = 0; i < count; i++) {
+    if (offset + 4 > bytes.byteLength) break;
+    const msgLen = view.getUint32(offset);
+    offset += 4;
+    if (offset + msgLen > bytes.byteLength) break;
+    const msgBytes = bytes.slice(offset, offset + msgLen);
+    handlePushPayload(msgBytes, 'sync');
+    offset += msgLen;
+  }
+  if (currentSeq > state.lastSeq) setLastSeq(currentSeq);
+}
 
+function handlePushPayload(body, source) {
+  const envelope = decodeMsgBody(body);
+  const contentBytes = envelope ? envelope.content : toUint8(body);
+  let data;
+  try {
+    data = JSON.parse(textDecoder.decode(contentBytes));
+  } catch (err) {
+    state.lastError = '收到无法解析的业务消息';
+    renderHealth();
+    return;
+  }
   if (!data || !data.type) return;
 
-  let notif = {
+  if (envelope && envelope.seq > state.lastSeq) setLastSeq(envelope.seq);
+  if (envelope && envelope.msgId) sendProtocolAck(envelope.msgId, envelope.seq);
+
+  const now = Date.now();
+  const key = data.notify_id || envelope?.msgId || String(now);
+  const notif = {
+    key: key,
     type: data.type,
-    title: data.title || '',
+    title: data.title || typeLabel(data.type),
     content: data.content || '',
     notify_id: data.notify_id || '',
     order_id: data.order_id || '',
-    timestamp: data.timestamp || Date.now(),
-    status: 'delivered'
+    msg_id: envelope?.msgId || '',
+    seq: envelope?.seq || 0,
+    timestamp: Number(data.timestamp || envelope?.timestamp || now),
+    received_at: now,
+    source: source,
+    ack_status: 'pending'
   };
 
-  notifications.unshift(notif);
+  upsertNotification(notif);
+  if (notif.notify_id) ackNotifyServer(notif.notify_id, notif.key);
+  if (notif.order_id || notif.type === 'order_status') debounceFetchOrders();
   renderTimeline();
 }
 
-function scheduleReconnect() {
-  if (manualClose) return;
-  if (reconnectAttempts >= 10) return;
-  let delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
-  reconnectAttempts++;
-  updateWsBadge('connecting');
-  reconnectTimer = setTimeout(function() {
-    connect();
-  }, delay);
+function decodeMsgBody(body) {
+  const bytes = toUint8(body);
+  if (bytes.byteLength < 34) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const msgIDLen = view.getUint16(0);
+  const minLen = 2 + msgIDLen + 32;
+  if (msgIDLen <= 0 || minLen > bytes.byteLength) return null;
+  const msgIDBytes = bytes.slice(2, 2 + msgIDLen);
+  let offset = 2 + msgIDLen;
+  const fromUID = readUint64(view, offset); offset += 8;
+  const toUID = readUint64(view, offset); offset += 8;
+  const timestamp = readUint64(view, offset); offset += 8;
+  const seq = readUint64(view, offset); offset += 8;
+  return {
+    msgId: textDecoder.decode(msgIDBytes),
+    fromUID: fromUID,
+    toUID: toUID,
+    timestamp: timestamp,
+    seq: seq,
+    content: bytes.slice(offset)
+  };
 }
 
-function disconnect() {
-  manualClose = true;
-  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-  if (ws) { ws.close(); ws = null; }
-  wsConnected = false;
-  updateWsBadge('disconnected');
+function sendProtocolAck(msgID, seqNo) {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN || !msgID) return;
+  const idBytes = textEncoder.encode(msgID);
+  const body = new ArrayBuffer(2 + idBytes.byteLength + 8);
+  const view = new DataView(body);
+  view.setUint16(0, idBytes.byteLength);
+  new Uint8Array(body, 2, idBytes.byteLength).set(idBytes);
+  writeUint64(view, 2 + idBytes.byteLength, seqNo || 0);
+  state.ws.send(buildProto(OP_PUSH_MSG_ACK, state.seq++, new Uint8Array(body)));
 }
 
-function updateWsBadge(status) {
-  let badge = document.getElementById('wsBadge');
-  badge.className = 'badge ' + status;
-  if (status === 'connected') badge.textContent = '已连接';
-  else if (status === 'connecting') badge.textContent = '连接中...';
-  else badge.textContent = '未连接';
+function requestSync() {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+  const body = new ArrayBuffer(12);
+  const view = new DataView(body);
+  writeUint64(view, 0, state.lastSeq || 0);
+  view.setUint32(8, 50);
+  state.ws.send(buildProto(OP_SYNC_REQ, state.seq++, new Uint8Array(body)));
 }
 
-// ============================================================
-// API Calls to Notify Server
-// ============================================================
+function setLastSeq(value) {
+  state.lastSeq = Number(value) || 0;
+  localStorage.setItem('orderflow:lastSeq', String(state.lastSeq));
+  renderHealth();
+}
+
+function toUint8(body) {
+  if (!body) return new Uint8Array(0);
+  if (body instanceof Uint8Array) return body;
+  if (body instanceof ArrayBuffer) return new Uint8Array(body);
+  return textEncoder.encode(String(body));
+}
+
+function readUint64(view, offset) {
+  return view.getUint32(offset) * 4294967296 + view.getUint32(offset + 4);
+}
+
+function writeUint64(view, offset, value) {
+  const n = Math.max(0, Math.floor(Number(value) || 0));
+  view.setUint32(offset, Math.floor(n / 4294967296));
+  view.setUint32(offset + 4, n >>> 0);
+}
+
 async function apiCall(path, method, body) {
+  const opts = {
+    method: method || 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  };
+  if (body) opts.body = JSON.stringify(body);
   try {
-    let opts = { method: method, headers: { 'Content-Type': 'application/json' } };
-    if (body) opts.body = JSON.stringify(body);
-    let resp = await fetch(NOTIFY_API + path, opts);
-    return await resp.json();
-  } catch(e) {
-    console.error('API call failed:', path, e);
+    const resp = await fetch(NOTIFY_API + path, opts);
+    const result = await resp.json();
+    state.apiStatus = resp.ok ? 'ok' : 'bad';
+    if (!resp.ok || result.code !== 0) {
+      state.lastError = result.message || ('HTTP ' + resp.status);
+    }
+    renderStatusBadges();
+    renderHealth();
+    return result;
+  } catch (err) {
+    state.apiStatus = 'bad';
+    state.lastError = err.message || String(err);
+    renderStatusBadges();
+    renderHealth();
     return null;
   }
 }
 
 async function fetchOrders() {
-  let result = await apiCall('/orders/user/' + USER_ID, 'GET');
-  if (result && result.code === 0) {
-    orders = result.data || [];
-    renderOrders();
+  const result = await apiCall('/orders/user/' + encodeURIComponent(state.userId), 'GET');
+  if (!result || result.code !== 0) return;
+  state.orders = (result.data || []).slice().sort(function(a, b) {
+    return new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0);
+  });
+  if (!state.selectedOrderId && state.orders.length) state.selectedOrderId = state.orders[0].order_id;
+  if (state.selectedOrderId && !state.orders.some(function(o) { return o.order_id === state.selectedOrderId; })) {
+    state.selectedOrderId = state.orders[0]?.order_id || '';
   }
+  renderOrders();
+  renderPipeline();
+}
+
+let fetchOrdersTimer = null;
+function debounceFetchOrders() {
+  if (fetchOrdersTimer) clearTimeout(fetchOrdersTimer);
+  fetchOrdersTimer = setTimeout(fetchOrders, 350);
 }
 
 async function fetchStats() {
-  let result = await apiCall('/platform/stats', 'GET');
-  if (result && result.code === 0) {
-    updateStats(result.data);
+  const result = await apiCall('/platform/stats', 'GET');
+  if (!result || result.code !== 0) return;
+  state.stats = result.data || {};
+  state.sim = state.stats.simulation || state.sim || { active: false };
+  renderStats();
+  renderHealth();
+}
+
+async function createOrder(silent) {
+  const item = sampleProducts[Math.floor(Math.random() * sampleProducts.length)];
+  const payload = {
+    user_id: state.userId,
+    items: [item],
+    total: Number((item.quantity * item.price).toFixed(2))
+  };
+  const result = await apiCall('/order/create', 'POST', payload);
+  if (!result || result.code !== 0) {
+    if (!silent) showToast('创建订单失败', 'bad');
+    return null;
   }
-  let simResult = await apiCall('/simulate/status', 'GET');
-  if (simResult && simResult.code === 0) {
-    updateSimStatus(simResult.data);
+  const order = result.data.order;
+  state.selectedOrderId = order.order_id;
+  await fetchOrders();
+  if (!silent) showToast('订单已创建 ' + order.order_id, 'ok');
+  return order;
+}
+
+async function advanceSelectedOrder() {
+  const order = selectedOrder();
+  if (!order) {
+    showToast('当前没有可推进的订单', 'bad');
+    return null;
   }
+  const next = nextStatus[order.status];
+  if (!next) {
+    showToast('该订单已处于终态', 'bad');
+    return order;
+  }
+  return changeOrderStatus(order.order_id, next);
+}
+
+async function changeOrderStatus(orderID, status) {
+  const extra = status === 'shipped' ? { location: '华东履约中心' } : {};
+  const result = await apiCall('/order/status-change', 'POST', {
+    order_id: orderID,
+    new_status: status,
+    extra: extra
+  });
+  if (!result || result.code !== 0) {
+    showToast('状态推进失败', 'bad');
+    return null;
+  }
+  await fetchOrders();
+  return result.data.order;
+}
+
+async function sendLogisticsUpdate() {
+  const order = selectedOrder();
+  if (!order) {
+    showToast('请选择一个订单', 'bad');
+    return;
+  }
+  const result = await apiCall('/logistics/update', 'POST', {
+    order_id: order.order_id,
+    location: '华东履约中心',
+    status: 'in_transit',
+    desc: '分拣完成，准备装车'
+  });
+  if (result && result.code === 0) showToast('物流通知已发送', 'ok');
+}
+
+async function runUserLifecycle() {
+  if (state.localLifecycleTimer) clearInterval(state.localLifecycleTimer);
+  const order = await createOrder(true);
+  if (!order) return;
+  showToast('本用户订单链路已启动', 'ok');
+  const steps = ['paid', 'confirmed', 'shipped', 'delivered'];
+  let index = 0;
+  state.localLifecycleTimer = setInterval(async function() {
+    if (index >= steps.length) {
+      clearInterval(state.localLifecycleTimer);
+      state.localLifecycleTimer = null;
+      return;
+    }
+    await changeOrderStatus(order.order_id, steps[index]);
+    index++;
+  }, 1800);
+}
+
+async function sendFlashSaleToUser() {
+  const result = await apiCall('/flash-sale/notify', 'POST', {
+    title: '履约优先权益',
+    description: '限时开放给高价值订单用户',
+    target_uids: [state.userId]
+  });
+  if (result && result.code === 0) showToast('定向闪购通知已发送', 'ok');
 }
 
 async function startSim(mode) {
-  let qps = mode === 'flash_sale' ? 5000 : (mode === 'peak' ? 500 : 100);
-  let users = mode === 'flash_sale' ? 10000 : 1000;
-  await apiCall('/simulate/start', 'POST', { mode: mode, qps: qps, users: users });
+  const qps = mode === 'flash_sale' ? 5000 : (mode === 'peak' ? 500 : 100);
+  const users = mode === 'flash_sale' ? 10000 : 1000;
+  const result = await apiCall('/simulate/start', 'POST', { mode: mode, qps: qps, users: users });
+  if (result && result.code === 0) {
+    showToast('仿真已启动：' + simLabel(mode), 'ok');
+    fetchStats();
+  } else {
+    showToast('仿真启动失败', 'bad');
+  }
 }
 
 async function stopSim() {
-  await apiCall('/simulate/stop', 'POST');
+  const result = await apiCall('/simulate/stop', 'POST');
+  if (result && result.code === 0) {
+    showToast('仿真已停止', 'ok');
+    fetchStats();
+  }
 }
 
-// ============================================================
-// Render Functions
-// ============================================================
+async function ackNotifyServer(notifyID, key) {
+  const result = await apiCall('/ack', 'POST', { notify_id: notifyID });
+  const item = state.notifications.find(function(n) { return n.key === key; });
+  if (!item) return;
+  if (result && result.code === 0 && result.data && result.data.recorded) {
+    item.ack_status = 'acked';
+  } else if (result && result.code === 0) {
+    item.ack_status = 'pending';
+  }
+  renderTimeline();
+  renderStats();
+}
+
+function upsertNotification(item) {
+  const existing = state.notifications.find(function(n) {
+    return (item.notify_id && n.notify_id === item.notify_id) || (item.msg_id && n.msg_id === item.msg_id);
+  });
+  if (existing) {
+    Object.assign(existing, item, { ack_status: existing.ack_status || item.ack_status });
+  } else {
+    state.notifications.unshift(item);
+  }
+  state.notifications = state.notifications.slice(0, 160);
+}
+
+function addLocalEvent(type, title, content) {
+  upsertNotification({
+    key: 'local-' + Date.now(),
+    type: type,
+    title: title,
+    content: content,
+    timestamp: Date.now(),
+    received_at: Date.now(),
+    source: 'local',
+    ack_status: 'acked'
+  });
+  renderTimeline();
+}
+
+function selectedOrder() {
+  return state.orders.find(function(o) { return o.order_id === state.selectedOrderId; }) || state.orders[0] || null;
+}
+
+function renderAll() {
+  renderStatusBadges();
+  renderStats();
+  renderOrders();
+  renderPipeline();
+  renderTimeline();
+  renderHealth();
+}
+
+function renderStatusBadges() {
+  el.currentUserLabel.textContent = 'UID ' + state.userId;
+  const wsMap = {
+    connected: ['ok', 'Comet 在线'],
+    connecting: ['warn', 'Comet 连接中'],
+    disconnected: ['bad', 'Comet 离线']
+  };
+  setPill(el.wsBadge, wsMap[state.wsStatus] || wsMap.disconnected);
+  const apiMap = {
+    ok: ['ok', 'API 在线'],
+    checking: ['warn', 'API 检测中'],
+    bad: ['bad', 'API 离线']
+  };
+  setPill(el.apiBadge, apiMap[state.apiStatus] || apiMap.checking);
+}
+
+function setPill(node, data) {
+  node.className = 'status-pill ' + data[0];
+  node.innerHTML = '<span class="status-dot"></span><span>' + escapeHtml(data[1]) + '</span>';
+}
+
+function renderStats() {
+  const stats = state.stats || {};
+  el.statPushRate.textContent = formatNumber(Math.round(stats.push_rate_per_sec || 0)) + '/s';
+  el.statTotal.textContent = formatNumber(stats.total_pushed || 0);
+  el.statAckRate.textContent = ((stats.ack_rate || 0) * 100).toFixed(1) + '%';
+  el.statP99.textContent = formatMs(stats.latency_p99_ms || 0);
+  el.statActive.textContent = formatNumber(stats.active_connections || 0);
+  el.statOffline.textContent = formatNumber(stats.offline_pending || 0);
+
+  const direct = ((stats.delivery_path && stats.delivery_path.grpc_direct) || 0) * 100;
+  const fallback = ((stats.delivery_path && stats.delivery_path.kafka_fallback) || 0) * 100;
+  el.pathDirectText.textContent = direct.toFixed(1) + '%';
+  el.pathFallbackText.textContent = fallback.toFixed(1) + '%';
+  el.pathDirectBar.style.width = clampPct(direct) + '%';
+  el.pathFallbackBar.style.width = clampPct(fallback) + '%';
+}
+
 function renderOrders() {
-  let panel = document.getElementById('ordersPanel');
-  if (!orders.length) {
-    panel.innerHTML = '<div class="empty-state">暂无订单</div>';
+  if (!state.orders.length) {
+    el.ordersPanel.innerHTML = '<div class="empty-state">当前用户暂无订单</div>';
     return;
   }
-  panel.innerHTML = orders.map(function(o) {
-    let statusClass = o.status || 'created';
-    let statusText = {created:'已创建',paid:'已支付',confirmed:'已确认',shipped:'已发货',delivered:'已签收',cancelled:'已取消',delivery_failed:'配送异常'}[o.status]||o.status;
-    return '<div class="order-card">' +
-      '<div class="order-id">' + escapeHtml(o.order_id) + '</div>' +
-      '<div class="order-status ' + statusClass + '">' + statusText + '</div>' +
-      '<div style="font-size:11px;color:var(--muted);margin-top:4px;">¥' + (o.total||0).toFixed(2) + '</div>' +
-      '</div>';
+  el.ordersPanel.innerHTML = state.orders.map(function(order) {
+    const meta = statusMeta[order.status] || statusMeta.created;
+    const active = order.order_id === state.selectedOrderId ? ' active' : '';
+    const itemCount = (order.items || []).reduce(function(sum, item) { return sum + (item.quantity || 0); }, 0);
+    return '<button class="order-row' + active + '" type="button" data-order-id="' + escapeHtml(order.order_id) + '">' +
+      '<span><strong>' + escapeHtml(order.order_id) + '</strong><small>' + itemCount + ' 件商品 · ' + formatDateTime(order.updated_at || order.created_at) + '</small></span>' +
+      '<span class="status-chip ' + meta.className + '">' + meta.label + '</span>' +
+      '</button>';
   }).join('');
+}
+
+function renderPipeline() {
+  const order = selectedOrder();
+  if (!order) {
+    el.selectedOrderBadge.className = 'status-chip status-created';
+    el.selectedOrderBadge.textContent = '未选择';
+    el.pipelinePanel.innerHTML = '<div class="empty-state">创建订单后会显示完整状态管道</div>';
+    return;
+  }
+  const meta = statusMeta[order.status] || statusMeta.created;
+  el.selectedOrderBadge.className = 'status-chip ' + meta.className;
+  el.selectedOrderBadge.textContent = meta.label;
+  const itemNames = (order.items || []).map(function(item) {
+    return escapeHtml(item.product_name) + ' x' + (item.quantity || 1);
+  }).join('、') || '无商品明细';
+  const isException = meta.step < 0;
+  const pipelineHtml = stageList.map(function(stage, index) {
+    const done = !isException && index <= meta.step ? ' done' : '';
+    const current = !isException && index === meta.step ? ' current' : '';
+    const exception = isException && index === 4 ? ' exception current' : '';
+    return '<div class="stage' + done + current + exception + '">' +
+      '<span class="stage-dot-large"></span><strong>' + stage.title + '</strong><span>' + stage.note + '</span></div>';
+  }).join('');
+  el.pipelinePanel.innerHTML =
+    '<div class="pipeline-summary">' +
+      '<div>' +
+        '<div class="order-headline"><strong>' + escapeHtml(order.order_id) + '</strong><span class="status-chip ' + meta.className + '">' + meta.label + '</span></div>' +
+        '<div class="order-meta">' +
+          '<div class="meta-box"><span>订单金额</span><strong>' + formatMoney(order.total || 0) + '</strong></div>' +
+          '<div class="meta-box"><span>业务节点</span><strong>' + escapeHtml(meta.lane) + '</strong></div>' +
+          '<div class="meta-box"><span>更新时间</span><strong>' + formatTime(order.updated_at || order.created_at) + '</strong></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="meta-box"><span>商品</span><strong>' + itemNames + '</strong></div>' +
+    '</div>' +
+    '<div class="pipeline">' + pipelineHtml + '</div>';
 }
 
 function renderTimeline() {
-  let panel = document.getElementById('timelinePanel');
-  if (!notifications.length) {
-    panel.innerHTML = '<div class="empty-state">暂无通知 — 启动一个模拟来查看实时推送</div>';
+  if (!state.notifications.length) {
+    el.timelinePanel.innerHTML = '<div class="empty-state">等待实时推送进入事件流</div>';
     return;
   }
-  panel.innerHTML = notifications.slice(0, 50).map(function(n) {
-    let timeStr = new Date(n.timestamp).toLocaleTimeString('zh-CN', {hour12:false});
-    let typeLabel = {order_status:'订单',flash_sale:'闪购',logistics:'物流',system:'系统'}[n.type]||n.type;
-    return '<div class="notif-item ' + n.type + '">' +
-      '<span style="font-size:10px;color:var(--muted);">' + typeLabel + '</span>' +
-      '<span class="ack-badge ' + n.status + '">' + ({pending:'等待',delivered:'已送达',acked:'已读',failed:'失败'}[n.status]||n.status) + '</span>' +
-      '<div class="notif-title">' + escapeHtml(n.title) + '</div>' +
-      '<div class="notif-content">' + escapeHtml(n.content) + '</div>' +
-      '<div class="notif-time">' + timeStr + ' · ' + escapeHtml(n.notify_id) + '</div>' +
-      '</div>';
+  el.timelinePanel.innerHTML = state.notifications.slice(0, 80).map(function(n) {
+    const type = typeMeta[n.type] || typeMeta.system;
+    const latency = n.timestamp ? Math.max(0, (n.received_at || Date.now()) - n.timestamp) : 0;
+    const ackLabel = n.ack_status === 'acked' ? 'ACK 已记录' : 'ACK 待确认';
+    const ackClass = n.ack_status === 'acked' ? 'ack-state' : 'ack-state pending';
+    const ids = [
+      n.order_id ? 'order ' + n.order_id : '',
+      n.notify_id ? 'notify ' + n.notify_id : '',
+      n.msg_id ? 'msg ' + n.msg_id : ''
+    ].filter(Boolean).join(' · ');
+    return '<article class="event ' + escapeHtml(n.type) + '">' +
+      '<div class="event-top"><span class="type-chip ' + type.className + '">' + type.label + '</span><span class="type-chip ' + ackClass + '">' + ackLabel + '</span></div>' +
+      '<h3>' + escapeHtml(n.title) + '</h3>' +
+      '<p>' + escapeHtml(n.content) + '</p>' +
+      '<small>' + formatDateTime(n.timestamp) + ' · ' + escapeHtml(n.source || 'live') + ' · ' + formatMs(latency) + (ids ? ' · ' + escapeHtml(ids) : '') + '</small>' +
+      '</article>';
   }).join('');
 }
 
-function updateStats(stats) {
-  document.getElementById('statPushRate').textContent = Math.round(stats.push_rate_per_sec || 0);
-  document.getElementById('statTotal').textContent = (stats.total_pushed || 0).toLocaleString();
-  document.getElementById('statAckRate').textContent = ((stats.ack_rate || 0) * 100).toFixed(1) + '%';
-  document.getElementById('statP99').textContent = (stats.latency_p99_ms || 0).toFixed(1) + 'ms';
-
-  let grpcPct = ((stats.delivery_path && stats.delivery_path.grpc_direct) || 0) * 100;
-  let kafkaPct = ((stats.delivery_path && stats.delivery_path.kafka_fallback) || 0) * 100;
-  document.getElementById('barGrpc').style.width = grpcPct + '%';
-  document.getElementById('barKafka').style.width = kafkaPct + '%';
+function renderHealth() {
+  el.healthWs.textContent = state.wsStatus === 'connected' ? '在线' : (state.wsStatus === 'connecting' ? '连接中' : '离线');
+  el.healthApi.textContent = state.apiStatus === 'ok' ? '在线' : (state.apiStatus === 'bad' ? '离线' : '检测中');
+  el.healthSim.textContent = state.sim && state.sim.active
+    ? simLabel(state.sim.mode) + ' ' + Math.round(state.sim.qps || 0) + '/s ' + (state.sim.uptime_seconds || 0) + 's'
+    : 'idle';
+  el.healthSeq.textContent = formatNumber(state.lastSeq || 0);
+  el.healthError.textContent = state.lastError || '无';
 }
 
-function updateSimStatus(sim) {
-  let el = document.getElementById('simStatus');
-  if (sim && sim.active) {
-    el.textContent = 'Simulation: ' + sim.mode + ' | QPS: ~' + Math.round(sim.qps||0) + ' | Uptime: ' + (sim.uptime_seconds||0) + 's';
-  } else {
-    el.textContent = 'Simulation: idle';
-  }
+function typeLabel(type) {
+  return (typeMeta[type] && typeMeta[type].label) || type || '通知';
 }
 
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function simLabel(mode) {
+  return { normal: '稳态流量', peak: '峰值压测', flash_sale: '闪购广播', lifecycle: '生命周期' }[mode] || mode || 'idle';
 }
 
-// ============================================================
-// Init
-// ============================================================
-connect();
-statsTimer = setInterval(fetchStats, 2000);
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString('zh-CN');
+}
 
-// Clean up on page unload
+function formatMoney(value) {
+  return '¥' + Number(value || 0).toFixed(2);
+}
+
+function formatMs(value) {
+  const n = Number(value || 0);
+  return n >= 1000 ? (n / 1000).toFixed(2) + 's' : n.toFixed(n >= 10 ? 0 : 1) + 'ms';
+}
+
+function formatTime(value) {
+  if (!value) return '--';
+  return new Date(value).toLocaleTimeString('zh-CN', { hour12: false });
+}
+
+function formatDateTime(value) {
+  if (!value) return '--';
+  return new Date(value).toLocaleString('zh-CN', { hour12: false });
+}
+
+function clampPct(value) {
+  return Math.max(0, Math.min(100, Number(value) || 0));
+}
+
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function showToast(message, type) {
+  el.toast.textContent = message;
+  el.toast.className = 'toast ' + (type || '');
+  el.toast.hidden = false;
+  if (state.toastTimer) clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(function() { el.toast.hidden = true; }, 2600);
+}
+
 window.addEventListener('beforeunload', function() {
-  manualClose = true;
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  if (statsTimer) clearInterval(statsTimer);
-  if (ws) ws.close();
+  state.manualClose = true;
+  if (state.statsTimer) clearInterval(state.statsTimer);
+  if (state.ordersTimer) clearInterval(state.ordersTimer);
+  if (state.localLifecycleTimer) clearInterval(state.localLifecycleTimer);
+  if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+  stopHeartbeat();
+  if (state.ws) state.ws.close();
 });
+
+init();
 </script>
 </body>
 </html>
