@@ -8,8 +8,10 @@ const config = {
   // Goim Logic (IM infrastructure API)
   logicBaseUrl: '/goim',
 
-  // Comet WebSocket
-  wsUrl: 'ws://localhost:3102/sub',
+  // Comet WebSocket — use current host in dev (via Vite proxy), direct in production
+  wsUrl: (typeof window !== 'undefined' && import.meta.env.DEV)
+    ? `ws://${window.location.host}/sub`
+    : 'ws://localhost:3102/sub',
 
   // Default user for demo
   defaultUserId: '10001',

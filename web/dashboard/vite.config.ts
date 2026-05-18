@@ -16,6 +16,10 @@ export default defineConfig({
       '/api': 'http://localhost:3121',
       '/goim': 'http://localhost:3111',
       '/metrics': 'http://localhost:3111',
+      '/sub': {
+        target: 'ws://localhost:3102',
+        ws: true,
+      },
     },
   },
 })

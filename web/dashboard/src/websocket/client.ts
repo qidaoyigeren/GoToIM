@@ -53,6 +53,7 @@ export class GoimWSClient {
     this.ws.binaryType = 'arraybuffer'
 
     this.ws.onopen = () => {
+      console.log('[GoimWS] socket open, sending auth for user', this.userId)
       this.reconnectAttempts = 0
       this.sendAuth()
     }
@@ -62,7 +63,8 @@ export class GoimWSClient {
       this.handleMessage(event.data)
     }
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (e) => {
+      console.log('[GoimWS] socket closed, code:', e.code, 'intentional:', this.intentionalClose)
       this.stopHeartbeat()
       if (!this.intentionalClose) {
         this.onStatusChange?.('reconnecting')
@@ -72,8 +74,8 @@ export class GoimWSClient {
       }
     }
 
-    this.ws.onerror = () => {
-      // onclose will fire after this
+    this.ws.onerror = (e) => {
+      console.log('[GoimWS] socket error:', e)
     }
   }
 
@@ -96,6 +98,7 @@ export class GoimWSClient {
   }
 
   private handleAuthReply(body: Uint8Array) {
+    console.log('[GoimWS] auth success, starting heartbeat')
     this.onStatusChange?.('connected')
     this.startHeartbeat()
   }

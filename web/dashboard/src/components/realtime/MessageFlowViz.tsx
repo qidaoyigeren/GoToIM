@@ -9,7 +9,7 @@ const stages = [
     label: 'Logic Router',
     desc: '消息路由 / 用户查找 / 订阅匹配',
     getValue: (stats: ReturnType<typeof useRealtimeStore.getState>['stats'], online: ReturnType<typeof useOnlineStore.getState>['stats']) =>
-      stats ? `${stats.push_rate_per_sec} msg/s` : '—',
+      stats ? `${stats.push_rate_per_sec.toFixed(0)} msg/s` : '—',
   },
   {
     key: 'delivery',
@@ -17,7 +17,7 @@ const stages = [
     label: 'Comet Push',
     desc: 'gRPC 直连 / Kafka 回退 / 房间广播',
     getValue: (stats: ReturnType<typeof useRealtimeStore.getState>['stats'], _online: ReturnType<typeof useOnlineStore.getState>['stats']) =>
-      stats ? `gRPC ${(stats.delivery_path.grpc_direct * 100).toFixed(0)}%` : '—',
+      stats ? `gRPC ${(stats.delivery_path.grpc_direct * 100).toFixed(0)}% | Kafka ${(stats.delivery_path.kafka_fallback * 100).toFixed(0)}%` : '—',
   },
   {
     key: 'ack',
@@ -25,7 +25,7 @@ const stages = [
     label: 'Client ACK',
     desc: '消息确认 / 离线队列移除',
     getValue: (stats: ReturnType<typeof useRealtimeStore.getState>['stats'], _online: ReturnType<typeof useOnlineStore.getState>['stats']) =>
-      stats ? `ACK ${(stats.ack_rate * 100).toFixed(1)}%` : '—',
+      stats ? `ACK ${(stats.ack_rate * 100).toFixed(0)}%` : '—',
   },
   {
     key: 'persist',
@@ -33,7 +33,7 @@ const stages = [
     label: '持久化',
     desc: '消息落库 / 离线补偿',
     getValue: (_stats: ReturnType<typeof useRealtimeStore.getState>['stats'], online: ReturnType<typeof useOnlineStore.getState>['stats']) =>
-      online ? `${online.offline_pending} 条待补` : '—',
+      online ? `${online.offline_pending ?? 0} 条待补` : '—',
   },
 ]
 

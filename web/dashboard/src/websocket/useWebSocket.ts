@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import config, { isDemoMode } from '@/config'
 import { GoimWSClient } from './client'
 import { MockWSClient } from './mock'
+import { sendAck } from '@/api/notify'
 import { useConnectionStore } from '@/stores/connectionStore'
 import { useRealtimeStore } from '@/stores/realtimeStore'
 import { useNotificationStore } from '@/stores/notificationStore'
@@ -33,10 +34,13 @@ export function useWebSocket() {
       switch (event.type) {
         case 'push': {
           const data = event.data
+          const notifyId = (data.notify_id as string) || `ntf_${Date.now()}`
+          // Call ACK API so backend tracks the acknowledgment rate
+          sendAck(notifyId).catch(() => {})
           addEvent({
             id: `ws_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             type: 'push_delivered',
-            msg_id: data.notify_id as string,
+            msg_id: notifyId,
             order_id: data.order_id as string,
             title: data.title as string,
             detail: data.content as string,
@@ -44,14 +48,14 @@ export function useWebSocket() {
             delivery_path: Math.random() > 0.15 ? 'grpc_direct' : 'kafka_fallback',
           })
           addNotification({
-            notify_id: (data.notify_id as string) || `ntf_${Date.now()}`,
+            notify_id: notifyId,
             user_id: config.defaultUserId,
             type: (data.type as 'order_status' | 'flash_sale' | 'logistics' | 'system') || 'order_status',
             title: data.title as string,
             content: data.content as string,
             order_id: data.order_id as string,
             created_at: new Date((data.timestamp as number) || Date.now()).toISOString(),
-            status: 'delivered',
+            status: 'acked',
           })
           break
         }

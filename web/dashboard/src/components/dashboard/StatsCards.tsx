@@ -11,7 +11,7 @@ export default function StatsCards() {
     <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
       <StatCard
         title="推送速率"
-        value={`${stats?.push_rate_per_sec ?? 0}/s`}
+        value={`${(stats?.push_rate_per_sec ?? 0).toFixed(0)}/s`}
         subtitle={`累计 ${(stats?.total_pushed ?? 0).toLocaleString()} 条`}
         icon={Zap}
         format="text"

@@ -1,4 +1,5 @@
 import MessageSender from '@/components/realtime/MessageSender'
+import BulkOrderCreator from '@/components/realtime/BulkOrderCreator'
 import BatchSimulator from '@/components/realtime/BatchSimulator'
 import MessageFlowViz from '@/components/realtime/MessageFlowViz'
 import EventStream from '@/components/dashboard/EventStream'
@@ -30,14 +31,14 @@ export default function RealtimeDemoPage() {
           <Activity size={16} className="text-blue-500" />
           <div>
             <p className="text-[10px] text-gray-400 uppercase">推送速率</p>
-            <p className="text-sm font-bold text-gray-800">{stats?.push_rate_per_sec ?? '—'}/s</p>
+            <p className="text-sm font-bold text-gray-800">{stats ? `${stats.push_rate_per_sec.toFixed(0)}/s` : '—'}</p>
           </div>
         </div>
         <div className="bg-white rounded-lg border border-gray-100 px-4 py-3 shadow-sm flex items-center gap-3">
           <Radio size={16} className="text-green-500" />
           <div>
             <p className="text-[10px] text-gray-400 uppercase">ACK 率</p>
-            <p className="text-sm font-bold text-gray-800">{stats ? `${(stats.ack_rate * 100).toFixed(1)}%` : '—'}</p>
+            <p className="text-sm font-bold text-gray-800">{stats ? `${(stats.ack_rate * 100).toFixed(0)}%` : '—'}</p>
           </div>
         </div>
         <div className="bg-white rounded-lg border border-gray-100 px-4 py-3 shadow-sm flex items-center gap-3">
@@ -58,8 +59,9 @@ export default function RealtimeDemoPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="space-y-6">
-          <MessageSender />
+          <BulkOrderCreator />
           <BatchSimulator />
+          <MessageSender />
         </div>
         <div className="lg:col-span-2 space-y-6">
           <MessageFlowViz />
