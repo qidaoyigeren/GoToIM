@@ -30,8 +30,8 @@ function generateNotifyId(): string {
   return `NTF${Date.now()}${Math.random().toString(36).slice(2, 8).toUpperCase()}`
 }
 
-let mockOrders: Order[] = []
-let mockNotifications: Notification[] = []
+const mockOrders: Order[] = []
+const mockNotifications: Notification[] = []
 let eventCounter = 0
 
 // Seed initial data
@@ -188,11 +188,6 @@ export async function mockGetUserNotifications(_userId: string): Promise<Notific
 export function mockPlatformStats(): PlatformStats {
   seedData()
   const total = mockOrders.length
-  const delivered = mockOrders.filter((o) => o.status === 'delivered').length
-  const paid = mockOrders.filter((o) => o.status === 'paid').length
-  const shipped = mockOrders.filter((o) => o.status === 'shipped').length
-  const failed = mockOrders.filter((o) => o.status === 'delivery_failed' || o.status === 'cancelled').length
-
   return {
     push_rate_per_sec: Math.floor(Math.random() * 500) + 200,
     total_pushed: total * 3 + Math.floor(Math.random() * 100),

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { Session } from '@/types/online'
 import { Smartphone, Monitor, Globe } from 'lucide-react'
 
@@ -11,9 +12,10 @@ type Props = { session: Session }
 
 export default function SessionRow({ session }: Props) {
   const Icon = platformIcons[session.platform] || Globe
+  const [now] = useState(() => Date.now())
 
   const timeAgo = (ts: number) => {
-    const diff = Date.now() - ts
+    const diff = now - ts
     if (diff < 5000) return '在线'
     const sec = Math.floor(diff / 1000)
     if (sec < 60) return `${sec}s 前`

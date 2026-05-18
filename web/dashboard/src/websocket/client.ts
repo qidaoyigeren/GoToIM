@@ -1,7 +1,7 @@
 import config from '@/config'
 import {
   OP_AUTH, OP_AUTH_REPLY, OP_HEARTBEAT, OP_HEARTBEAT_REPLY,
-  OP_PUSH_MSG_ACK, OP_SYNC_REQ, OP_SYNC_REPLY, OP_RAW,
+  OP_PUSH_MSG_ACK, OP_SYNC_REPLY, OP_RAW, OP_KICK_CONNECTION,
   buildProto, parseProto, buildAuthBody, parsePushBody,
 } from './protocol'
 import type { ConnectionState } from '@/stores/connectionStore'
@@ -44,7 +44,7 @@ export class GoimWSClient {
 
     try {
       this.ws = new WebSocket(this.url)
-    } catch (err) {
+    } catch {
       this.onStatusChange?.('disconnected')
       this.scheduleReconnect()
       return
@@ -98,6 +98,7 @@ export class GoimWSClient {
   }
 
   private handleAuthReply(body: Uint8Array) {
+    void body
     console.log('[GoimWS] auth success, starting heartbeat')
     this.onStatusChange?.('connected')
     this.startHeartbeat()
@@ -161,7 +162,7 @@ export class GoimWSClient {
         case OP_RAW:
           // Unwrap inner proto
           if (proto.body.length > 16) {
-            const innerBuf = proto.body.buffer.slice(proto.body.byteOffset, proto.body.byteOffset + proto.body.byteLength)
+            const innerBuf = proto.body.buffer.slice(proto.body.byteOffset, proto.body.byteOffset + proto.body.byteLength) as ArrayBuffer
             const inner = parseProto(innerBuf)
             this.handlePushMessage(inner.body)
           }

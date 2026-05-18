@@ -37,7 +37,7 @@ export default function EventStream() {
 }
 
 function EventRow({ event }: { event: RealtimeEvent }) {
-  const { icon: Icon, className } = iconMap[event.type] || iconMap.pull_sent
+  const { icon: Icon, className } = iconMap[event.type] || iconMap.push_sent
 
   return (
     <div className="px-5 py-2.5 flex items-center gap-3 animate-fade-in-up hover:bg-gray-50 transition-colors">

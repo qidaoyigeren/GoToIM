@@ -90,5 +90,7 @@ export function useWebSocket() {
     return () => {
       client.disconnect()
     }
+  // The client owns a single socket per mounted dashboard shell; reconnect logic is internal.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 }

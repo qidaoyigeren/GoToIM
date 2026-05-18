@@ -28,7 +28,7 @@ export default function StatCard({ title, value, subtitle, icon: Icon, trend, fo
         <div>
           <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">{title}</p>
           <div className="mt-1.5 text-2xl font-bold text-gray-900 tracking-tight">
-            {typeof value === 'number' ? <AnimatedCounter value={value} format={format} /> : formattedValue()}
+            {typeof value === 'number' && format !== 'text' ? <AnimatedCounter value={value} format={format} /> : formattedValue()}
           </div>
           {subtitle && <p className="mt-0.5 text-xs text-gray-400">{subtitle}</p>}
           {trend && (

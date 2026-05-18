@@ -13,7 +13,7 @@ const navItems = [
   { to: '/orders', icon: Package, label: '订单管理' },
   { to: '/notifications', icon: Bell, label: '通知中心' },
   { to: '/sessions', icon: Radio, label: '在线会话' },
-  { to: '/realtime', icon: Activity, label: '实时演示' },
+  { to: '/realtime', icon: Activity, label: '业务工作台' },
 ]
 
 export default function Sidebar() {

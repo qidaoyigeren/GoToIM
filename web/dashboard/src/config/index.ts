@@ -1,5 +1,5 @@
 const config = {
-  // Mock mode — opt-in: set VITE_USE_MOCK=true in .env to enable demo
+  // Mock mode — opt-in: set VITE_USE_MOCK=true when backend services are unavailable
   useMock: import.meta.env.VITE_USE_MOCK === 'true',
 
   // Notify Server (business API)
@@ -13,9 +13,9 @@ const config = {
     ? `ws://${window.location.host}/sub`
     : 'ws://localhost:3102/sub',
 
-  // Default user for demo
+  // Default user for local business scenarios
   defaultUserId: '10001',
-  defaultUserName: 'Demo User',
+  defaultUserName: 'Business User',
 
   // Polling intervals (ms)
   statsPollInterval: 5000,
@@ -46,14 +46,14 @@ function setStoredDemoMode(on: boolean): void {
   } catch { /* ignore */ }
 }
 
-// Effective demo mode: user choice (localStorage) > env var
+// Effective mock mode: user choice (localStorage) > env var
 export function isDemoMode(): boolean {
   const stored = getStoredDemoMode()
   if (stored !== null) return stored
   return config.useMock
 }
 
-// Toggle demo mode — persists to localStorage and reloads
+// Toggle mock mode — persists to localStorage and reloads
 export function toggleDemoMode(): void {
   setStoredDemoMode(!isDemoMode())
 }

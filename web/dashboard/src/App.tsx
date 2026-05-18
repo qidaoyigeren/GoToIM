@@ -5,7 +5,7 @@ import OrdersPage from '@/pages/OrdersPage'
 import OrderDetailPage from '@/pages/OrderDetailPage'
 import NotificationsPage from '@/pages/NotificationsPage'
 import SessionsPage from '@/pages/SessionsPage'
-import RealtimeDemoPage from '@/pages/RealtimeDemoPage'
+import RealtimeWorkbenchPage from '@/pages/RealtimeWorkbenchPage'
 
 export default function App() {
   return (
@@ -16,7 +16,7 @@ export default function App() {
         <Route path="/orders/:id" element={<OrderDetailPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/sessions" element={<SessionsPage />} />
-        <Route path="/realtime" element={<RealtimeDemoPage />} />
+        <Route path="/realtime" element={<RealtimeWorkbenchPage />} />
       </Route>
     </Routes>
   )

@@ -46,7 +46,7 @@ export default function TopBar() {
       <div className="flex items-center gap-3">
         <button
           onClick={handleToggle}
-          title={effectiveDemoMode ? '当前：演示模式（Mock 数据）— 点击切换为真实后端' : '当前：真实后端 — 点击切换为演示模式'}
+          title={effectiveDemoMode ? '当前：Mock 数据模式，点击切换为真实后端' : '当前：真实后端，点击切换为 Mock 数据'}
           className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
             effectiveDemoMode
               ? 'bg-purple-50 text-purple-600 border border-purple-200 hover:bg-purple-100'
@@ -54,7 +54,7 @@ export default function TopBar() {
           }`}
         >
           {effectiveDemoMode ? <Monitor size={12} /> : <Server size={12} />}
-          {effectiveDemoMode ? '演示模式' : '真实后端'}
+          {effectiveDemoMode ? 'Mock 数据' : '真实后端'}
         </button>
 
         <div className={`w-2 h-2 rounded-full ${state === 'connected' ? 'bg-green-500' : state === 'reconnecting' ? 'bg-orange-400 animate-pulse' : 'bg-gray-300'}`} />

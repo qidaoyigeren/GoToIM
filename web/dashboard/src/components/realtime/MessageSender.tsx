@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useCreateOrder } from '@/hooks/useOrders'
 import { useRealtimeStore } from '@/stores/realtimeStore'
-import { Send, ShoppingCart } from 'lucide-react'
+import { Send } from 'lucide-react'
 
 const mockItems = [
   { product_name: 'iPhone 16 Pro Max', quantity: 1, price: 9999 },

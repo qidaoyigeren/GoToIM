@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import OrderTable from '@/components/orders/OrderTable'
 import { useOrders, useCreateOrder } from '@/hooks/useOrders'
@@ -6,7 +5,7 @@ import { useOrderStore } from '@/stores/orderStore'
 import { Plus } from 'lucide-react'
 
 export default function OrdersPage() {
-  const { isLoading, error } = useOrders()
+  const { isLoading } = useOrders()
   const orders = useOrderStore((s) => s.orders)
   const createOrder = useCreateOrder()
   const navigate = useNavigate()

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Order } from '@/types/order'
 import StatusBadge from '@/components/ui/StatusBadge'
@@ -6,9 +7,10 @@ type Props = { order: Order; index: number }
 
 export default function OrderRow({ order, index }: Props) {
   const navigate = useNavigate()
+  const [now] = useState(() => Date.now())
 
   const timeAgo = (dateStr: string) => {
-    const diff = Date.now() - new Date(dateStr).getTime()
+    const diff = now - new Date(dateStr).getTime()
     const mins = Math.floor(diff / 60000)
     if (mins < 1) return '刚刚'
     if (mins < 60) return `${mins}分钟前`

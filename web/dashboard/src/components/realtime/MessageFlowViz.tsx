@@ -8,39 +8,46 @@ const stages = [
     icon: Server,
     label: 'Logic Router',
     desc: '消息路由 / 用户查找 / 订阅匹配',
-    getValue: (stats: ReturnType<typeof useRealtimeStore.getState>['stats'], online: ReturnType<typeof useOnlineStore.getState>['stats']) =>
-      stats ? `${stats.push_rate_per_sec.toFixed(0)} msg/s` : '—',
+    getValue: (stats: ReturnType<typeof useRealtimeStore.getState>['stats'], online: ReturnType<typeof useOnlineStore.getState>['stats']) => {
+      void online
+      return stats ? `${stats.push_rate_per_sec.toFixed(0)} msg/s` : '—'
+    },
   },
   {
     key: 'delivery',
     icon: Zap,
     label: 'Comet Push',
     desc: 'gRPC 直连 / Kafka 回退 / 房间广播',
-    getValue: (stats: ReturnType<typeof useRealtimeStore.getState>['stats'], _online: ReturnType<typeof useOnlineStore.getState>['stats']) =>
-      stats ? `gRPC ${(stats.delivery_path.grpc_direct * 100).toFixed(0)}% | Kafka ${(stats.delivery_path.kafka_fallback * 100).toFixed(0)}%` : '—',
+    getValue: (stats: ReturnType<typeof useRealtimeStore.getState>['stats'], online: ReturnType<typeof useOnlineStore.getState>['stats']) => {
+      void online
+      return stats ? `gRPC ${(stats.delivery_path.grpc_direct * 100).toFixed(0)}% | Kafka ${(stats.delivery_path.kafka_fallback * 100).toFixed(0)}%` : '—'
+    },
   },
   {
     key: 'ack',
     icon: CheckCheck,
     label: 'Client ACK',
     desc: '消息确认 / 离线队列移除',
-    getValue: (stats: ReturnType<typeof useRealtimeStore.getState>['stats'], _online: ReturnType<typeof useOnlineStore.getState>['stats']) =>
-      stats ? `ACK ${(stats.ack_rate * 100).toFixed(0)}%` : '—',
+    getValue: (stats: ReturnType<typeof useRealtimeStore.getState>['stats'], online: ReturnType<typeof useOnlineStore.getState>['stats']) => {
+      void online
+      return stats ? `ACK ${(stats.ack_rate * 100).toFixed(0)}%` : '—'
+    },
   },
   {
     key: 'persist',
     icon: Database,
     label: '持久化',
     desc: '消息落库 / 离线补偿',
-    getValue: (_stats: ReturnType<typeof useRealtimeStore.getState>['stats'], online: ReturnType<typeof useOnlineStore.getState>['stats']) =>
-      online ? `${online.offline_pending ?? 0} 条待补` : '—',
+    getValue: (stats: ReturnType<typeof useRealtimeStore.getState>['stats'], online: ReturnType<typeof useOnlineStore.getState>['stats']) => {
+      void stats
+      return online ? `${online.offline_pending ?? 0} 条待补` : '—'
+    },
   },
 ]
 
 export default function MessageFlowViz() {
   const stats = useRealtimeStore((s) => s.stats)
   const onlineStats = useOnlineStore((s) => s.stats)
-  const events = useRealtimeStore((s) => s.events)
   const hasData = stats && stats.push_rate_per_sec > 0
 
   return (
@@ -51,26 +58,26 @@ export default function MessageFlowViz() {
       </p>
 
       {/* Pipeline stages */}
-      <div className="flex items-start justify-between mb-4">
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {stages.map(({ key, icon: Icon, label, desc, getValue }, idx) => {
           const value = getValue(stats, onlineStats)
           const active = hasData
           return (
-            <div key={key} className="flex items-start">
-              <div className="flex flex-col items-center text-center w-[72px]">
+            <div key={key} className="relative rounded-lg border border-gray-100 bg-gray-50 p-3">
+              <div className="flex items-start gap-3">
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
                   active ? 'bg-emerald-50' : 'bg-gray-100'
                 }`}>
                   <Icon size={18} className={active ? 'text-emerald-600' : 'text-gray-400'} />
                 </div>
-                <span className="text-[10px] font-medium mt-1 text-gray-700">{label}</span>
-                <span className="text-[9px] text-gray-400 leading-tight">{desc}</span>
-                <span className={`text-[10px] font-bold mt-1 ${active ? 'text-emerald-600' : 'text-gray-400'}`}>
-                  {value}
-                </span>
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-gray-800">{label}</div>
+                  <div className="mt-1 text-[11px] leading-4 text-gray-500">{desc}</div>
+                  <div className={`mt-2 text-xs font-bold ${active ? 'text-emerald-600' : 'text-gray-400'}`}>{value}</div>
+                </div>
               </div>
               {idx < stages.length - 1 && (
-                <div className={`w-8 h-0.5 mt-5 ${active ? 'bg-emerald-300' : 'bg-gray-200'}`} />
+                <div className={`absolute -right-3 top-1/2 hidden h-0.5 w-3 xl:block ${active ? 'bg-emerald-300' : 'bg-gray-200'}`} />
               )}
             </div>
           )

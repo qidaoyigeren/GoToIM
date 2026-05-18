@@ -17,7 +17,7 @@ goim is a technically impressive project (1M concurrent connections, dual-channe
 ## 2. Architecture
 
 ```
-Order Tracker Frontend (web/order-tracker/index.html)
+Order Operations Dashboard (web/dashboard)
        │ HTTP REST + WebSocket (to Comet :3102)
        ▼
 Notify Server (cmd/notify-server/main.go, port :3121)
@@ -81,14 +81,14 @@ Each state transition triggers a real-time push notification via goim.
 
 ---
 
-## 5. Frontend — Order Tracker SPA
+## 5. Frontend — Order Operations Dashboard
 
-Standalone page at `web/order-tracker/index.html`. Pure HTML/CSS/JS.
+React/Vite application at `web/dashboard`. It presents the order notification pipeline as an operations console rather than a standalone demo page.
 
-**3-panel layout:**
-- **Left**: User selector with connection badges, WS health, ACK rate
-- **Center**: Order timeline with status icons and ACK badges, flash sale banners
-- **Right**: Live stats dashboard (push rate, latency P50/P99, delivery path ratio, simulation controls)
+**Operational layout:**
+- **Overview**: Business value, active orders, reachable users, push/ACK/latency metrics
+- **Business workbench**: Order lifecycle, peak traffic, and targeted campaign scenarios
+- **Pipeline observability**: Logic routing, Comet delivery path, ACK, persistence, event stream
 
 **Key features:**
 - WebSocket auto-reconnect with exponential backoff
@@ -141,8 +141,9 @@ New files:
 │   │   └── traffic.go             # Normal/peak traffic generator
 │   └── conf/
 │       └── config.go              # Notify server config
-└── web/order-tracker/
-    └── index.html                 # SPA frontend
+└── web/dashboard/
+    ├── src/                       # React operations console
+    └── package.json
 
 Modified files:
 ├── go.mod                         # New dependencies (if any)
@@ -155,7 +156,7 @@ Modified files:
 
 1. `make build` — all three services (comet, logic, job) + notify-server compile cleanly
 2. `docker compose up -d` — full stack starts, notify-server connects to Logic
-3. `curl -X POST localhost:3121/api/simulate/start -d '{"mode":"lifecycle"}'` — demo order lifecycle runs, notifications appear in frontend
+3. `curl -X POST localhost:3121/api/simulate/start -d '{"mode":"lifecycle"}'` — order lifecycle runs, notifications appear in frontend
 4. `curl -X POST localhost:3121/api/simulate/start -d '{"mode":"flash_sale","qps":5000}'` — burst test shows high-throughput delivery with ACK rate > 99%
-5. Open `web/order-tracker/index.html` — see real-time order notifications, ACK badges update, stats dashboard populates
+5. Start `web/dashboard` with `npm run dev` — see real-time order notifications, ACK badges update, stats dashboard populates
 6. `GET /api/platform/stats` — returns valid metrics JSON with push_rate, ack_rate, latency distribution, delivery path ratio

@@ -37,12 +37,12 @@ export default function OrderDetailPage() {
   const traces = orderNotifications.map((n) => ({
     msg_id: n.notify_id,
     target: `用户 ${n.user_id}`,
-    channel: Math.random() > 0.2 ? 'grpc_direct' as const : 'kafka_fallback' as const,
+    channel: stableBucket(n.notify_id) > 20 ? 'grpc_direct' as const : 'kafka_fallback' as const,
     status: n.status === 'acked' ? 'acked' as const :
             n.status === 'delivered' ? 'delivered' as const :
             n.status === 'failed' ? 'failed' as const : 'pending' as const,
     timestamp: n.created_at,
-    retry_count: n.status === 'failed' ? Math.floor(Math.random() * 3) + 1 : 0,
+    retry_count: n.status === 'failed' ? (stableBucket(n.notify_id) % 3) + 1 : 0,
   }))
 
   // Generate status timestamps from order data
@@ -84,4 +84,12 @@ export default function OrderDetailPage() {
       )}
     </div>
   )
+}
+
+function stableBucket(value: string): number {
+  let hash = 0
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash * 31 + value.charCodeAt(i)) % 100
+  }
+  return hash
 }

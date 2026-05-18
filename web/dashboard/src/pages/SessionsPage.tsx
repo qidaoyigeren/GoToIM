@@ -2,12 +2,10 @@ import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import { useOnlineStore } from '@/stores/onlineStore'
 import SessionTable from '@/components/sessions/SessionTable'
 import SessionDetailPanel from '@/components/sessions/SessionDetailPanel'
-import Skeleton from '@/components/ui/Skeleton'
-import ErrorState from '@/components/ui/ErrorState'
 import { Activity, Server, Radio } from 'lucide-react'
 
 export default function SessionsPage() {
-  const { isLoading, error, refetch } = useOnlineStatus()
+  useOnlineStatus()
   const stats = useOnlineStore((s) => s.stats)
   const sessions = useOnlineStore((s) => s.sessions)
 
