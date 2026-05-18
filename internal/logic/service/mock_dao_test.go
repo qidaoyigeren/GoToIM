@@ -213,6 +213,9 @@ func (m *mockMessageDAO) GetOfflineQueueSize(_ context.Context, uid int64) (int6
 	defer m.mu.RUnlock()
 	return int64(len(m.offlineQueue[uid])), nil
 }
+func (m *mockMessageDAO) IncrMessageRetryCount(_ context.Context, msgID string) (int64, error) {
+	return 1, nil
+}
 
 // ============ mockPushDAO ============
 

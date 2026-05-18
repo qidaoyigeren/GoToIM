@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -17,14 +18,16 @@ import (
 // dispatches them to Comet servers via gRPC. It replaces the
 // legacy internal/job/ Kafka consumer with the MQ abstraction.
 type DeliveryWorker struct {
-	cfg      Config
-	consumer mq.Consumer
-	comets   *CometClientPool
-	reporter *ACKReporter
-	rooms    map[string]*RoomAggregator
-	roomsMu  sync.RWMutex
-	ctx      context.Context
-	cancel   context.CancelFunc
+	cfg          Config
+	consumer     mq.Consumer
+	comets       *CometClientPool
+	reporter     *ACKReporter
+	rooms        map[string]*RoomAggregator
+	roomsMu      sync.RWMutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	dlq          mq.DLQProducer  // optional: dead-letter queue for undeliverable messages
+	retryCounter mq.RetryCounter // optional: tracks retry counts per message
 }
 
 // Config holds DeliveryWorker configuration.
@@ -32,12 +35,14 @@ type Config struct {
 	Brokers       []string
 	ConsumerGroup string
 	Topics        []string
-	RoutineChan   int           // per-Comet channel buffer size (default 1024)
-	RoutineSize   int           // goroutines per Comet (default 32)
-	RoomBatch     int           // room message batch size (default 20)
-	RoomSignal    time.Duration // batch flush signal interval (default 1s)
-	RoomIdle      time.Duration // idle timeout before room eviction (default 15m)
-	WALDir        string        // directory for room WAL files (empty = disabled)
+	RoutineChan   int             // per-Comet channel buffer size (default 1024)
+	RoutineSize   int             // goroutines per Comet (default 32)
+	RoomBatch     int             // room message batch size (default 20)
+	RoomSignal    time.Duration   // batch flush signal interval (default 1s)
+	RoomIdle      time.Duration   // idle timeout before room eviction (default 15m)
+	WALDir        string          // directory for room WAL files (empty = disabled)
+	DLQ           mq.DLQProducer  // optional: dead-letter queue
+	RetryCounter  mq.RetryCounter // optional: retry count tracker (Redis-backed)
 }
 
 // New creates a new DeliveryWorker.
@@ -49,13 +54,18 @@ func New(cfg Config) (*DeliveryWorker, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	w := &DeliveryWorker{
-		cfg:      cfg,
-		consumer: consumer,
-		comets:   NewCometClientPool(),
-		reporter: &ACKReporter{},
-		rooms:    make(map[string]*RoomAggregator),
-		ctx:      ctx,
-		cancel:   cancel,
+		cfg:          cfg,
+		consumer:     consumer,
+		comets:       NewCometClientPool(),
+		reporter:     &ACKReporter{},
+		rooms:        make(map[string]*RoomAggregator),
+		ctx:          ctx,
+		cancel:       cancel,
+		dlq:          cfg.DLQ,
+		retryCounter: cfg.RetryCounter,
+	}
+	if cfg.DLQ != nil {
+		consumer.SetDLQ(cfg.DLQ)
 	}
 	if cfg.RoutineSize == 0 {
 		cfg.RoutineSize = 32
@@ -107,15 +117,45 @@ func (w *DeliveryWorker) processMessage(ctx context.Context, msg *mq.Message) er
 
 	switch pushMsg.Type {
 	case pb.PushMsg_PUSH:
-		return w.pushKeys(pushMsg.Operation, pushMsg.Server, pushMsg.Keys, pushMsg.Msg)
+		return w.checkRetry(ctx, msg, w.pushKeys(pushMsg.Operation, pushMsg.Server, pushMsg.Keys, pushMsg.Msg))
 	case pb.PushMsg_ROOM:
 		w.getRoom(pushMsg.Room).Push(pushMsg.Operation, pushMsg.Msg)
 		return nil
 	case pb.PushMsg_BROADCAST:
-		return w.broadcast(pushMsg.Operation, pushMsg.Msg, pushMsg.Speed)
+		return w.checkRetry(ctx, msg, w.broadcast(pushMsg.Operation, pushMsg.Msg, pushMsg.Speed))
 	default:
 		return nil
 	}
+}
+
+// checkRetry increments the retry counter and returns a DeadLetterError if
+// the maximum retry count has been exceeded. Returns the original error when
+// the message should be retried.
+func (w *DeliveryWorker) checkRetry(ctx context.Context, msg *mq.Message, pushErr error) error {
+	if pushErr == nil {
+		return nil
+	}
+	if w.retryCounter == nil {
+		return pushErr
+	}
+	cnt, err := w.retryCounter.Incr(ctx, msg.Topic, msg.Partition, msg.Offset)
+	if err != nil {
+		log.Errorf("retry counter incr failed: topic=%s partition=%d offset=%d err=%v",
+			msg.Topic, msg.Partition, msg.Offset, err)
+		return pushErr
+	}
+	if cnt >= mq.MaxRetries {
+		log.Warningf("message exceeded max retries (%d): topic=%s partition=%d offset=%d",
+			cnt, msg.Topic, msg.Partition, msg.Offset)
+		return &mq.DeadLetterError{
+			Err:     pushErr,
+			Reason:  fmt.Sprintf("max retries exceeded (%d)", cnt),
+			Retries: cnt,
+		}
+	}
+	log.Infof("message retry %d/%d: topic=%s partition=%d offset=%d",
+		cnt, mq.MaxRetries, msg.Topic, msg.Partition, msg.Offset)
+	return pushErr
 }
 
 func (w *DeliveryWorker) getRoom(roomID string) *RoomAggregator {

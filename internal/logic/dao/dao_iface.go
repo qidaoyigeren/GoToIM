@@ -24,6 +24,9 @@ type MessageDAO interface {
 	GetOfflineQueue(ctx context.Context, uid int64, lastSeq float64, limit int) ([]string, error)
 	RemoveFromOfflineQueue(ctx context.Context, uid int64, msgID string) error
 	GetOfflineQueueSize(ctx context.Context, uid int64) (int64, error)
+	// IncrMessageRetryCount atomically increments the retry counter for a message.
+	// Returns the new count. Uses the message's Redis status key.
+	IncrMessageRetryCount(ctx context.Context, msgID string) (int64, error)
 }
 
 // PushDAO is the interface for Kafka push operations.

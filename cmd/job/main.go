@@ -9,9 +9,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Terry-Mao/goim/internal/logic/dao"
+	"github.com/Terry-Mao/goim/internal/mq"
+	mqkafka "github.com/Terry-Mao/goim/internal/mq/kafka"
 	"github.com/Terry-Mao/goim/internal/worker"
 	"github.com/Terry-Mao/goim/internal/worker/conf"
 	"github.com/bilibili/discovery/naming"
+	"github.com/gomodule/redigo/redis"
 
 	log "github.com/Terry-Mao/goim/pkg/log"
 	"github.com/Terry-Mao/goim/pkg/tracing"
@@ -46,6 +50,26 @@ func main() {
 
 	cfg := conf.Conf
 	topics := collectTopics(cfg.Kafka)
+
+	// Create DLQ producer when a DLQ topic is configured
+	var dlq mq.DLQProducer
+	if cfg.Kafka.DLQTopic != "" {
+		var dlqErr error
+		dlq, dlqErr = mqkafka.NewDLQ(cfg.Kafka.Brokers, cfg.Kafka.DLQTopic)
+		if dlqErr != nil {
+			log.Fatalf("NewDLQ error(%v)", dlqErr)
+		}
+		log.Infof("dead-letter queue enabled: topic=%s", cfg.Kafka.DLQTopic)
+	}
+
+	// Create Redis-backed retry counter when Redis is configured
+	var retryCounter mq.RetryCounter
+	if cfg.Redis != nil && cfg.Redis.Addr != "" {
+		pool := newRedisPool(cfg.Redis)
+		retryCounter = dao.NewRedisRetryCounter(pool)
+		log.Infof("retry counter enabled (redis: %s)", cfg.Redis.Addr)
+	}
+
 	w, err := worker.New(worker.Config{
 		Brokers:       cfg.Kafka.Brokers,
 		ConsumerGroup: cfg.Kafka.Group,
@@ -53,6 +77,8 @@ func main() {
 		RoutineChan:   cfg.Comet.RoutineChan,
 		RoutineSize:   cfg.Comet.RoutineSize,
 		RoomBatch:     cfg.Room.Batch,
+		DLQ:           dlq,
+		RetryCounter:  retryCounter,
 	})
 	if err != nil {
 		log.Fatalf("worker.New error(%v)", err)
@@ -126,6 +152,22 @@ func watchComets(w *worker.DeliveryWorker) {
 		} else {
 			log.Infof("watchComets updated %d comet servers: %v", len(addrs), addrs)
 		}
+	}
+}
+
+func newRedisPool(c *conf.Redis) *redis.Pool {
+	return &redis.Pool{
+		MaxIdle:     c.Idle,
+		MaxActive:   c.Active,
+		IdleTimeout: time.Duration(c.IdleTimeout),
+		Dial: func() (redis.Conn, error) {
+			return redis.Dial(c.Network, c.Addr,
+				redis.DialConnectTimeout(time.Duration(c.DialTimeout)),
+				redis.DialReadTimeout(time.Duration(c.ReadTimeout)),
+				redis.DialWriteTimeout(time.Duration(c.WriteTimeout)),
+				redis.DialPassword(c.Auth),
+			)
+		},
 	}
 }
 

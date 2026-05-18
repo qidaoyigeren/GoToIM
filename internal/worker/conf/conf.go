@@ -59,6 +59,20 @@ type Config struct {
 	Discovery *naming.Config
 	Comet     *Comet
 	Room      *Room
+	Redis     *Redis
+}
+
+// Redis is redis config for retry counting and optional caching.
+type Redis struct {
+	Network      string
+	Addr         string
+	Auth         string
+	Idle         int
+	Active       int
+	IdleTimeout  xtime.Duration
+	DialTimeout  xtime.Duration
+	ReadTimeout  xtime.Duration
+	WriteTimeout xtime.Duration
 }
 
 // Room is room config.
@@ -83,6 +97,7 @@ type Kafka struct {
 	RoomTopic string // topic for room broadcast messages
 	AllTopic  string // topic for global broadcast messages
 	ACKTopic  string // topic for ACK callbacks
+	DLQTopic  string // topic for dead-letter queue
 }
 
 // Env is env config.

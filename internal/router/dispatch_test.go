@@ -209,6 +209,9 @@ func (m *mockMessageDAO) RemoveFromOfflineQueue(ctx context.Context, uid int64, 
 func (m *mockMessageDAO) GetOfflineQueueSize(ctx context.Context, uid int64) (int64, error) {
 	return 0, nil
 }
+func (m *mockMessageDAO) IncrMessageRetryCount(ctx context.Context, msgID string) (int64, error) {
+	return 1, nil
+}
 
 // mockPushDAO implements dao.PushDAO for testing.
 type mockPushDAO struct{}

@@ -25,6 +25,7 @@ const (
 	_prefixUserSeq       = "user_seq:%d"          // uid -> monotonic seq
 	_prefixOfflineQueue  = "offline:%d"           // uid -> ZSET of msg_id:seq
 	_prefixKeySession    = "key_sid:%s"           // connection key -> sid (reverse index for O(1) heartbeat)
+	_prefixRetryCnt      = "retry_cnt:%s:%d:%d"   // topic:partition:offset -> retry count
 )
 
 func keyMidServer(mid int64) string {
@@ -673,3 +674,28 @@ func (d *Dao) countNonEmptyKeys(c context.Context, pattern, countCommand string)
 }
 
 // ============ Retry Queue Operations ============
+
+// IncrMessageRetryCount atomically increments the retry counter stored in the
+// message status hash. Returns the new count value.
+func (d *Dao) IncrMessageRetryCount(c context.Context, msgID string) (int64, error) {
+	conn := d.redis.Get()
+	defer conn.Close()
+	return redis.Int64(conn.Do("HINCRBY", keyMsgStatus(msgID), "retry_cnt", 1))
+}
+
+// Incr increments the Kafka-offset-based retry counter. Implements mq.RetryCounter.
+// The counter auto-expires after 1 hour to prevent unbounded key accumulation.
+func (d *Dao) Incr(ctx context.Context, topic string, partition int32, offset int64) (int64, error) {
+	conn := d.redis.Get()
+	defer conn.Close()
+	key := fmt.Sprintf(_prefixRetryCnt, topic, partition, offset)
+	n, err := redis.Int64(conn.Do("INCR", key))
+	if err != nil {
+		return 0, err
+	}
+	// Set or refresh expiry on each increment
+	if _, err := conn.Do("EXPIRE", key, 3600); err != nil {
+		log.Warningf("retry counter expire failed for key=%s: %v", key, err)
+	}
+	return n, nil
+}

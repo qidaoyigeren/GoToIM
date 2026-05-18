@@ -15,6 +15,7 @@ import (
 type Consumer struct {
 	cg     sarama.ConsumerGroup
 	topics []string
+	dlq    mq.DLQProducer // optional: routes undeliverable messages to dead-letter
 }
 
 // NewConsumer creates a Kafka consumer group.
@@ -29,9 +30,16 @@ func NewConsumer(brokers []string, group string, topics []string) (*Consumer, er
 	return &Consumer{cg: cg, topics: topics}, nil
 }
 
+// SetDLQ configures an optional dead-letter queue. When set, messages whose
+// handler returns a non-nil error are sent to the DLQ instead of being
+// redelivered indefinitely.
+func (c *Consumer) SetDLQ(dlq mq.DLQProducer) {
+	c.dlq = dlq
+}
+
 // Consume starts the consume loop. Blocks until ctx is cancelled.
 func (c *Consumer) Consume(ctx context.Context, handler mq.MessageHandler) error {
-	h := &consumerGroupHandler{handler: handler}
+	h := &consumerGroupHandler{handler: handler, dlq: c.dlq}
 
 	// Background goroutine to log consumer errors
 	go func() {
@@ -61,6 +69,7 @@ func (c *Consumer) Close() error {
 // consumerGroupHandler implements sarama.ConsumerGroupHandler.
 type consumerGroupHandler struct {
 	handler mq.MessageHandler
+	dlq     mq.DLQProducer // optional
 }
 
 func (h *consumerGroupHandler) Setup(sarama.ConsumerGroupSession) error {
@@ -94,17 +103,47 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 		if delayedUntil, ok := msg.Headers[mq.HeaderDelayedUntil]; ok {
 			if deliverAt, err := strconv.ParseInt(delayedUntil, 10, 64); err == nil {
 				if time.Now().UnixMilli() < deliverAt {
-					// Not yet time to deliver; sleep and let Kafka redeliver
 					time.Sleep(100 * time.Millisecond)
 					continue
 				}
 			}
 		}
-		if err := h.handler(session.Context(), msg); err != nil {
-			log.Errorf("handler error for %s/%d: %v", raw.Topic, raw.Offset, err)
-			continue // skip offset commit → redeliver
+
+		err := h.handler(session.Context(), msg)
+		if err == nil {
+			session.MarkMessage(raw, "")
+			continue
 		}
-		session.MarkMessage(raw, "")
+
+		log.Errorf("handler error for %s/%d: %v", raw.Topic, raw.Offset, err)
+
+		// If the error wraps mq.ErrDeadLetter, route to DLQ and commit offset
+		// so the message is not redelivered.
+		if h.dlq != nil && isDeadLetter(err) {
+			reason := err.Error()
+			if dlqErr := h.dlq.Send(session.Context(), msg, reason); dlqErr != nil {
+				log.Errorf("dlq send error for %s/%d: %v", raw.Topic, raw.Offset, dlqErr)
+				// DLQ send failed — don't commit, let Kafka redeliver
+				continue
+			}
+			log.Warningf("message sent to DLQ: topic=%s offset=%d reason=%s", raw.Topic, raw.Offset, reason)
+			session.MarkMessage(raw, "")
+			continue
+		}
+
+		// Non-DLQ error: skip offset commit → Kafka redelivers
 	}
 	return nil
+}
+
+// isDeadLetter checks whether the error signals that the message should be
+// routed to the dead-letter queue.
+func isDeadLetter(err error) bool {
+	type deadLetter interface {
+		DeadLetter() bool
+	}
+	if d, ok := err.(deadLetter); ok {
+		return d.DeadLetter()
+	}
+	return false
 }

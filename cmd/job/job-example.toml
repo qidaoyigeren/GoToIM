@@ -13,3 +13,14 @@
     roomTopic = "goim-room-topic"
     allTopic  = "goim-all-topic"
     ackTopic  = "goim-ack-topic"
+    dlqTopic  = "goim-dlq-topic"
+
+[redis]
+    network = "tcp"
+    addr = "127.0.0.1:6379"
+    idle = 10
+    active = 100
+    idleTimeout = "60s"
+    dialTimeout = "1s"
+    readTimeout = "1s"
+    writeTimeout = "1s"
