@@ -17,6 +17,7 @@ type FlashSaleService struct {
 	sales      map[string]*model.FlashSale
 	pushClient *PushClient
 	stats      *StatsCollector
+	orderSvc   *OrderNotifyService
 }
 
 // NewFlashSaleService creates a new FlashSaleService.
@@ -26,6 +27,11 @@ func NewFlashSaleService(pushClient *PushClient, stats *StatsCollector) *FlashSa
 		pushClient: pushClient,
 		stats:      stats,
 	}
+}
+
+// SetOrderService enables durable campaign, notification, and outbox writes.
+func (s *FlashSaleService) SetOrderService(orderSvc *OrderNotifyService) {
+	s.orderSvc = orderSvc
 }
 
 // CreateFlashSale creates a new flash sale and sends notifications to target users.
@@ -43,8 +49,26 @@ func (s *FlashSaleService) CreateFlashSale(title, description string, targetUIDs
 	s.mu.Lock()
 	s.sales[sale.SaleID] = sale
 	s.mu.Unlock()
+	if s.orderSvc != nil {
+		now := time.Now()
+		_ = s.orderSvc.store.InsertCampaign(sale.SaleID, title, description, "flash_sale", len(targetUIDs), "", now)
+	}
 
 	titleTxt, content := FlashSaleNotification(title, description)
+	if s.orderSvc != nil && len(targetUIDs) > 0 && len(targetUIDs) <= 100 {
+		for _, uid := range targetUIDs {
+			notif, err := s.orderSvc.CreateFlashSaleNotification(uid, sale.SaleID, titleTxt, content)
+			if err != nil {
+				return sale, err
+			}
+			_ = s.orderSvc.store.InsertCampaignTarget(sale.SaleID, uid, notif.NotifyID, "queued", notif.CreatedAt)
+		}
+		return sale, nil
+	}
+
+	if s.pushClient == nil {
+		return sale, nil
+	}
 	payload := BuildNotificationJSON("flash_sale", titleTxt, content, sale.SaleID, "")
 	pushedAt := time.Now()
 

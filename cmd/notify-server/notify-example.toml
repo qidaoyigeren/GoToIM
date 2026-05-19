@@ -4,6 +4,22 @@
 listen = ":3121"
 logic_addr = "localhost:3111"
 
+[storage]
+# Production-oriented default. Create database `goim_notify` first.
+driver = "mysql"
+dsn = "goim:goim@tcp(127.0.0.1:3306)/goim_notify?charset=utf8mb4&parseTime=true&loc=Local"
+
+# Local no-dependency alternative:
+# driver = "sqlite"
+# dsn = "target/notify.db"
+
+[outbox]
+enabled = true
+batch_size = 100
+poll_interval = "1s"
+max_retries = 5
+lock_ttl = "30s"
+
 [simulation]
 default_qps = 100
 flash_sale_users = 10000

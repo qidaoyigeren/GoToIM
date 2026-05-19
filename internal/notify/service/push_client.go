@@ -2,27 +2,68 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 )
 
 // PushClient calls goim Logic's HTTP push API.
 type PushClient struct {
-	logicAddr string
-	client    *http.Client
+	logicAddr   string
+	client      *http.Client
+	maxRetries  int
+	backoffBase time.Duration
+	breaker     *CircuitBreaker
+}
+
+// PushClientConfig controls HTTP timeout and retry behavior.
+type PushClientConfig struct {
+	Timeout     time.Duration
+	MaxRetries  int
+	BackoffBase time.Duration
+	CircuitFailureThreshold int
+	CircuitOpenInterval    time.Duration
 }
 
 // NewPushClient creates a new PushClient targeting the given Logic HTTP address.
 func NewPushClient(logicAddr string) *PushClient {
+	return NewPushClientWithConfig(logicAddr, PushClientConfig{
+		Timeout:     3 * time.Second,
+		MaxRetries:  2,
+		BackoffBase: 100 * time.Millisecond,
+		CircuitFailureThreshold: 5,
+		CircuitOpenInterval: 5 * time.Second,
+	})
+}
+
+// NewPushClientWithConfig creates a PushClient with explicit reliability settings.
+func NewPushClientWithConfig(logicAddr string, cfg PushClientConfig) *PushClient {
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = 3 * time.Second
+	}
+	if cfg.BackoffBase <= 0 {
+		cfg.BackoffBase = 100 * time.Millisecond
+	}
+	if cfg.CircuitFailureThreshold <= 0 {
+		cfg.CircuitFailureThreshold = 5
+	}
+	if cfg.CircuitOpenInterval <= 0 {
+		cfg.CircuitOpenInterval = 5 * time.Second
+	}
 	return &PushClient{
-		logicAddr: logicAddr,
+		logicAddr:   logicAddr,
+		maxRetries:  cfg.MaxRetries,
+		backoffBase: cfg.BackoffBase,
+		breaker:     NewCircuitBreaker(cfg.CircuitFailureThreshold, cfg.CircuitOpenInterval),
 		client: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: cfg.Timeout,
 			Transport: &http.Transport{
 				MaxIdleConns:        100,
 				MaxIdleConnsPerHost: 32,
@@ -32,33 +73,150 @@ func NewPushClient(logicAddr string) *PushClient {
 	}
 }
 
+// PushError classifies delivery failures for retry and DLQ decisions.
+type PushError struct {
+	Type       string
+	Class      string
+	StatusCode int
+	Message    string
+	Retryable  bool
+	Err        error
+}
+
+// DeliveryResult is the structured delivery response returned by Logic and persisted in attempts.
+type DeliveryResult struct {
+	MsgID        string  `json:"msg_id"`
+	Path         string  `json:"path"`
+	TargetNode   string  `json:"target_node,omitempty"`
+	ErrorCode    string  `json:"error_code,omitempty"`
+	ErrorMessage string  `json:"error_message,omitempty"`
+	LatencyMs    float64 `json:"latency_ms"`
+	AttemptNo    int64   `json:"attempt_no"`
+}
+
+// CircuitBreaker is a lightweight closed/open/half-open breaker for Logic calls.
+type CircuitBreaker struct {
+	mu               sync.Mutex
+	failureThreshold int
+	openInterval     time.Duration
+	state            string
+	failures         int
+	openedAt         time.Time
+}
+
+func NewCircuitBreaker(threshold int, openInterval time.Duration) *CircuitBreaker {
+	return &CircuitBreaker{failureThreshold: threshold, openInterval: openInterval, state: "closed"}
+}
+
+func (b *CircuitBreaker) Allow() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.state != "open" {
+		return true
+	}
+	if time.Since(b.openedAt) >= b.openInterval {
+		b.state = "half_open"
+		return true
+	}
+	return false
+}
+
+func (b *CircuitBreaker) RecordSuccess() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.failures = 0
+	b.state = "closed"
+}
+
+func (b *CircuitBreaker) RecordFailure() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.failures++
+	if b.failures >= b.failureThreshold || b.state == "half_open" {
+		b.state = "open"
+		b.openedAt = time.Now()
+	}
+}
+
+func (b *CircuitBreaker) State() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.state
+}
+
+func (e *PushError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Message != "" {
+		return e.Type + ": " + e.Message
+	}
+	return e.Type
+}
+
+func (e *PushError) Unwrap() error { return e.Err }
+
+func IsRetryablePushError(err error) bool {
+	var pe *PushError
+	if errors.As(err, &pe) {
+		return pe.Retryable
+	}
+	return false
+}
+
 // PushToUser sends a message to a specific user by their keys (device-level).
 func (c *PushClient) PushToUser(op int32, keys []string, msg []byte) ([]string, error) {
+	results, err := c.PushToUserDetailedContext(context.Background(), op, keys, msg)
+	return deliveryMsgIDs(results), err
+}
+
+// PushToUserContext sends a message to a specific user by their keys.
+func (c *PushClient) PushToUserContext(ctx context.Context, op int32, keys []string, msg []byte) ([]string, error) {
+	results, err := c.PushToUserDetailedContext(ctx, op, keys, msg)
+	return deliveryMsgIDs(results), err
+}
+
+func (c *PushClient) PushToUserDetailedContext(ctx context.Context, op int32, keys []string, msg []byte) ([]DeliveryResult, error) {
 	params := url.Values{}
 	params.Set("operation", strconv.Itoa(int(op)))
 	for _, k := range keys {
 		params.Add("keys", k)
 	}
-	return c.doPost("/goim/push/keys", params, msg)
+	return c.doPostDetailedContext(ctx, "/goim/push/keys", params, msg)
 }
 
 // PushToUsers sends a message to multiple users by their mids (user IDs).
 func (c *PushClient) PushToUsers(op int32, mids []int64, msg []byte) ([]string, error) {
+	results, err := c.PushToUsersDetailedContext(context.Background(), op, mids, msg)
+	return deliveryMsgIDs(results), err
+}
+
+// PushToUsersContext sends a message to multiple users by their mids.
+func (c *PushClient) PushToUsersContext(ctx context.Context, op int32, mids []int64, msg []byte) ([]string, error) {
+	results, err := c.PushToUsersDetailedContext(ctx, op, mids, msg)
+	return deliveryMsgIDs(results), err
+}
+
+func (c *PushClient) PushToUsersDetailedContext(ctx context.Context, op int32, mids []int64, msg []byte) ([]DeliveryResult, error) {
 	params := url.Values{}
 	params.Set("operation", strconv.Itoa(int(op)))
 	for _, m := range mids {
 		params.Add("mids", strconv.FormatInt(m, 10))
 	}
-	return c.doPost("/goim/push/mids", params, msg)
+	return c.doPostDetailedContext(ctx, "/goim/push/mids", params, msg)
 }
 
 // PushToRoom broadcasts a message to a room.
 func (c *PushClient) PushToRoom(op int32, roomType, roomID string, msg []byte) (string, error) {
+	return c.PushToRoomContext(context.Background(), op, roomType, roomID, msg)
+}
+
+func (c *PushClient) PushToRoomContext(ctx context.Context, op int32, roomType, roomID string, msg []byte) (string, error) {
 	params := url.Values{}
 	params.Set("operation", strconv.Itoa(int(op)))
 	params.Set("type", roomType)
 	params.Set("room", roomID)
-	ids, err := c.doPost("/goim/push/room", params, msg)
+	ids, err := c.doPostContext(ctx, "/goim/push/room", params, msg)
 	if err != nil {
 		return "", err
 	}
@@ -80,10 +238,19 @@ type OnlineTotal struct {
 
 // FetchOnlineTotal fetches the total online connection count from goim Logic.
 func (c *PushClient) FetchOnlineTotal() (*OnlineTotal, error) {
+	return c.FetchOnlineTotalContext(context.Background())
+}
+
+// FetchOnlineTotalContext fetches the total online connection count from goim Logic.
+func (c *PushClient) FetchOnlineTotalContext(ctx context.Context) (*OnlineTotal, error) {
 	u := fmt.Sprintf("http://%s/goim/online/total", c.logicAddr)
-	resp, err := c.client.Get(u)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, fmt.Errorf("fetch online total failed: %w", err)
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, classifyHTTPError(err)
 	}
 	defer resp.Body.Close()
 
@@ -107,10 +274,14 @@ func (c *PushClient) FetchOnlineTotal() (*OnlineTotal, error) {
 
 // PushAll broadcasts a message to all connected clients.
 func (c *PushClient) PushAll(op int32, speed int32, msg []byte) (string, error) {
+	return c.PushAllContext(context.Background(), op, speed, msg)
+}
+
+func (c *PushClient) PushAllContext(ctx context.Context, op int32, speed int32, msg []byte) (string, error) {
 	params := url.Values{}
 	params.Set("operation", strconv.Itoa(int(op)))
 	params.Set("speed", strconv.Itoa(int(speed)))
-	ids, err := c.doPost("/goim/push/all", params, msg)
+	ids, err := c.doPostContext(ctx, "/goim/push/all", params, msg)
 	if err != nil {
 		return "", err
 	}
@@ -121,16 +292,53 @@ func (c *PushClient) PushAll(op int32, speed int32, msg []byte) (string, error) 
 }
 
 func (c *PushClient) doPost(path string, params url.Values, body []byte) ([]string, error) {
+	return c.doPostContext(context.Background(), path, params, body)
+}
+
+func (c *PushClient) doPostContext(ctx context.Context, path string, params url.Values, body []byte) ([]string, error) {
+	var lastErr error
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		ids, err := c.doPostOnce(ctx, path, params, body)
+		if err == nil {
+			return ids, nil
+		}
+		lastErr = err
+		if !IsRetryablePushError(err) || attempt == c.maxRetries {
+			break
+		}
+		timer := time.NewTimer(c.backoffBase * time.Duration(1<<attempt))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, classifyHTTPError(ctx.Err())
+		case <-timer.C:
+		}
+	}
+	return nil, lastErr
+}
+
+func (c *PushClient) doPostOnce(ctx context.Context, path string, params url.Values, body []byte) ([]string, error) {
 	u := fmt.Sprintf("http://%s%s?%s", c.logicAddr, path, params.Encode())
-	resp, err := c.client.Post(u, "application/octet-stream", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("push request failed: %w", err)
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, classifyHTTPError(err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response failed: %w", err)
+		return nil, &PushError{Type: "invalid_response", Message: err.Error(), Retryable: true, Err: err}
+	}
+	if resp.StatusCode >= 500 {
+		return nil, &PushError{Type: "http_5xx", StatusCode: resp.StatusCode, Message: string(respBody), Retryable: true}
+	}
+	if resp.StatusCode >= 400 {
+		return nil, &PushError{Type: "http_4xx", StatusCode: resp.StatusCode, Message: string(respBody), Retryable: false}
 	}
 
 	var result struct {
@@ -139,10 +347,10 @@ func (c *PushClient) doPost(path string, params url.Values, body []byte) ([]stri
 		Data    json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("unmarshal response failed: %w", err)
+		return nil, &PushError{Type: "invalid_response", Message: err.Error(), Retryable: false, Err: err}
 	}
 	if result.Code != 0 {
-		return nil, fmt.Errorf("goim push error: code=%d, msg=%s", result.Code, result.Message)
+		return nil, &PushError{Type: "logic_error", Message: fmt.Sprintf("code=%d, msg=%s", result.Code, result.Message), Retryable: false}
 	}
 
 	var data struct {
@@ -160,22 +368,44 @@ func (c *PushClient) doPost(path string, params url.Values, body []byte) ([]stri
 	return msgIDs, nil
 }
 
+func classifyHTTPError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return &PushError{Type: "timeout", Message: err.Error(), Retryable: true, Err: err}
+	}
+	var netErr interface{ Timeout() bool }
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return &PushError{Type: "timeout", Message: err.Error(), Retryable: true, Err: err}
+	}
+	return &PushError{Type: "connection_refused", Message: err.Error(), Retryable: true, Err: err}
+}
+
 // PushJSONToUser marshals data to JSON and pushes to a user by keys.
 func (c *PushClient) PushJSONToUser(op int32, keys []string, data interface{}) ([]string, error) {
+	return c.PushJSONToUserContext(context.Background(), op, keys, data)
+}
+
+func (c *PushClient) PushJSONToUserContext(ctx context.Context, op int32, keys []string, data interface{}) ([]string, error) {
 	body, err := json.Marshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("marshal json: %w", err)
 	}
-	return c.PushToUser(op, keys, body)
+	return c.PushToUserContext(ctx, op, keys, body)
 }
 
 // PushJSONToUsers marshals data to JSON and pushes to multiple users by mids.
 func (c *PushClient) PushJSONToUsers(op int32, mids []int64, data interface{}) ([]string, error) {
+	return c.PushJSONToUsersContext(context.Background(), op, mids, data)
+}
+
+func (c *PushClient) PushJSONToUsersContext(ctx context.Context, op int32, mids []int64, data interface{}) ([]string, error) {
 	body, err := json.Marshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("marshal json: %w", err)
 	}
-	return c.PushToUsers(op, mids, body)
+	return c.PushToUsersContext(ctx, op, mids, body)
 }
 
 // BuildNotificationJSON creates a JSON-serializable map for a notification message.

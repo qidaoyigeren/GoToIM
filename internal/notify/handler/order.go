@@ -9,16 +9,18 @@ import (
 
 // OrderStatusChangeRequest is the request body for POST /api/order/status-change.
 type OrderStatusChangeRequest struct {
-	OrderID   string            `json:"order_id"`
-	NewStatus model.OrderStatus `json:"new_status"`
-	Extra     map[string]string `json:"extra,omitempty"`
+	OrderID        string            `json:"order_id"`
+	NewStatus      model.OrderStatus `json:"new_status"`
+	Extra          map[string]string `json:"extra,omitempty"`
+	IdempotencyKey string            `json:"idempotency_key,omitempty"`
 }
 
 // CreateOrderRequest is the request body for creating a new order.
 type CreateOrderRequest struct {
-	UserID string            `json:"user_id"`
-	Items  []model.OrderItem `json:"items"`
-	Total  float64           `json:"total"`
+	UserID         string            `json:"user_id"`
+	Items          []model.OrderItem `json:"items"`
+	Total          float64           `json:"total"`
+	IdempotencyKey string            `json:"idempotency_key,omitempty"`
 }
 
 // HandleCreateOrder handles POST /api/order/create.
@@ -41,9 +43,9 @@ func (h *Handler) HandleCreateOrder(c *gin.Context) {
 		return
 	}
 
-	order, notif, err := h.orderSvc.CreateOrder(req.UserID, req.Items, req.Total)
+	order, notif, err := h.orderSvc.CreateOrderIdempotent(req.UserID, req.Items, req.Total, idempotencyKey(c, req.IdempotencyKey))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": -500, "message": err.Error()})
+		writeServiceError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"order": order, "notification": notif}})
@@ -60,10 +62,14 @@ func (h *Handler) HandleOrderStatusChange(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": -400, "message": "order_id is required"})
 		return
 	}
+	if req.NewStatus == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": -400, "message": "new_status is required"})
+		return
+	}
 
-	order, notif, err := h.orderSvc.ChangeOrderStatus(req.OrderID, req.NewStatus, req.Extra)
+	order, notif, err := h.orderSvc.ChangeOrderStatusIdempotent(req.OrderID, req.NewStatus, req.Extra, idempotencyKey(c, req.IdempotencyKey))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": -500, "message": err.Error()})
+		writeServiceError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"order": order, "notification": notif}})

@@ -10,6 +10,7 @@ type Handler struct {
 	orderSvc     *service.OrderNotifyService
 	flashSaleSvc *service.FlashSaleService
 	simulator    Simulator
+	activeRunID  string
 }
 
 // Simulator is the interface for the load generator engine.

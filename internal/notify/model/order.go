@@ -33,6 +33,17 @@ type OrderItem struct {
 	Price       float64 `json:"price"`
 }
 
+// OrderStatusEvent is an append-only record for an order state change.
+type OrderStatusEvent struct {
+	EventID        string            `json:"event_id"`
+	OrderID        string            `json:"order_id"`
+	FromStatus     OrderStatus       `json:"from_status"`
+	ToStatus       OrderStatus       `json:"to_status"`
+	Extra          map[string]string `json:"extra,omitempty"`
+	IdempotencyKey string            `json:"idempotency_key,omitempty"`
+	CreatedAt      time.Time         `json:"created_at"`
+}
+
 // orderTransitions defines valid order state transitions.
 var orderTransitions = map[OrderStatus][]OrderStatus{
 	OrderCreated:        {OrderPaid, OrderCancelled},

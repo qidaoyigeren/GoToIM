@@ -22,7 +22,7 @@
                                 │ HTTP REST
                                 ▼
                   ┌─────────────────────────┐
-                  │    Notify Server :3121   │  业务 Demo
+                  │    Notify Server :3121   │  业务应用层
                   │  Order Status / Flash    │  (电商通知平台)
                   │  Sale / Logistics / Sim  │
                   └────────┬────────────────┘
@@ -55,7 +55,7 @@
 | **Comet** | 连接网关，维护 TCP/WebSocket 长连接 | TCP :3101, WS :3102, gRPC :3109 |
 | **Logic** | 业务逻辑，认证、路由、会话管理、消息分发 | HTTP :3111, gRPC :3119 |
 | **Job** | Kafka 消费投递，将消息可靠推送到 Comet | — |
-| **Notify Server** | 电商业务 Demo，订单/秒杀/物流通知 + 负载模拟 | HTTP :3121 |
+| **Notify Server** | 电商订单/秒杀/物流通知业务层 + 负载模拟 | HTTP :3121 |
 | **Discovery** | 服务注册发现 | HTTP :7171 |
 
 ### 消息路由引擎
@@ -141,7 +141,7 @@ docker compose up -d
 
 | 服务 | 地址 |
 |------|------|
-| **Order Tracker** (电商 Demo 前端) | `file://web/order-tracker/index.html` |
+| **Order Operations Dashboard** (实时订单与通知工作台) | `http://localhost:5173`（`web/dashboard`） |
 | Notify Server HTTP API | `http://localhost:3121/api/platform/stats` |
 | Logic HTTP API | `http://localhost:3111/goim/online/total` |
 | Comet WebSocket | `ws://localhost:3102/sub` |
@@ -154,7 +154,7 @@ make build          # 构建 comet, logic, job, notify-server
 make build-notify   # 仅构建 notify-server
 ```
 
-### 电商 Demo 快速体验
+### 订单通知业务场景快速体验
 
 ```bash
 # 1. 启动全栈
@@ -163,7 +163,7 @@ docker compose up -d
 # 2. 启动 Notify Server
 target/notify-server -conf=cmd/notify-server/notify-example.toml
 
-# 3. 启动订单生命周期 Demo（一条订单在 30s 内走完完整流程）
+# 3. 启动订单生命周期（一条订单在 30s 内走完完整流程）
 curl -X POST localhost:3121/api/simulate/start \
   -H 'Content-Type: application/json' \
   -d '{"mode":"lifecycle"}'
@@ -176,7 +176,8 @@ curl -X POST localhost:3121/api/simulate/start \
 # 5. 查看实时统计
 curl localhost:3121/api/platform/stats
 
-# 6. 打开 web/order-tracker/index.html 查看实时通知效果
+# 6. 启动并打开前端工作台
+cd web/dashboard && npm install && npm run dev
 ```
 
 ## HTTP API
@@ -212,6 +213,18 @@ curl localhost:3121/api/platform/stats
 | POST | `/api/simulate/stop` | 停止模拟 |
 | GET | `/api/simulate/status` | 模拟器状态 |
 
+### Notify Server Phase 2 Reliable Delivery
+
+The Order Notification Platform now uses a durable outbox pipeline for reliable delivery:
+
+- Order create, order status change, logistics update, and targeted flash-sale APIs persist business data, notification data, outbox data, and idempotency snapshots transactionally.
+- A background outbox worker claims pending/failed rows, calls Logic with bounded retries and exponential backoff, records delivery attempts, and moves terminal failures into `notification_dlq`.
+- DLQ operations are available at `GET /api/dlq`, `GET /api/dlq/:id`, `POST /api/dlq/:id/replay`, and `POST /api/dlq/:id/resolve`.
+- Scenario runs are available at `POST /api/scenarios`, `GET /api/scenarios/:id`, `POST /api/scenarios/:id/stop`, and `GET /api/scenarios/:id/events`; legacy `/api/simulate/*` endpoints remain compatible.
+- `/api/platform/stats` still returns the legacy dashboard fields and now also includes `delivery_path_detail`, retry/outbox/DLQ counts, notification type counts, and ACK policy satisfaction rate. `logic_push` is reported separately and is not counted as Kafka fallback.
+
+Phase 3 work remains for OpenTelemetry traces, a management UI, complex campaign audiences, and real cross-service delivery path feedback.
+
 ## 压测数据
 
 ```bash
@@ -244,7 +257,7 @@ goim/
 │   ├── comet/main.go             # Comet 网关入口
 │   ├── logic/main.go             # Logic 业务层入口
 │   ├── job/main.go               # Job Kafka 消费者入口
-│   └── notify-server/main.go     # Notify Server 电商 Demo 入口
+│   └── notify-server/main.go     # Notify Server 订单通知业务入口
 ├── deploy/                       # Docker 配置 + Discovery
 ├── internal/
 │   ├── comet/                    # 连接层: TCP/WS Server, Bucket, Channel, Room
@@ -252,7 +265,7 @@ goim/
 │   ├── router/                   # 消息路由引擎 (双通道决策 + 幂等)
 │   ├── worker/                   # DeliveryWorker (Kafka → gRPC Comet)
 │   ├── mq/                       # MQ 抽象 (Producer/Consumer 接口 + Kafka 实现)
-│   ├── notify/                   # 电商通知平台 (Demo 业务层)
+│   ├── notify/                   # 电商通知平台业务层
 │   │   ├── server.go             # Gin HTTP Server
 │   │   ├── handler/              # API 处理器 (order, flash_sale, logistics, platform)
 │   │   ├── model/                # 数据模型 (Order, Notification, FlashSale)
@@ -269,8 +282,9 @@ goim/
 │   ├── time/                     # Timer/Duration 封装
 │   ├── tracing/                  # OpenTelemetry 初始化
 │   └── websocket/                # WebSocket 封装
-├── web/order-tracker/            # 订单追踪 SPA Demo
-│   └── index.html
+├── web/dashboard/                # 实时订单状态与通知业务工作台
+│   ├── src/
+│   └── package.json
 ├── docker-compose.yml
 ├── Dockerfile
 └── Makefile
@@ -284,6 +298,20 @@ goim/
 | Logic | `cmd/logic/logic-example.toml` |
 | Job | `cmd/job/job-example.toml` |
 | Notify | `cmd/notify-server/notify-example.toml` |
+
+Notify Server supports MySQL for the business data store. `cmd/notify-server/notify-example.toml` is configured for MySQL:
+
+```toml
+[storage]
+driver = "mysql"
+dsn = "goim:goim@tcp(127.0.0.1:3306)/goim_notify?charset=utf8mb4&parseTime=true&loc=Local"
+```
+
+Create the `goim_notify` database before starting Notify Server. The schema is initialized on startup and persists orders, status events, notifications, delivery attempts, ACK receipts, and idempotency keys. SQLite remains supported for local no-dependency tests by setting `driver = "sqlite"` and `dsn = "target/notify.db"`.
+
+```sql
+CREATE DATABASE goim_notify CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
 
 ## 业务场景
 
