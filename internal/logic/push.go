@@ -7,6 +7,7 @@ import (
 
 	"github.com/Terry-Mao/goim/api/protocol"
 	"github.com/Terry-Mao/goim/internal/logic/model"
+	"github.com/Terry-Mao/goim/internal/router"
 
 	log "github.com/Terry-Mao/goim/pkg/log"
 )
@@ -59,15 +60,32 @@ func (l *Logic) PushKeys(c context.Context, op int32, keys []string, msg []byte)
 // The raw body is wrapped as MsgBody so the client can parse msg_id and ACK.
 // Returns server-generated msgIDs for delivery tracking.
 func (l *Logic) PushMids(c context.Context, op int32, mids []int64, msg []byte) (msgIDs []string, err error) {
+	results, err := l.PushMidsDetailed(c, op, mids, msg)
+	for _, result := range results {
+		msgIDs = append(msgIDs, result.MsgID)
+	}
+	return msgIDs, err
+}
+
+// PushMidsDetailed push a message by user IDs and returns per-user delivery path details.
+func (l *Logic) PushMidsDetailed(c context.Context, op int32, mids []int64, msg []byte) (results []router.DeliveryResult, err error) {
+	var firstErr error
 	for _, mid := range mids {
 		msgID := l.GenerateMsgID()
-		msgIDs = append(msgIDs, msgID)
 		body := wrapAsMsgBody(msgID, mid, msg)
-		if e := l.router.RouteByUser(c, msgID, mid, op, body, 0); e != nil {
+		result, e := l.router.RouteByUserResult(c, msgID, mid, op, body, 0)
+		if result.MsgID == "" {
+			result.MsgID = msgID
+		}
+		results = append(results, result)
+		if e != nil {
 			log.Warningf("push mid:%d msg_id:%s failed: %v", mid, msgID, e)
+			if firstErr == nil {
+				firstErr = e
+			}
 		}
 	}
-	return msgIDs, nil
+	return results, firstErr
 }
 
 // wrapAsMsgBody wraps raw bytes into a MsgBody with the given msgID and toUID.

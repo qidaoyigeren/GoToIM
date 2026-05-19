@@ -1,0 +1,54 @@
+direction: right
+
+client: { shape: person; label: Client }
+comet: { shape: rectangle; label: "Comet\n(TCP/WS)" }
+logic: { shape: rectangle; label: "Logic\n(gRPC)" }
+redis: { shape: cylinder; label: Redis }
+
+# ═══ Phase 0: Connect ═══
+
+client -> comet: "① TCP connect / WS /sub" {
+  style: { stroke-dash: 0; animated: true }
+}
+
+# ═══ Phase 1: Auth ═══
+
+client -> comet: "② OpAuth + JSON token"
+comet -> logic: "③ gRPC Connect(server, token)"
+logic -> logic: "解析 token → Session\nkey/device_id 空则生成 UUID"
+logic -> redis: "④ GetDeviceSession(uid, device)"
+redis -> logic: "old SID / nil"
+
+logic -> redis: "⑤ Pipeline:\n  HSET session:{sid}\n  HSET user_sessions:{uid}\n  SET device_session:{uid}:{device}\n  SET key_sid:{key}"
+logic -> logic: "⑥ 异步触发离线同步\n  OnUserOnline(mid, lastSeq)"
+
+logic -> comet: "⑦ ConnectReply(mid, key, room, accepts, hb)"
+comet -> client: "⑧ OpAuthReply"
+
+# ═══ Phase 2: Register ═══
+
+comet -> comet: |md
+  ⑨ `ch.Watch(accepts)` — 订阅 op
+  ⑩ `bucket.Put(roomID, ch)` — cityhash 分片
+  `go dispatchTCP()` — 写协程启动
+|
+
+# ═══ Phase 3: Heartbeat Loop ═══
+
+client -> comet: "⑪ OpHeartbeat (定时)"
+comet -> client: "OpHeartbeatReply (在线数)"
+
+comet -> logic: "⑫ Heartbeat(mid, key)\n每 N 次心跳调用一次"
+logic -> redis: "EXPIRE session:{sid}"
+
+# ═══ Phase 4: Disconnect ═══
+
+comet -> comet: |md
+  ⑬ 读异常 / EOF / 被踢 / ctx 取消
+  `b.Del(ch)` — 移除 Channel
+  `conn.Close()` — 关连接
+  `ch.Close()` → dispatch 协程退出
+|
+
+comet -> logic: "⑭ gRPC Disconnect(mid, key)"
+logic -> redis: "⑮ Pipeline:\n  DEL session:{sid}\n  DEL device_session\n  DEL key_sid:{key}"

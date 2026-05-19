@@ -1,6 +1,6 @@
 import { CheckCheck, Clock, AlertTriangle, RefreshCw } from 'lucide-react'
 
-type TraceRecord = {
+export type TraceRecord = {
   msg_id: string
   target: string
   channel: 'grpc_direct' | 'kafka_fallback'

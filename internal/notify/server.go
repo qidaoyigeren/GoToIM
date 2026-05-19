@@ -34,7 +34,7 @@ func New(cfg *conf.Config) *Server {
 	engine.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
 
 	pushClient := service.NewPushClient(cfg.LogicAddr)
-	notifyStore, err := store.Open(cfg.Storage.Driver, cfg.Storage.DSN)
+	notifyStore, err := store.Open(cfg.Storage.DSN)
 	if err != nil {
 		panic(err)
 	}
@@ -94,6 +94,7 @@ func (s *Server) initRouter() {
 	api.POST("/flash-sale/notify", s.handler.HandleCreateFlashSale)
 	api.POST("/logistics/update", s.handler.HandleLogistisUpdate)
 	api.GET("/user/:uid/notifications", s.handler.HandleGetUserNotifications)
+	api.GET("/notifications/:notify_id/attempts", s.handler.HandleListAttempts)
 	api.GET("/platform/stats", s.handler.HandleGetPlatformStats)
 	api.POST("/simulate/start", s.handler.HandleSimulateStart)
 	api.POST("/simulate/stop", s.handler.HandleSimulateStop)

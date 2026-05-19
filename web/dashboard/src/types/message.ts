@@ -41,18 +41,34 @@ export interface DeliveryPath {
   kafka_fallback: number
 }
 
+export interface DeliveryPathDetail extends DeliveryPath {
+  offline_stored: number
+  failed: number
+  logic_push: number
+  unknown: number
+}
+
 export interface PlatformStats {
   push_rate_per_sec: number
   total_pushed: number
   ack_rate: number
   latency_p50_ms: number
+  latency_p95_ms?: number
   latency_p99_ms: number
   latency_max_ms: number
   active_connections: number
   delivery_path: DeliveryPath
+  delivery_path_detail?: DeliveryPathDetail
   online_users: number
   offline_pending: number
   simulation: SimulationState
+  retry_count?: number
+  dlq_count?: number
+  oldest_dlq_age_seconds?: number
+  outbox_pending?: number
+  outbox_failed?: number
+  notifications_by_type?: Record<string, number>
+  ack_policy_satisfied_rate?: number
 }
 
 export interface SimulationState {

@@ -47,12 +47,16 @@ func (s *Server) pushMids(c *gin.Context) {
 		errors(c, RequestErr, err.Error())
 		return
 	}
-	msgIDs, err := s.logic.PushMids(context.TODO(), arg.Op, arg.Mids, msg)
+	results, err := s.logic.PushMidsDetailed(context.TODO(), arg.Op, arg.Mids, msg)
 	if err != nil {
 		errors(c, ServerErr, err.Error())
 		return
 	}
-	result(c, gin.H{"msg_ids": msgIDs}, OK)
+	msgIDs := make([]string, 0, len(results))
+	for _, result := range results {
+		msgIDs = append(msgIDs, result.MsgID)
+	}
+	result(c, gin.H{"msg_ids": msgIDs, "delivery_results": results}, OK)
 }
 
 // 将消息存入离线队列，供后续同步拉取

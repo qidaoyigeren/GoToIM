@@ -25,21 +25,21 @@ type PushClient struct {
 
 // PushClientConfig controls HTTP timeout and retry behavior.
 type PushClientConfig struct {
-	Timeout     time.Duration
-	MaxRetries  int
-	BackoffBase time.Duration
+	Timeout                 time.Duration
+	MaxRetries              int
+	BackoffBase             time.Duration
 	CircuitFailureThreshold int
-	CircuitOpenInterval    time.Duration
+	CircuitOpenInterval     time.Duration
 }
 
 // NewPushClient creates a new PushClient targeting the given Logic HTTP address.
 func NewPushClient(logicAddr string) *PushClient {
 	return NewPushClientWithConfig(logicAddr, PushClientConfig{
-		Timeout:     3 * time.Second,
-		MaxRetries:  2,
-		BackoffBase: 100 * time.Millisecond,
+		Timeout:                 3 * time.Second,
+		MaxRetries:              2,
+		BackoffBase:             100 * time.Millisecond,
 		CircuitFailureThreshold: 5,
-		CircuitOpenInterval: 5 * time.Second,
+		CircuitOpenInterval:     5 * time.Second,
 	})
 }
 
@@ -160,6 +160,14 @@ func IsRetryablePushError(err error) bool {
 	var pe *PushError
 	if errors.As(err, &pe) {
 		return pe.Retryable
+	}
+	return false
+}
+
+func IsPermanentPushError(err error) bool {
+	var pe *PushError
+	if errors.As(err, &pe) {
+		return pe.Class == "permanent"
 	}
 	return false
 }
@@ -292,15 +300,27 @@ func (c *PushClient) PushAllContext(ctx context.Context, op int32, speed int32, 
 }
 
 func (c *PushClient) doPost(path string, params url.Values, body []byte) ([]string, error) {
-	return c.doPostContext(context.Background(), path, params, body)
+	results, err := c.doPostDetailedContext(context.Background(), path, params, body)
+	return deliveryMsgIDs(results), err
 }
 
 func (c *PushClient) doPostContext(ctx context.Context, path string, params url.Values, body []byte) ([]string, error) {
+	results, err := c.doPostDetailedContext(ctx, path, params, body)
+	return deliveryMsgIDs(results), err
+}
+
+func (c *PushClient) doPostDetailedContext(ctx context.Context, path string, params url.Values, body []byte) ([]DeliveryResult, error) {
+	if c.breaker != nil && !c.breaker.Allow() {
+		return nil, &PushError{Type: "circuit_open", Class: "circuit_open", Message: "push circuit is open", Retryable: true}
+	}
 	var lastErr error
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
-		ids, err := c.doPostOnce(ctx, path, params, body)
+		results, err := c.doPostOnceDetailed(ctx, path, params, body)
 		if err == nil {
-			return ids, nil
+			if c.breaker != nil {
+				c.breaker.RecordSuccess()
+			}
+			return results, nil
 		}
 		lastErr = err
 		if !IsRetryablePushError(err) || attempt == c.maxRetries {
@@ -314,10 +334,18 @@ func (c *PushClient) doPostContext(ctx context.Context, path string, params url.
 		case <-timer.C:
 		}
 	}
+	if c.breaker != nil {
+		c.breaker.RecordFailure()
+	}
 	return nil, lastErr
 }
 
 func (c *PushClient) doPostOnce(ctx context.Context, path string, params url.Values, body []byte) ([]string, error) {
+	results, err := c.doPostOnceDetailed(ctx, path, params, body)
+	return deliveryMsgIDs(results), err
+}
+
+func (c *PushClient) doPostOnceDetailed(ctx context.Context, path string, params url.Values, body []byte) ([]DeliveryResult, error) {
 	u := fmt.Sprintf("http://%s%s?%s", c.logicAddr, path, params.Encode())
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
 	if err != nil {
@@ -332,13 +360,13 @@ func (c *PushClient) doPostOnce(ctx context.Context, path string, params url.Val
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, &PushError{Type: "invalid_response", Message: err.Error(), Retryable: true, Err: err}
+		return nil, &PushError{Type: "invalid_response", Class: "transient", Message: err.Error(), Retryable: true, Err: err}
 	}
 	if resp.StatusCode >= 500 {
-		return nil, &PushError{Type: "http_5xx", StatusCode: resp.StatusCode, Message: string(respBody), Retryable: true}
+		return nil, &PushError{Type: "http_5xx", Class: "transient", StatusCode: resp.StatusCode, Message: string(respBody), Retryable: true}
 	}
 	if resp.StatusCode >= 400 {
-		return nil, &PushError{Type: "http_4xx", StatusCode: resp.StatusCode, Message: string(respBody), Retryable: false}
+		return nil, &PushError{Type: "http_4xx", Class: "permanent", StatusCode: resp.StatusCode, Message: string(respBody), Retryable: false}
 	}
 
 	var result struct {
@@ -347,25 +375,31 @@ func (c *PushClient) doPostOnce(ctx context.Context, path string, params url.Val
 		Data    json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, &PushError{Type: "invalid_response", Message: err.Error(), Retryable: false, Err: err}
+		return nil, &PushError{Type: "invalid_response", Class: "permanent", Message: err.Error(), Retryable: false, Err: err}
 	}
 	if result.Code != 0 {
-		return nil, &PushError{Type: "logic_error", Message: fmt.Sprintf("code=%d, msg=%s", result.Code, result.Message), Retryable: false}
+		return nil, &PushError{Type: "logic_error", Class: "permanent", Message: fmt.Sprintf("code=%d, msg=%s", result.Code, result.Message), Retryable: false}
 	}
 
 	var data struct {
-		MsgIDs []string `json:"msg_ids"`
-		MsgID  string   `json:"msg_id"`
+		MsgIDs          []string         `json:"msg_ids"`
+		MsgID           string           `json:"msg_id"`
+		DeliveryResults []DeliveryResult `json:"delivery_results"`
 	}
-	var msgIDs []string
 	if err := json.Unmarshal(result.Data, &data); err == nil {
-		if len(data.MsgIDs) > 0 {
-			msgIDs = data.MsgIDs
-		} else if data.MsgID != "" {
-			msgIDs = []string{data.MsgID}
+		if len(data.DeliveryResults) > 0 {
+			return data.DeliveryResults, nil
 		}
+		var results []DeliveryResult
+		for _, id := range data.MsgIDs {
+			results = append(results, DeliveryResult{MsgID: id, Path: "logic_push", AttemptNo: 1})
+		}
+		if len(results) == 0 && data.MsgID != "" {
+			results = append(results, DeliveryResult{MsgID: data.MsgID, Path: "logic_push", AttemptNo: 1})
+		}
+		return results, nil
 	}
-	return msgIDs, nil
+	return nil, nil
 }
 
 func classifyHTTPError(err error) error {
@@ -373,13 +407,13 @@ func classifyHTTPError(err error) error {
 		return nil
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return &PushError{Type: "timeout", Message: err.Error(), Retryable: true, Err: err}
+		return &PushError{Type: "timeout", Class: "timeout", Message: err.Error(), Retryable: true, Err: err}
 	}
 	var netErr interface{ Timeout() bool }
 	if errors.As(err, &netErr) && netErr.Timeout() {
-		return &PushError{Type: "timeout", Message: err.Error(), Retryable: true, Err: err}
+		return &PushError{Type: "timeout", Class: "timeout", Message: err.Error(), Retryable: true, Err: err}
 	}
-	return &PushError{Type: "connection_refused", Message: err.Error(), Retryable: true, Err: err}
+	return &PushError{Type: "connection_refused", Class: "transient", Message: err.Error(), Retryable: true, Err: err}
 }
 
 // PushJSONToUser marshals data to JSON and pushes to a user by keys.
@@ -388,11 +422,16 @@ func (c *PushClient) PushJSONToUser(op int32, keys []string, data interface{}) (
 }
 
 func (c *PushClient) PushJSONToUserContext(ctx context.Context, op int32, keys []string, data interface{}) ([]string, error) {
+	results, err := c.PushJSONToUserDetailedContext(ctx, op, keys, data)
+	return deliveryMsgIDs(results), err
+}
+
+func (c *PushClient) PushJSONToUserDetailedContext(ctx context.Context, op int32, keys []string, data interface{}) ([]DeliveryResult, error) {
 	body, err := json.Marshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("marshal json: %w", err)
 	}
-	return c.PushToUserContext(ctx, op, keys, body)
+	return c.PushToUserDetailedContext(ctx, op, keys, body)
 }
 
 // PushJSONToUsers marshals data to JSON and pushes to multiple users by mids.
@@ -401,11 +440,26 @@ func (c *PushClient) PushJSONToUsers(op int32, mids []int64, data interface{}) (
 }
 
 func (c *PushClient) PushJSONToUsersContext(ctx context.Context, op int32, mids []int64, data interface{}) ([]string, error) {
+	results, err := c.PushJSONToUsersDetailedContext(ctx, op, mids, data)
+	return deliveryMsgIDs(results), err
+}
+
+func (c *PushClient) PushJSONToUsersDetailedContext(ctx context.Context, op int32, mids []int64, data interface{}) ([]DeliveryResult, error) {
 	body, err := json.Marshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("marshal json: %w", err)
 	}
-	return c.PushToUsersContext(ctx, op, mids, body)
+	return c.PushToUsersDetailedContext(ctx, op, mids, body)
+}
+
+func deliveryMsgIDs(results []DeliveryResult) []string {
+	msgIDs := make([]string, 0, len(results))
+	for _, result := range results {
+		if result.MsgID != "" {
+			msgIDs = append(msgIDs, result.MsgID)
+		}
+	}
+	return msgIDs
 }
 
 // BuildNotificationJSON creates a JSON-serializable map for a notification message.

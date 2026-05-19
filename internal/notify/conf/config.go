@@ -42,8 +42,8 @@ func DefaultConfig() *Config {
 		Listen:    ":3121",
 		LogicAddr: "localhost:3111",
 		Storage: StorageConfig{
-			Driver: "sqlite",
-			DSN:    "target/notify.db",
+			Driver: "mysql",
+			DSN:    "goim:goim@tcp(127.0.0.1:3306)/goim_notify?charset=utf8mb4&parseTime=true&loc=Local",
 		},
 		Outbox: OutboxConfig{
 			Enabled:      true,

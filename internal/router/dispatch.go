@@ -324,6 +324,84 @@ func directPush(ctx context.Context, pusher CometPusher, sessions []*service.Ses
 	return failedSessions, nil
 }
 
+// RouteByUserResult mirrors RouteByUser and returns a structured path result for business outbox auditing.
+func (e *DispatchEngine) RouteByUserResult(ctx context.Context, msgID string, toUID int64, op int32, body []byte, seq int64) (DeliveryResult, error) {
+	start := time.Now()
+	result := DeliveryResult{
+		MsgID:     msgID,
+		Path:      "failed",
+		AttemptNo: 1,
+	}
+	defer func() {
+		result.LatencyMs = float64(time.Since(start).Microseconds()) / 1000.0
+	}()
+
+	if msgID == "" && e.idGen != nil {
+		if id, err := e.idGen.GenerateString(); err == nil {
+			msgID = id
+			result.MsgID = id
+		}
+	}
+	if err := e.ackHandler.TrackMessage(ctx, msgID, 0, toUID, op, body); err != nil {
+		log.V(1).Infof("msg already tracked: msg_id=%s err=%v", msgID, err)
+		result.Path = "grpc_direct"
+		return result, nil
+	}
+
+	online, sessions := e.sessMgr.IsOnline(ctx, toUID)
+	if len(sessions) > 0 && sessions[0] != nil {
+		result.TargetNode = sessions[0].Server
+	}
+	if online {
+		failedSessions, pushErr := directPush(ctx, e.pusher, sessions, op, body)
+		if pushErr == nil && len(failedSessions) == 0 {
+			if err := e.ackHandler.MarkDelivered(ctx, msgID); err != nil {
+				log.Warningf("mark delivered failed: %v", err)
+			}
+			e.directTotal.Add(1)
+			metrics.PushTotal.WithLabelValues("direct", "success").Inc()
+			metrics.PushLatency.WithLabelValues("direct").Observe(time.Since(start).Seconds())
+			result.Path = "grpc_direct"
+			return result, nil
+		}
+		if pushErr == nil && len(failedSessions) > 0 {
+			if err := e.ackHandler.MarkDelivered(ctx, msgID); err != nil {
+				log.Warningf("mark delivered failed: %v", err)
+			}
+			err := e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, failedSessions)
+			e.directTotal.Add(1)
+			result.Path = "kafka_fallback"
+			if err == nil {
+				e.kafkaTotal.Add(1)
+				metrics.PushTotal.WithLabelValues("kafka", "partial_success").Inc()
+			} else {
+				result.ErrorCode = "kafka_fallback_failed"
+				result.ErrorMessage = err.Error()
+				metrics.PushTotal.WithLabelValues("kafka", "failed").Inc()
+			}
+			return result, err
+		}
+		metrics.PushTotal.WithLabelValues("direct", "failed").Inc()
+	}
+
+	err := e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, sessions)
+	if err == nil {
+		e.kafkaTotal.Add(1)
+		metrics.PushTotal.WithLabelValues("kafka", "success").Inc()
+		metrics.PushLatency.WithLabelValues("kafka").Observe(time.Since(start).Seconds())
+		if online {
+			result.Path = "kafka_fallback"
+		} else {
+			result.Path = "offline_stored"
+		}
+		return result, nil
+	}
+	metrics.PushTotal.WithLabelValues("kafka", "failed").Inc()
+	result.ErrorCode = "reliable_enqueue_failed"
+	result.ErrorMessage = err.Error()
+	return result, err
+}
+
 // ============================================================================
 // reliableEnqueue —— 可靠通道：离线队列 + Kafka 投递
 // ============================================================================

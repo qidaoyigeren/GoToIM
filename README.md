@@ -219,6 +219,10 @@ The Order Notification Platform now uses a durable outbox pipeline for reliable 
 
 - Order create, order status change, logistics update, and targeted flash-sale APIs persist business data, notification data, outbox data, and idempotency snapshots transactionally.
 - A background outbox worker claims pending/failed rows, calls Logic with bounded retries and exponential backoff, records delivery attempts, and moves terminal failures into `notification_dlq`.
+- Logic returns structured `delivery_results` for `/goim/push/mids`; Notify stores the real path (`grpc_direct`, `kafka_fallback`, `offline_stored`, or `failed`), target node, error code/message, latency, and attempt number.
+- PushClient has a lightweight circuit breaker, and ACK policy handling covers `none`, `best_effort`, `any_device`, `all_devices`, and `primary_device`.
+- Targeted flash-sale campaigns use per-user notification/outbox rows, so each target can move through retry, sent, ACK, failed, and DLQ independently.
+- Broadcast flash-sale campaigns (`targetUIDs == []`) use one room-level reliable outbox row for `room:flash_sale_all`. This is reliable room broadcast tracking, not per-user delivery or per-user ACK tracking; future per-user broadcast ACK requires capturing an online/subscribed audience snapshot first.
 - DLQ operations are available at `GET /api/dlq`, `GET /api/dlq/:id`, `POST /api/dlq/:id/replay`, and `POST /api/dlq/:id/resolve`.
 - Scenario runs are available at `POST /api/scenarios`, `GET /api/scenarios/:id`, `POST /api/scenarios/:id/stop`, and `GET /api/scenarios/:id/events`; legacy `/api/simulate/*` endpoints remain compatible.
 - `/api/platform/stats` still returns the legacy dashboard fields and now also includes `delivery_path_detail`, retry/outbox/DLQ counts, notification type counts, and ACK policy satisfaction rate. `logic_push` is reported separately and is not counted as Kafka fallback.
@@ -299,7 +303,7 @@ goim/
 | Job | `cmd/job/job-example.toml` |
 | Notify | `cmd/notify-server/notify-example.toml` |
 
-Notify Server supports MySQL for the business data store. `cmd/notify-server/notify-example.toml` is configured for MySQL:
+Notify Server uses MySQL as the persistence backend. `cmd/notify-server/notify-example.toml` is configured for MySQL:
 
 ```toml
 [storage]
@@ -307,10 +311,17 @@ driver = "mysql"
 dsn = "goim:goim@tcp(127.0.0.1:3306)/goim_notify?charset=utf8mb4&parseTime=true&loc=Local"
 ```
 
-Create the `goim_notify` database before starting Notify Server. The schema is initialized on startup and persists orders, status events, notifications, delivery attempts, ACK receipts, and idempotency keys. SQLite remains supported for local no-dependency tests by setting `driver = "sqlite"` and `dsn = "target/notify.db"`.
+Create the `goim_notify` database before starting Notify Server. The schema is initialized on startup and persists orders, status events, notifications, delivery attempts, ACK receipts, and idempotency keys.
 
 ```sql
 CREATE DATABASE goim_notify CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+Tests require a running MySQL instance. Enable them with:
+
+```bash
+GOIM_NOTIFY_MYSQL_DSN='goim:goim@tcp(127.0.0.1:3306)/goim_notify?charset=utf8mb4&parseTime=true&loc=Local' \
+  go test ./internal/notify/...
 ```
 
 ## 业务场景

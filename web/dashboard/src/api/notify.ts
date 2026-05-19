@@ -1,7 +1,7 @@
 import { isDemoMode } from '@/config'
 import { notifyClient } from './client'
 import type { Order, OrderStatus } from '@/types/order'
-import type { Notification } from '@/types/notification'
+import type { Notification, NotificationAttempt } from '@/types/notification'
 import type { PlatformStats, SimulationState } from '@/types/message'
 import type { ApiResponse } from '@/types/api'
 
@@ -137,4 +137,14 @@ export async function sendLogisticsUpdate(
     method: 'POST',
     body: { order_id: orderId, location, description },
   })
+}
+
+export async function getNotificationAttempts(notifyId: string): Promise<NotificationAttempt[]> {
+  if (isDemoMode()) {
+    return []
+  }
+  const res = await notifyClient.request<NotifyResponse<NotificationAttempt[]>>(
+    `/notifications/${notifyId}/attempts`
+  )
+  return res.data
 }

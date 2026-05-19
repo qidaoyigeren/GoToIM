@@ -32,12 +32,28 @@ type AckInput struct {
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
+// DeviceResolver provides the notification-time target device snapshot used by ACK policies.
+type DeviceResolver interface {
+	ResolveDevices(userID string) (targetDeviceIDs []string, primaryDeviceID string, err error)
+}
+
+// NoopDeviceResolver keeps legacy behavior when no device source is configured.
+type NoopDeviceResolver struct{}
+
+// ResolveDevices returns no device snapshot for legacy deployments.
+func (NoopDeviceResolver) ResolveDevices(string) ([]string, string, error) {
+	return nil, "", nil
+}
+
 // OrderNotifyService handles order status change notifications.
 type OrderNotifyService struct {
-	mu         sync.Mutex
-	pushClient *PushClient
-	stats      *StatsCollector
-	store      *store.SQLStore
+	mu                  sync.Mutex
+	pushClient          *PushClient
+	stats               *StatsCollector
+	store               *store.SQLStore
+	deviceResolver      DeviceResolver
+	scenarioMu          sync.RWMutex
+	activeScenarioRunID string
 }
 
 // StatsCollector tracks realtime and legacy aggregate platform metrics.
@@ -48,6 +64,7 @@ type StatsCollector struct {
 	TotalAcked     int64
 	AckRate        float64
 	LatencyP50Ms   float64
+	LatencyP95Ms   float64
 	LatencyP99Ms   float64
 	LatencyMaxMs   float64
 	GrpcDirect     int64
@@ -60,9 +77,9 @@ type StatsCollector struct {
 	latencies      []float64            // recent latencies for percentile calc
 }
 
-// NewOrderNotifyService creates a new OrderNotifyService with an in-memory SQLite store.
+// NewOrderNotifyService creates a new OrderNotifyService with the default MySQL store.
 func NewOrderNotifyService(pushClient *PushClient) *OrderNotifyService {
-	st, err := store.OpenSQLite(":memory:")
+	st, err := store.Open("")
 	if err != nil {
 		panic(err)
 	}
@@ -72,9 +89,10 @@ func NewOrderNotifyService(pushClient *PushClient) *OrderNotifyService {
 // NewOrderNotifyServiceWithStore creates a service backed by the provided store.
 func NewOrderNotifyServiceWithStore(pushClient *PushClient, st *store.SQLStore) *OrderNotifyService {
 	return &OrderNotifyService{
-		pushClient: pushClient,
-		stats:      newStatsCollector(),
-		store:      st,
+		pushClient:     pushClient,
+		stats:          newStatsCollector(),
+		store:          st,
+		deviceResolver: NoopDeviceResolver{},
 	}
 }
 
@@ -86,6 +104,14 @@ func (s *OrderNotifyService) Close() error {
 // Store exposes the backing store for focused tests.
 func (s *OrderNotifyService) Store() *store.SQLStore {
 	return s.store
+}
+
+// SetDeviceResolver installs a target device source for primary/all-device ACK policies.
+func (s *OrderNotifyService) SetDeviceResolver(resolver DeviceResolver) {
+	if resolver == nil {
+		resolver = NoopDeviceResolver{}
+	}
+	s.deviceResolver = resolver
 }
 
 // CreateOrder creates a new order and sends a notification.
@@ -130,6 +156,7 @@ func (s *OrderNotifyService) CreateOrderIdempotent(userID string, items []model.
 	if err := s.store.CreateOrderNotificationOutbox(order, notif, outbox, "order_create", idempotencyKey, "order", order.OrderID, snapshot); err != nil {
 		return nil, nil, fmt.Errorf("create order transaction: %w", err)
 	}
+	s.incrementScenarioRun(notif.ScenarioRunID, 1, 1, 0, 0, 0, 0)
 	return order, notif, nil
 }
 
@@ -188,6 +215,7 @@ func (s *OrderNotifyService) ChangeOrderStatusIdempotent(orderID string, newStat
 	if err := s.store.ChangeOrderNotificationOutbox(order, event, notif, outbox, "order_status_change", idempotencyKey, "order_status_event", event.EventID, snapshot); err != nil {
 		return nil, nil, err
 	}
+	s.incrementScenarioRun(notif.ScenarioRunID, 0, 1, 0, 0, 0, 0)
 	return order, notif, nil
 }
 
@@ -258,6 +286,7 @@ func (s *OrderNotifyService) GetStats() model.PlatformStats {
 		TotalPushed:    s.stats.TotalPushed,
 		AckRate:        s.stats.AckRate,
 		LatencyP50Ms:   s.stats.LatencyP50Ms,
+		LatencyP95Ms:   s.stats.LatencyP95Ms,
 		LatencyP99Ms:   s.stats.LatencyP99Ms,
 		LatencyMaxMs:   s.stats.LatencyMaxMs,
 		ActiveConns:    s.stats.ActiveConns,
@@ -284,6 +313,7 @@ func (s *OrderNotifyService) CreateScenarioRun(mode string, qps, users int) (*mo
 	if err := s.store.CreateScenarioRun(run); err != nil {
 		return nil, err
 	}
+	s.SetActiveScenarioRun(run.RunID)
 	_ = s.store.InsertScenarioEvent(&model.ScenarioEvent{
 		EventID:     generateEventID(),
 		RunID:       run.RunID,
@@ -305,6 +335,7 @@ func (s *OrderNotifyService) StopScenarioRun(runID string) error {
 	if err := s.store.FinishScenarioRun(runID, "stopped", "", now); err != nil {
 		return err
 	}
+	s.SetActiveScenarioRun("")
 	return s.store.InsertScenarioEvent(&model.ScenarioEvent{
 		EventID:     generateEventID(),
 		RunID:       runID,
@@ -340,7 +371,7 @@ func (s *OrderNotifyService) createNotification(userID string, nType model.Notif
 	title, content := statusNotification(string(status), orderID, extra)
 	now := time.Now()
 	p := policy.Resolve("order", string(status))
-	return &model.Notification{
+	notif := &model.Notification{
 		NotifyID:          generateNotifyID(),
 		UserID:            userID,
 		Type:              nType,
@@ -358,7 +389,10 @@ func (s *OrderNotifyService) createNotification(userID string, nType model.Notif
 		ExpectedAckCount:  p.ExpectedAckCount,
 		BusinessAckStatus: "pending",
 		IdempotencyKey:    idempotencyKey,
+		ScenarioRunID:     s.currentScenarioRunID(),
 	}
+	s.applyDeviceTargets(notif)
+	return notif
 }
 
 func (s *OrderNotifyService) createOutbox(notif *model.Notification) (*model.NotificationOutbox, error) {
@@ -372,18 +406,19 @@ func (s *OrderNotifyService) createOutbox(notif *model.Notification) (*model.Not
 		now = time.Now()
 	}
 	return &model.NotificationOutbox{
-		OutboxID:     generateOutboxID(),
-		NotifyID:     notif.NotifyID,
-		UserID:       notif.UserID,
-		OrderID:      notif.OrderID,
-		BusinessType: notif.BusinessType,
-		EventType:    notif.EventType,
-		PayloadJSON:  string(body),
-		Priority:     notif.Priority,
-		TTLSeconds:   notif.TTLSeconds,
-		Status:       "pending",
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		OutboxID:      generateOutboxID(),
+		NotifyID:      notif.NotifyID,
+		UserID:        notif.UserID,
+		OrderID:       notif.OrderID,
+		BusinessType:  notif.BusinessType,
+		EventType:     notif.EventType,
+		PayloadJSON:   string(body),
+		Priority:      notif.Priority,
+		TTLSeconds:    notif.TTLSeconds,
+		Status:        "pending",
+		ScenarioRunID: notif.ScenarioRunID,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}, nil
 }
 
@@ -474,7 +509,9 @@ func (s *OrderNotifyService) SendCustomNotificationIdempotent(userID string, nTy
 		ExpectedAckCount:  p.ExpectedAckCount,
 		BusinessAckStatus: "pending",
 		IdempotencyKey:    idempotencyKey,
+		ScenarioRunID:     s.currentScenarioRunID(),
 	}
+	s.applyDeviceTargets(notif)
 	outbox, err := s.createOutbox(notif)
 	if err != nil {
 		return nil, err
@@ -486,11 +523,21 @@ func (s *OrderNotifyService) SendCustomNotificationIdempotent(userID string, nTy
 	if err := s.store.CreateNotificationOutbox(notif, outbox, "logistics_update", idempotencyKey, "notification", notif.NotifyID, snapshot); err != nil {
 		return nil, err
 	}
+	s.incrementScenarioRun(notif.ScenarioRunID, 0, 1, 0, 0, 0, 0)
 	return notif, nil
 }
 
 // CreateFlashSaleNotification persists a targeted flash-sale notification and outbox row.
 func (s *OrderNotifyService) CreateFlashSaleNotification(userID, campaignID, title, content string) (*model.Notification, error) {
+	return s.createFlashSaleNotificationForTarget(userID, campaignID, title, content)
+}
+
+// CreateFlashSaleBroadcastNotification persists a campaign-level broadcast outbox item.
+func (s *OrderNotifyService) CreateFlashSaleBroadcastNotification(campaignID, title, content string) (*model.Notification, error) {
+	return s.createFlashSaleNotificationForTarget("room:flash_sale_all", campaignID, title, content)
+}
+
+func (s *OrderNotifyService) createFlashSaleNotificationForTarget(userID, campaignID, title, content string) (*model.Notification, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -513,7 +560,9 @@ func (s *OrderNotifyService) CreateFlashSaleNotification(userID, campaignID, tit
 		AckPolicy:         p.AckPolicy,
 		ExpectedAckCount:  p.ExpectedAckCount,
 		BusinessAckStatus: "pending",
+		ScenarioRunID:     s.currentScenarioRunID(),
 	}
+	s.applyDeviceTargets(notif)
 	outbox, err := s.createOutbox(notif)
 	if err != nil {
 		return nil, err
@@ -521,6 +570,7 @@ func (s *OrderNotifyService) CreateFlashSaleNotification(userID, campaignID, tit
 	if err := s.store.CreateNotificationOutbox(notif, outbox, "", "", "notification", notif.NotifyID, nil); err != nil {
 		return nil, err
 	}
+	s.incrementScenarioRun(notif.ScenarioRunID, 0, 1, 0, 0, 0, 0)
 	return notif, nil
 }
 
@@ -587,8 +637,46 @@ func (s *OrderNotifyService) RecordAckIdempotent(input AckInput, idempotencyKey 
 
 	if recorded {
 		s.recordAckStats(input.NotifyID, baseTime)
+		s.incrementScenarioRun(notif.ScenarioRunID, 0, 0, 0, 1, 0, 0)
 	}
 	return recorded, nil
+}
+
+func (s *OrderNotifyService) applyDeviceTargets(notif *model.Notification) {
+	if notif == nil || s.deviceResolver == nil {
+		return
+	}
+	targets, primary, err := s.deviceResolver.ResolveDevices(notif.UserID)
+	if err != nil {
+		return
+	}
+	notif.TargetDeviceIDs = targets
+	notif.PrimaryDeviceID = primary
+	if notif.AckPolicy == "all_devices" && notif.ExpectedAckCount == 0 && len(targets) > 0 {
+		notif.ExpectedAckCount = int64(len(targets))
+	}
+}
+
+func (s *OrderNotifyService) SetActiveScenarioRun(runID string) {
+	s.scenarioMu.Lock()
+	defer s.scenarioMu.Unlock()
+	s.activeScenarioRunID = runID
+}
+
+func (s *OrderNotifyService) incrementScenario(generatedOrders, generatedNotifications, sent, acked, failed, dlq int64) {
+	s.incrementScenarioRun(s.currentScenarioRunID(), generatedOrders, generatedNotifications, sent, acked, failed, dlq)
+}
+
+func (s *OrderNotifyService) currentScenarioRunID() string {
+	s.scenarioMu.RLock()
+	defer s.scenarioMu.RUnlock()
+	return s.activeScenarioRunID
+}
+
+func (s *OrderNotifyService) incrementScenarioRun(runID string, generatedOrders, generatedNotifications, sent, acked, failed, dlq int64) {
+	if runID != "" {
+		_ = s.store.IncrementScenarioRunCounters(runID, generatedOrders, generatedNotifications, sent, acked, failed, dlq)
+	}
 }
 
 func (s *OrderNotifyService) recordAckStats(notifyID string, pushTime time.Time) {
@@ -625,6 +713,7 @@ func (s *OrderNotifyService) recordAckStats(notifyID string, pushTime time.Time)
 	n := len(samples)
 	if n > 0 {
 		s.stats.LatencyP50Ms = samples[n*50/100]
+		s.stats.LatencyP95Ms = samples[n*95/100]
 		s.stats.LatencyP99Ms = samples[n*99/100]
 		s.stats.LatencyMaxMs = samples[n-1]
 	}

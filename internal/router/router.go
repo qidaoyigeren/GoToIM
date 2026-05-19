@@ -49,6 +49,17 @@ type DeliveryStats struct {
 	Kafka  int64
 }
 
+// DeliveryResult explains the concrete path selected for one push request.
+type DeliveryResult struct {
+	MsgID        string  `json:"msg_id"`
+	Path         string  `json:"path"`
+	TargetNode   string  `json:"target_node,omitempty"`
+	ErrorCode    string  `json:"error_code,omitempty"`
+	ErrorMessage string  `json:"error_message,omitempty"`
+	LatencyMs    float64 `json:"latency_ms"`
+	AttemptNo    int64   `json:"attempt_no"`
+}
+
 // NewDispatchEngine creates a new DispatchEngine.
 func NewDispatchEngine(pd dao.PushDAO, md dao.MessageDAO, sm *service.SessionManager, p CometPusher) *DispatchEngine {
 	e := &DispatchEngine{

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
+	"os"
 	"testing"
 
 	"github.com/Terry-Mao/goim/internal/notify/model"
@@ -14,10 +14,14 @@ import (
 )
 
 func TestHandleOrderStatusChangeInvalidTransitionReturnsConflict(t *testing.T) {
+	dsn := os.Getenv("GOIM_NOTIFY_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("GOIM_NOTIFY_MYSQL_DSN not set, skipping MySQL test")
+	}
 	gin.SetMode(gin.TestMode)
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "notify.db"))
+	st, err := store.Open(dsn)
 	if err != nil {
-		t.Fatalf("open sqlite store: %v", err)
+		t.Fatalf("open mysql store: %v", err)
 	}
 	svc := service.NewOrderNotifyServiceWithStore(nil, st)
 	t.Cleanup(func() { _ = svc.Close() })

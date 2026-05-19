@@ -1,0 +1,58 @@
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant Comet as Comet<br/>(TCP/WS)
+    participant Logic as Logic<br/>(gRPC)
+    participant Redis as Redis
+
+    Note over C,Redis: ═══ Phase 1: 节点发现 ═══
+
+    C->>Logic: GET /goim/nodes/weighted
+    Logic-->>C: {WsPort, Heartbeat, Nodes[]}
+
+    Note over C,Redis: ═══ Phase 2: 建连 & 认证 ═══
+
+    C->>Comet: WS /sub → Upgrade
+    Comet-->>C: 101 Switching Protocols
+
+    C->>Comet: OpAuth {mid, key, room_id, platform, device_id, accepts, last_seq}
+    Comet->>Logic: gRPC Connect(server, cookie, token)
+    Logic->>Logic: JSON parse → Session {mid, key, deviceID}
+
+    Logic->>Redis: GET device_session:{uid}:{device_id}
+    Redis-->>Logic: old SID / nil
+    alt 同设备旧会话存在
+        Logic-->>Comet: gRPC Kick(旧连接)
+    end
+
+    Logic->>Redis: Pipeline: HSET session / HSET user_sessions / SET device_session / SET key_sid
+    Logic->>Logic: async OnUserOnline(mid, lastSeq) 离线同步
+
+    Logic-->>Comet: ConnectReply(mid, key, room_id, accepts, heartbeat)
+    Comet-->>C: OpAuthReply
+
+    Note over C,Redis: ═══ Phase 3: 注册 ═══
+
+    Comet->>Comet: Bucket.Put(roomID, ch) — cityhash 分片
+    Comet->>Comet: go dispatch() — 写协程
+
+    Note over C,Redis: ═══ Phase 4: 心跳 & 消息循环 ═══
+
+    loop 心跳
+        C->>Comet: OpHeartbeat
+        Comet-->>C: OpHeartbeatReply
+        Note over Comet,Logic: 每 N 次心跳调用一次
+        Comet->>Logic: gRPC Heartbeat(mid, key)
+        Logic->>Redis: EXPIRE session:{sid}
+    end
+
+    opt 消息 ACK
+        C->>Comet: OpPushMsgAck
+        Comet->>Logic: gRPC Receive(mid, proto)
+    end
+
+    Note over C,Redis: ═══ Phase 5: 断连 ═══
+
+    Comet->>Comet: Bucket.Del(ch) → conn.Close() → ch.Close()
+    Comet->>Logic: gRPC Disconnect(mid, key)
+    Logic->>Redis: Pipeline: DEL session / DEL device_session / DEL key_sid
