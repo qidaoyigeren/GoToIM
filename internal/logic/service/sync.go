@@ -51,24 +51,36 @@ func NewSyncService(d dao.MessageDAO, sessMgr *SessionManager, pusher DirectPush
 }
 
 // OnUserOnline 用户上线时的回调，负责检测并推送离线期间遗漏的消息。
+// 向后兼容：使用 legacy cursor（fallback to lastSeq）。
 //
 // 参数：
 //   - uid: 上线用户的 ID
-//   - lastSeq: 用户客户端上报的最后一条消息序号（seq），表示客户端当前已接收到的位置。
-//     seq 是递增的消息序列号，用于标记消息在用户维度下的顺序，seq > lastSeq 的就是缺失消息。
-//
-// 执行流程：
-//  1. 从 Redis 离线队列查询 lastSeq 之后的消息 ID 列表（最多 100 条）
-//  2. 如果没有离线消息，直接返回
-//  3. 查询用户当前所有在线设备的会话
-//  4. 逐条取出消息内容，跳过已 ACK（已确认）的消息
-//  5. 为每条消息重新构建协议体并通过 gRPC 推送到所有在线设备
-//
-// 注意：
-//   - 已 ACK 的消息不会重复推送，但会从离线队列中移除
-//   - 消息 body 在 Redis 中以 base64 编码存储，取出时需要解码
-//   - 如果用户没有任何在线设备，消息不会丢失——它们仍保留在离线队列中，下次上线再推送
+//   - lastSeq: 用户客户端上报的最后一条消息序号
 func (s *SyncService) OnUserOnline(ctx context.Context, uid int64, lastSeq int64) error {
+	return s.OnUserOnlineWithDevice(ctx, uid, "", lastSeq)
+}
+
+// OnUserOnlineWithDevice 支持设备级 cursor 的上线同步（Phase 2）。
+// deviceID 为空时 fallback 到 legacy cursor。
+func (s *SyncService) OnUserOnlineWithDevice(ctx context.Context, uid int64, deviceID string, lastSeq int64) error {
+	cursorSeq, _ := s.dao.GetDeviceCursor(ctx, uid, deviceID)
+	if cursorSeq > lastSeq {
+		lastSeq = cursorSeq
+	}
+	return s.syncOffline(ctx, uid, deviceID, lastSeq)
+}
+
+// GetOfflineMessagesByDevice 按设备 cursor 拉取离线消息（Phase 2）。
+func (s *SyncService) GetOfflineMessagesByDevice(ctx context.Context, uid int64, deviceID string, limit int32) (*protocol.SyncReplyBody, error) {
+	msgIDs, err := s.dao.GetOfflineMessagesByDeviceCursor(ctx, uid, deviceID, int(limit))
+	if err != nil {
+		return nil, err
+	}
+	return s.buildSyncReply(ctx, uid, deviceID, msgIDs, int32(len(msgIDs)))
+}
+
+// syncOffline 实际执行离线同步逻辑（Phase 2 从 OnUserOnline 提取）。
+func (s *SyncService) syncOffline(ctx context.Context, uid int64, deviceID string, lastSeq int64) error {
 	// 第一步：从 Redis 离线队列获取 lastSeq 之后的消息 ID 列表
 	// float64(lastSeq) 是 Redis ZSet 的 score，用于范围查询
 	// 100 是单次拉取上限
@@ -161,7 +173,51 @@ func (s *SyncService) OnUserOnline(ctx context.Context, uid int64, lastSeq int64
 		}
 	}
 
+	// Phase 2: advance device cursor after successful sync
+	if deviceID != "" && seq > lastSeq {
+		_ = s.dao.AdvanceDeviceCursor(ctx, uid, deviceID, seq)
+	}
+
 	return nil
+}
+
+// buildSyncReply constructs a sync reply from message IDs (Phase 2 helper).
+func (s *SyncService) buildSyncReply(ctx context.Context, uid int64, deviceID string, msgIDs []string, limit int32) (*protocol.SyncReplyBody, error) {
+	lastSeq, _ := s.dao.GetDeviceCursor(ctx, uid, deviceID)
+	reply := &protocol.SyncReplyBody{
+		CurrentSeq: lastSeq,
+		HasMore:    len(msgIDs) >= int(limit),
+	}
+	seq := lastSeq
+	for _, msgID := range msgIDs {
+		msgData, err := s.dao.GetMessageStatus(ctx, msgID)
+		if err != nil || len(msgData) == 0 {
+			continue
+		}
+		if msgData["status"] == MsgStatusAcked {
+			s.dao.RemoveFromOfflineQueue(ctx, uid, msgID)
+			continue
+		}
+		seq++
+		mb := &protocol.MsgBody{MsgID: msgID, Seq: seq}
+		if v, ok := msgData["from_uid"]; ok {
+			fmt.Sscanf(v, "%d", &mb.FromUID)
+		}
+		if v, ok := msgData["to_uid"]; ok {
+			fmt.Sscanf(v, "%d", &mb.ToUID)
+		}
+		if v, ok := msgData["created_at"]; ok {
+			fmt.Sscanf(v, "%d", &mb.Timestamp)
+		}
+		if v, ok := msgData["body"]; ok && v != "" {
+			if decoded, err := base64.StdEncoding.DecodeString(v); err == nil {
+				mb.Content = decoded
+			}
+		}
+		reply.Messages = append(reply.Messages, mb)
+		reply.CurrentSeq = seq
+	}
+	return reply, nil
 }
 
 // GetOfflineMessages 主动拉取离线消息列表，返回指定范围的离线消息详情。

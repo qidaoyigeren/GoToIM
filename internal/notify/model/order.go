@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // OrderStatus represents the state of an e-commerce order.
 type OrderStatus string
@@ -55,12 +58,33 @@ var orderTransitions = map[OrderStatus][]OrderStatus{
 	OrderDeliveryFailed: {},
 }
 
+// TransitionError describes why an order status transition is invalid.
+type TransitionError struct {
+	From      OrderStatus   `json:"from"`
+	To        OrderStatus   `json:"to"`
+	Allowed   []OrderStatus `json:"allowed"`
+	Reason    string        `json:"reason"`
+	Timestamp time.Time     `json:"timestamp"`
+}
+
+func (e *TransitionError) Error() string {
+	return fmt.Sprintf("invalid transition from %s to %s: allowed %v", e.From, e.To, e.Allowed)
+}
+
 // ValidTransition checks if a status transition is valid.
-func ValidTransition(from, to OrderStatus) bool {
-	for _, valid := range orderTransitions[from] {
+// Returns nil if valid, or a TransitionError if invalid.
+func ValidTransition(from, to OrderStatus) error {
+	allowed := orderTransitions[from]
+	for _, valid := range allowed {
 		if valid == to {
-			return true
+			return nil
 		}
 	}
-	return false
+	return &TransitionError{
+		From:      from,
+		To:        to,
+		Allowed:   allowed,
+		Reason:    fmt.Sprintf("status %s cannot transition to %s", from, to),
+		Timestamp: time.Now(),
+	}
 }

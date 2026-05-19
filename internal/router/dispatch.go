@@ -14,11 +14,15 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
+	"github.com/Terry-Mao/goim/api/protocol"
 	"github.com/Terry-Mao/goim/internal/logic/service"
 	"github.com/Terry-Mao/goim/internal/mq"
+	"github.com/Terry-Mao/goim/internal/tracectx"
 	log "github.com/Terry-Mao/goim/pkg/log"
 	"github.com/Terry-Mao/goim/pkg/metrics"
 )
@@ -98,6 +102,9 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 		}
 	}
 
+	// ── 步骤 0.5：记录 accepted 状态（Phase 2 状态机）
+	e.recordState(ctx, msgID, "", "accepted", "message accepted", "")
+
 	// ── 步骤 1：消息去重（幂等性保证） ──────────────────────────────────
 	// 利用 Redis HSETNX 命令的原子性来做"抢占式注册"：
 	//   - HSETNX 返回 1 → 当前进程抢到了这条消息的处理权，继续投递
@@ -107,6 +114,17 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 	if err := e.ackHandler.TrackMessage(ctx, msgID, 0, toUID, op, body); err != nil {
 		log.V(1).Infof("msg already tracked: msg_id=%s err=%v", msgID, err)
 		return nil
+	}
+
+	// ── 步骤 1.2：记录 routed 状态（Phase 2 状态机）
+	e.recordState(ctx, msgID, "accepted", "routed", "dispatch started", "")
+
+	// ── 步骤 1.5：限流检查 ──────────────────────────────────────────────
+	if e.limiter != nil {
+		if !e.limiter.AllowUser(toUID, 100, 200) { // rate=100/s, burst=200
+			metrics.RateLimitedTotal.Inc()
+			return fmt.Errorf("rate limited: uid=%d", toUID)
+		}
 	}
 
 	// 记录开始时间，用于后续耗时统计（Prometheus metrics）
@@ -133,6 +151,9 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 			e.directTotal.Add(1)
 			metrics.PushTotal.WithLabelValues("direct", "success").Inc()
 			metrics.PushLatency.WithLabelValues("direct").Observe(time.Since(start).Seconds())
+			// 记录 grpc_direct 成功 attempt
+			e.recordAttempt(ctx, msgID, "grpc_direct", "success", time.Since(start).Milliseconds(), "", firstServer(sessions))
+			e.recordState(ctx, msgID, "routed", "direct_sent", "all sessions pushed", "")
 			return nil
 		}
 		if pushErr == nil && len(failedSessions) > 0 {
@@ -143,6 +164,8 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 			if err := e.ackHandler.MarkDelivered(ctx, msgID); err != nil {
 				log.Warningf("mark delivered failed: %v", err)
 			}
+			e.recordAttempt(ctx, msgID, "grpc_direct", "success", time.Since(start).Milliseconds(), "partial", firstServer(sessions))
+			e.recordState(ctx, msgID, "routed", "direct_sent", "partial success", "")
 			err := e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, failedSessions)
 			e.directTotal.Add(1)
 			if err == nil {
@@ -151,11 +174,14 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 			} else {
 				metrics.PushTotal.WithLabelValues("kafka", "failed").Inc()
 			}
+			e.recordAttempt(ctx, msgID, "kafka_fallback", statusFromErr(err), time.Since(start).Milliseconds(), errStr(err), "")
 			return err
 		}
 		// 全部失败 → 全量降级到可靠通道
 		metrics.PushTotal.WithLabelValues("direct", "failed").Inc()
 		log.Warningf("direct push failed, falling back to reliable path: uid=%d msg_id=%s", toUID, msgID)
+		e.recordAttempt(ctx, msgID, "grpc_direct", "failed", time.Since(start).Milliseconds(), pushErr.Error(), firstServer(sessions))
+		e.recordState(ctx, msgID, "routed", "direct_failed", pushErr.Error(), "")
 	}
 
 	// ── 步骤 4：离线 或 直连全部失败 → 走可靠通道（slow path） ──────────
@@ -163,6 +189,16 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 	//   1. 将消息写入离线队列（Redis ZSet），供用户下次上线时拉取
 	//   2. 将消息投递到 Kafka（producer），由 DeliveryWorker（internal/worker/dispatch.go）消费后推送给 Comet
 	err := e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, sessions)
+	channel := "kafka_fallback"
+	if !online {
+		channel = "offline_stored"
+	}
+	e.recordAttempt(ctx, msgID, channel, statusFromErr(err), time.Since(start).Milliseconds(), errStr(err), "")
+	if channel == "offline_stored" {
+		e.recordState(ctx, msgID, "routed", "offline_stored", "user offline", "")
+	} else {
+		e.recordState(ctx, msgID, "direct_failed", "fallback_queued", "kafka fallback", "")
+	}
 	if err == nil {
 		e.kafkaTotal.Add(1)
 		metrics.PushTotal.WithLabelValues("kafka", "success").Inc()
@@ -327,10 +363,12 @@ func directPush(ctx context.Context, pusher CometPusher, sessions []*service.Ses
 // RouteByUserResult mirrors RouteByUser and returns a structured path result for business outbox auditing.
 func (e *DispatchEngine) RouteByUserResult(ctx context.Context, msgID string, toUID int64, op int32, body []byte, seq int64) (DeliveryResult, error) {
 	start := time.Now()
+	traceID := traceIDFromBodyOrContext(ctx, body)
 	result := DeliveryResult{
 		MsgID:     msgID,
 		Path:      "failed",
 		AttemptNo: 1,
+		TraceID:   traceID,
 	}
 	defer func() {
 		result.LatencyMs = float64(time.Since(start).Microseconds()) / 1000.0
@@ -342,6 +380,7 @@ func (e *DispatchEngine) RouteByUserResult(ctx context.Context, msgID string, to
 			result.MsgID = id
 		}
 	}
+	ctx = tracectx.WithTraceID(ctx, traceID)
 	if err := e.ackHandler.TrackMessage(ctx, msgID, 0, toUID, op, body); err != nil {
 		log.V(1).Infof("msg already tracked: msg_id=%s err=%v", msgID, err)
 		result.Path = "grpc_direct"
@@ -434,6 +473,9 @@ func (e *DispatchEngine) RouteByUserResult(ctx context.Context, msgID string, to
 //	seq      - 消息序号
 //	sessions - 用户活跃会话列表（可能为空）
 func (e *DispatchEngine) reliableEnqueue(ctx context.Context, msgID string, toUID int64, op int32, body []byte, seq int64, sessions []*service.Session) error {
+	// Phase 2: 从 body 解析 BizEnvelope，提取 priority/TTL/trace 等 header
+	env := parseBizEnvelope(body, msgID)
+
 	// ── 步骤 1：写入离线队列（Redis ZSet） ──────────────────────────────
 	// 即使用户在线，也写入离线队列作为"最后防线"。
 	// ZSet 的 score 为 seq，value 为 msgID，方便客户端按序拉取。
@@ -465,7 +507,11 @@ func (e *DispatchEngine) reliableEnqueue(ctx context.Context, msgID string, toUI
 		// 序列化为 pb.PushMsg（type=pbPush），分区键为 uidKey，保证同用户消息有序
 		pushMsg := pushMsgBytes(pbPush, op, server, keys, "", body, 0)
 		uidKey := fmt.Sprintf("%d", toUID)
-		return e.producer.EnqueueToUser(ctx, toUID, &mq.Message{Key: uidKey, Value: pushMsg})
+		return e.producer.EnqueueToUser(ctx, toUID, &mq.Message{
+			Key:     uidKey,
+			Value:   pushMsg,
+			Headers: buildMQHeaders(env),
+		})
 	}
 	// 降级路径：无 Kafka 时直接调用 DAO 推送
 	return e.dao.PushMsg(ctx, op, server, keys, body)
@@ -479,6 +525,125 @@ func (e *DispatchEngine) reliableEnqueue(ctx context.Context, msgID string, toUI
 //	pbPush      (0) → 单用户推送
 //	pbRoom      (1) → 群组/房间推送
 //	pbBroadcast (2) → 全服广播
+//
+// recordAttempt is a thin wrapper that logs a delivery attempt without affecting the main flow.
+func (e *DispatchEngine) recordAttempt(ctx context.Context, msgID, channel, status string, latencyMs int64, errStr, server string) {
+	if e.attemptRec != nil {
+		e.attemptRec.Record(ctx, msgID, channel, status, latencyMs, errStr, server)
+	}
+}
+
+func firstServer(sessions []*service.Session) string {
+	for _, s := range sessions {
+		if s != nil && s.Server != "" {
+			return s.Server
+		}
+	}
+	return ""
+}
+
+func statusFromErr(err error) string {
+	if err == nil {
+		return "success"
+	}
+	return "failed"
+}
+
+func errStr(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// parseBizEnvelope attempts to unmarshal a BizEnvelope from the message body.
+// Falls back to an empty envelope if the body is not a valid BizEnvelope (old format).
+func parseBizEnvelope(body []byte, msgID string) *mq.BizEnvelope {
+	env := &mq.BizEnvelope{MsgID: msgID}
+	if len(body) == 0 {
+		return env
+	}
+	// Try JSON BizEnvelope; on failure treat body as raw payload
+	var parsed mq.BizEnvelope
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		if mb, mbErr := protocol.UnmarshalMsgBody(body); mbErr == nil && len(mb.Content) > 0 {
+			return parseBizEnvelope(mb.Content, msgID)
+		}
+		env.Payload = body
+		return env
+	}
+	if parsed.MsgID == "" {
+		parsed.MsgID = msgID
+	}
+	return &parsed
+}
+
+func traceIDFromBodyOrContext(ctx context.Context, body []byte) string {
+	if traceID := tracectx.TraceID(ctx); traceID != "" {
+		return traceID
+	}
+	if env := parseBizEnvelope(body, ""); env != nil && env.TraceID != "" {
+		return env.TraceID
+	}
+	return tracectx.FromJSONPayload(body)
+}
+
+// buildMQHeaders converts a BizEnvelope into Kafka message headers.
+func buildMQHeaders(env *mq.BizEnvelope) map[string]string {
+	if env == nil {
+		return nil
+	}
+	h := make(map[string]string)
+	if env.Priority != "" {
+		h[mq.HeaderPriority] = env.Priority
+	}
+	if env.TTLSeconds > 0 {
+		h[mq.HeaderTTLSeconds] = strconv.Itoa(int(env.TTLSeconds))
+	}
+	if env.TraceID != "" {
+		h[mq.HeaderTraceID] = env.TraceID
+	}
+	if env.BusinessType != "" {
+		h[mq.HeaderBusinessType] = env.BusinessType
+	}
+	if env.EventType != "" {
+		h[mq.HeaderEventType] = env.EventType
+	}
+	if env.DedupeKey != "" {
+		h[mq.HeaderDedupeKey] = env.DedupeKey
+	}
+	if env.BizID != "" {
+		h[mq.HeaderBizID] = env.BizID
+	}
+	if env.CreatedAtMS > 0 {
+		h[mq.HeaderCreatedAtUnixMS] = strconv.FormatInt(env.CreatedAtMS, 10)
+	}
+	return h
+}
+
+// recordState is a thin wrapper that records a state transition without affecting the main flow.
+func (e *DispatchEngine) recordState(ctx context.Context, msgID, from, to, reason, traceID string) {
+	if e.stateRec != nil {
+		e.stateRec.RecordState(ctx, msgID, DeliveryState(from), DeliveryState(to), reason, traceID)
+	}
+}
+
+// GetDeliveryState returns the current delivery state of a message.
+func (e *DispatchEngine) GetDeliveryState(ctx context.Context, msgID string) (DeliveryState, error) {
+	if e.stateRec != nil {
+		return e.stateRec.GetCurrentState(ctx, msgID)
+	}
+	return "", nil
+}
+
+// GetStateTimeline returns the full state transition history of a message.
+func (e *DispatchEngine) GetStateTimeline(ctx context.Context, msgID string) ([]StateTransition, error) {
+	if e.stateRec != nil {
+		return e.stateRec.GetTimeline(ctx, msgID)
+	}
+	return nil, nil
+}
+
 const (
 	pbPush      = 0
 	pbRoom      = 1

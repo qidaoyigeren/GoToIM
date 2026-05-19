@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"encoding/binary"
 	"strings"
 	"testing"
 )
@@ -107,8 +108,9 @@ func TestMarshalMsgBody_MsgIDTooLong(t *testing.T) {
 
 func TestMarshalUnmarshalAckBody(t *testing.T) {
 	ab := &AckBody{
-		MsgID: "ack-001",
-		Seq:   99,
+		MsgID:    "ack-001",
+		Seq:      99,
+		DeviceID: "dev-1",
 	}
 	data, err := MarshalAckBody(ab)
 	if err != nil {
@@ -125,6 +127,56 @@ func TestMarshalUnmarshalAckBody(t *testing.T) {
 	}
 	if got.Seq != ab.Seq {
 		t.Errorf("Seq = %d, want %d", got.Seq, ab.Seq)
+	}
+	if got.DeviceID != ab.DeviceID {
+		t.Errorf("DeviceID = %q, want %q", got.DeviceID, ab.DeviceID)
+	}
+}
+
+func TestMarshalUnmarshalAckBodyWithSession(t *testing.T) {
+	ab := &AckBody{
+		MsgID:     "ack-002",
+		Seq:       100,
+		DeviceID:  "dev-1",
+		SessionID: "sess-abc",
+	}
+	data, err := MarshalAckBody(ab)
+	if err != nil {
+		t.Fatalf("MarshalAckBody: %v", err)
+	}
+
+	got, err := UnmarshalAckBody(data)
+	if err != nil {
+		t.Fatalf("UnmarshalAckBody: %v", err)
+	}
+
+	if got.DeviceID != "dev-1" || got.SessionID != "sess-abc" {
+		t.Errorf("DeviceID=%q SessionID=%q, want dev-1/sess-abc", got.DeviceID, got.SessionID)
+	}
+}
+
+// TestAckBodyBackwardCompatibility verifies that old-format ACK data
+// (msg_id + seq only, no flags byte) still decodes correctly with
+// empty DeviceID and SessionID.
+func TestAckBodyBackwardCompatibility(t *testing.T) {
+	// Manually construct old-format binary (msg_id_len:2 + msg_id + seq:8, no flags byte)
+	msgID := "old-ack"
+	msgIDBytes := []byte(msgID)
+	seq := int64(42)
+	oldData := make([]byte, 2+len(msgIDBytes)+8)
+	binary.BigEndian.PutUint16(oldData[0:2], uint16(len(msgIDBytes)))
+	copy(oldData[2:2+len(msgIDBytes)], msgIDBytes)
+	binary.BigEndian.PutUint64(oldData[2+len(msgIDBytes):], uint64(seq))
+
+	got, err := UnmarshalAckBody(oldData)
+	if err != nil {
+		t.Fatalf("UnmarshalAckBody: %v", err)
+	}
+	if got.MsgID != msgID || got.Seq != seq {
+		t.Errorf("MsgID=%q Seq=%d, want %s/42", got.MsgID, got.Seq, msgID)
+	}
+	if got.DeviceID != "" || got.SessionID != "" {
+		t.Errorf("DeviceID=%q SessionID=%q, want empty for backward compat", got.DeviceID, got.SessionID)
 	}
 }
 

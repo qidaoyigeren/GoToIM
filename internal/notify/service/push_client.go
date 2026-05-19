@@ -12,6 +12,9 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/Terry-Mao/goim/internal/tracectx"
+	"github.com/Terry-Mao/goim/pkg/metrics"
 )
 
 // PushClient calls goim Logic's HTTP push API.
@@ -92,6 +95,7 @@ type DeliveryResult struct {
 	ErrorMessage string  `json:"error_message,omitempty"`
 	LatencyMs    float64 `json:"latency_ms"`
 	AttemptNo    int64   `json:"attempt_no"`
+	TraceID      string  `json:"trace_id,omitempty"`
 }
 
 // CircuitBreaker is a lightweight closed/open/half-open breaker for Logic calls.
@@ -101,11 +105,15 @@ type CircuitBreaker struct {
 	openInterval     time.Duration
 	state            string
 	failures         int
+	openCount        int64
+	blockedRequests  int64
 	openedAt         time.Time
 }
 
 func NewCircuitBreaker(threshold int, openInterval time.Duration) *CircuitBreaker {
-	return &CircuitBreaker{failureThreshold: threshold, openInterval: openInterval, state: "closed"}
+	b := &CircuitBreaker{failureThreshold: threshold, openInterval: openInterval, state: "closed"}
+	b.publishMetricsLocked()
+	return b
 }
 
 func (b *CircuitBreaker) Allow() bool {
@@ -116,8 +124,12 @@ func (b *CircuitBreaker) Allow() bool {
 	}
 	if time.Since(b.openedAt) >= b.openInterval {
 		b.state = "half_open"
+		b.publishMetricsLocked()
 		return true
 	}
+	b.blockedRequests++
+	metrics.NotifyPushCircuitBreakerBlockedTotal.Inc()
+	b.publishMetricsLocked()
 	return false
 }
 
@@ -126,6 +138,7 @@ func (b *CircuitBreaker) RecordSuccess() {
 	defer b.mu.Unlock()
 	b.failures = 0
 	b.state = "closed"
+	b.publishMetricsLocked()
 }
 
 func (b *CircuitBreaker) RecordFailure() {
@@ -133,15 +146,49 @@ func (b *CircuitBreaker) RecordFailure() {
 	defer b.mu.Unlock()
 	b.failures++
 	if b.failures >= b.failureThreshold || b.state == "half_open" {
+		if b.state != "open" {
+			b.openCount++
+			metrics.NotifyPushCircuitBreakerOpenTotal.Inc()
+		}
 		b.state = "open"
 		b.openedAt = time.Now()
 	}
+	b.publishMetricsLocked()
 }
 
 func (b *CircuitBreaker) State() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.state
+}
+
+type CircuitBreakerSnapshot struct {
+	State           string
+	OpenCount       int64
+	FailureCount    int
+	BlockedRequests int64
+}
+
+func (b *CircuitBreaker) Snapshot() CircuitBreakerSnapshot {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return CircuitBreakerSnapshot{
+		State:           b.state,
+		OpenCount:       b.openCount,
+		FailureCount:    b.failures,
+		BlockedRequests: b.blockedRequests,
+	}
+}
+
+func (b *CircuitBreaker) publishMetricsLocked() {
+	for _, state := range []string{"closed", "open", "half_open"} {
+		value := 0.0
+		if b.state == state {
+			value = 1
+		}
+		metrics.NotifyPushCircuitBreakerState.WithLabelValues(state).Set(value)
+	}
+	metrics.NotifyPushCircuitBreakerFailures.Set(float64(b.failures))
 }
 
 func (e *PushError) Error() string {
@@ -352,6 +399,8 @@ func (c *PushClient) doPostOnceDetailed(ctx context.Context, path string, params
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
+	traceID := nonEmptyString(tracectx.TraceID(ctx), tracectx.FromJSONPayload(body))
+	tracectx.InjectHTTP(req, traceID)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, classifyHTTPError(err)
@@ -388,14 +437,19 @@ func (c *PushClient) doPostOnceDetailed(ctx context.Context, path string, params
 	}
 	if err := json.Unmarshal(result.Data, &data); err == nil {
 		if len(data.DeliveryResults) > 0 {
+			for i := range data.DeliveryResults {
+				if data.DeliveryResults[i].TraceID == "" {
+					data.DeliveryResults[i].TraceID = traceID
+				}
+			}
 			return data.DeliveryResults, nil
 		}
 		var results []DeliveryResult
 		for _, id := range data.MsgIDs {
-			results = append(results, DeliveryResult{MsgID: id, Path: "logic_push", AttemptNo: 1})
+			results = append(results, DeliveryResult{MsgID: id, Path: "logic_push", AttemptNo: 1, TraceID: traceID})
 		}
 		if len(results) == 0 && data.MsgID != "" {
-			results = append(results, DeliveryResult{MsgID: data.MsgID, Path: "logic_push", AttemptNo: 1})
+			results = append(results, DeliveryResult{MsgID: data.MsgID, Path: "logic_push", AttemptNo: 1, TraceID: traceID})
 		}
 		return results, nil
 	}

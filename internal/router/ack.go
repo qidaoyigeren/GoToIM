@@ -39,6 +39,7 @@ import (
 	"time"
 
 	"github.com/Terry-Mao/goim/internal/logic/dao"
+	"github.com/Terry-Mao/goim/internal/tracectx"
 	log "github.com/Terry-Mao/goim/pkg/log"
 	"github.com/Terry-Mao/goim/pkg/metrics"
 )
@@ -61,9 +62,10 @@ const (
 //  4. 将终态消息写入幂等缓存，加速后续重复消息的去重判定。
 //  5. 提供消息追踪（TrackMessage）、标记送达/失败等辅助方法。
 type ACKHandler struct {
-	dao     dao.MessageDAO      // 消息状态持久化（Redis）
-	pushDAO dao.PushDAO         // 推送事件发布（Kafka），可为 nil（不启用推送回调时）
-	idCache *IdempotencyChecker // 终态消息内存缓存，服务于 IsDuplicate 快速路径
+	dao      dao.MessageDAO      // 消息状态持久化（Redis）
+	pushDAO  dao.PushDAO         // 推送事件发布（Kafka），可为 nil（不启用推送回调时）
+	idCache  *IdempotencyChecker // 终态消息内存缓存，服务于 IsDuplicate 快速路径
+	stateRec *StateRecorder      // 状态机记录（Phase 2），可为 nil
 }
 
 // NewACKHandler 创建 ACKHandler 实例。
@@ -103,6 +105,24 @@ func NewACKHandler(d dao.MessageDAO, pd dao.PushDAO) *ACKHandler {
 //	只有步骤 1（更新状态）失败才算整体失败，因为状态更新是 ACK 的核心语义。
 //	步骤 2、3 失败只记录告警日志——它们属于"尽力而为"的附加操作。
 func (a *ACKHandler) HandleACK(ctx context.Context, uid int64, msgID string) error {
+	return a.HandleACKWithDevice(ctx, uid, msgID, "", "")
+}
+
+// HandleACKWithDevice processes an ACK with optional device-level tracking.
+//
+// Falls back gracefully when deviceID is empty (legacy clients).
+// Steps 1-4 are identical to HandleACK. Step 5 records the device-level ACK.
+// Step 6 evaluates the ACK policy for the message (any_device / all_devices / primary_device).
+//
+// ACK policy evaluation (step 6) is best-effort: failures are logged but do not block the ACK.
+func (a *ACKHandler) HandleACKWithDevice(ctx context.Context, uid int64, msgID, deviceID, sessionID string) error {
+	traceID := tracectx.TraceID(ctx)
+	if traceID == "" {
+		if data, err := a.dao.GetMessageStatus(ctx, msgID); err == nil {
+			traceID = data["trace_id"]
+		}
+	}
+	ctx = tracectx.WithTraceID(ctx, traceID)
 	// 步骤 1：更新消息状态为已确认（核心操作，失败则整体返回错误）
 	if err := a.dao.UpdateMessageStatus(ctx, msgID, MsgStatusAcked); err != nil {
 		return fmt.Errorf("update msg status: %w", err)
@@ -115,7 +135,7 @@ func (a *ACKHandler) HandleACK(ctx context.Context, uid int64, msgID string) err
 
 	// 步骤 3：发布 ACK 事件到 Kafka（best-effort，pushDAO 为 nil 时跳过）
 	if a.pushDAO != nil {
-		if err := a.pushDAO.PublishACK(ctx, msgID, uid, MsgStatusAcked); err != nil {
+		if err := a.pushDAO.PublishACK(ctx, msgID, uid, MsgStatusAcked, deviceID, sessionID); err != nil {
 			log.Warningf("publish ack event: uid=%d msg_id=%s err=%v", uid, msgID, err)
 		}
 	}
@@ -123,8 +143,22 @@ func (a *ACKHandler) HandleACK(ctx context.Context, uid int64, msgID string) err
 	// 步骤 4：写入幂等缓存，加速后续去重判定
 	a.idCache.MarkSeen(msgID)
 
+	// 步骤 5：记录设备级 ACK（Phase 1 新增，best-effort）
+	if deviceID == "" {
+		deviceID = "unknown"
+	}
+	ackTime := time.Now().UnixMilli()
+	if err := a.dao.RecordDeviceACK(ctx, msgID, deviceID, sessionID, ackTime); err != nil {
+		log.Warningf("record device ack failed: uid=%d msg_id=%s device=%s err=%v", uid, msgID, deviceID, err)
+	}
+
+	// 步骤 6：记录 acked 状态（Phase 2 状态机）
+	if a.stateRec != nil {
+		a.stateRec.RecordState(ctx, msgID, "delivered", "acked", "client ack", traceID)
+	}
+
 	metrics.MsgAckTotal.Inc()
-	log.Infof("ack processed: uid=%d msg_id=%s", uid, msgID)
+	log.Infof("ack processed: uid=%d msg_id=%s device=%s session=%s", uid, msgID, deviceID, sessionID)
 	return nil
 }
 
@@ -148,6 +182,8 @@ func (a *ACKHandler) HandleACK(ctx context.Context, uid int64, msgID string) err
 //	retry_cnt: 0           — 重试计数，初始为 0
 //	created_at, updated_at — 时间戳（Unix 毫秒）
 func (a *ACKHandler) TrackMessage(ctx context.Context, msgID string, fromUID, toUID int64, op int32, body []byte) error {
+	traceID := traceIDFromBodyOrContext(ctx, body)
+	ctx = tracectx.WithTraceID(ctx, traceID)
 	// 原子抢占：只有第一个执行的协程能成功写入 Pending 状态
 	added, err := a.dao.SetMessageStatusNX(ctx, msgID, "status", MsgStatusPending)
 	if err != nil {
@@ -167,6 +203,9 @@ func (a *ACKHandler) TrackMessage(ctx context.Context, msgID string, fromUID, to
 		"retry_cnt":  0,
 		"created_at": time.Now().UnixMilli(),
 		"updated_at": time.Now().UnixMilli(),
+	}
+	if traceID != "" {
+		fields["trace_id"] = traceID
 	}
 	return a.dao.SetMessageStatus(ctx, msgID, fields)
 }

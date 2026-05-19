@@ -2,6 +2,9 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/Terry-Mao/goim/internal/notify/service"
 	"github.com/gin-gonic/gin"
@@ -21,6 +24,38 @@ func (h *Handler) HandleGetPlatformStats(c *gin.Context) {
 		stats.Simulation = h.simulator.Status()
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": stats})
+}
+
+// HandleGetBusinessSLA handles GET /api/platform/sla.
+func (h *Handler) HandleGetBusinessSLA(c *gin.Context) {
+	window, err := parseWindow(c.DefaultQuery("window", "24h"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": -400, "message": err.Error()})
+		return
+	}
+	sla, err := h.orderSvc.BusinessSLA(window, c.Query("business_type"), c.Query("delivery_path"))
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": sla})
+}
+
+func parseWindow(value string) (time.Duration, error) {
+	if value == "" {
+		return 24 * time.Hour, nil
+	}
+	if d, err := time.ParseDuration(value); err == nil {
+		return d, nil
+	}
+	if strings.HasSuffix(value, "d") {
+		days, err := strconv.Atoi(strings.TrimSuffix(value, "d"))
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	return 0, strconv.ErrSyntax
 }
 
 // HandleSimulateStart handles POST /api/simulate/start.

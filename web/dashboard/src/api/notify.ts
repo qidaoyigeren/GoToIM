@@ -1,8 +1,8 @@
 import { isDemoMode } from '@/config'
 import { notifyClient } from './client'
 import type { Order, OrderStatus } from '@/types/order'
-import type { Notification, NotificationAttempt } from '@/types/notification'
-import type { PlatformStats, SimulationState } from '@/types/message'
+import type { CampaignAudience, CampaignAudienceBatch, CampaignAudienceTarget, DLQBulkResult, DLQFilters, Notification, NotificationAttempt, NotificationDLQ, NotificationTrace, OrderTimeline, RecoveryAudit, ReplayApprovalGate, ReplayApprovalRequest } from '@/types/notification'
+import type { BusinessSLA, PlatformStats, SimulationState } from '@/types/message'
 import type { ApiResponse } from '@/types/api'
 
 type NotifyResponse<T> = ApiResponse<T>
@@ -75,6 +75,36 @@ export async function getPlatformStats(): Promise<PlatformStats> {
   return res.data
 }
 
+export async function getBusinessSLA(window = '24h'): Promise<BusinessSLA> {
+  if (isDemoMode()) {
+    return {
+      window_seconds: 86400,
+      since: new Date(Date.now() - 86400_000).toISOString(),
+      until: new Date().toISOString(),
+      total_notifications: 0,
+      successful_notifications: 0,
+      notification_success_rate: 0,
+      ack_satisfied_count: 0,
+      ack_satisfaction_rate: 0,
+      dlq_count: 0,
+      dlq_rate: 0,
+      retried_notifications: 0,
+      retry_rate: 0,
+      delivery_latency_p95_ms: 0,
+      delivery_latency_p99_ms: 0,
+      ack_latency_p95_ms: 0,
+      ack_latency_p99_ms: 0,
+      success_by_business_type: [],
+      success_by_delivery_path: [],
+      failure_reason_ranking: [],
+      dlq_reason_ranking: [],
+      retry_pressure_by_business_type: [],
+    }
+  }
+  const res = await notifyClient.request<NotifyResponse<BusinessSLA>>(`/platform/sla?window=${encodeURIComponent(window)}`)
+  return res.data
+}
+
 export async function sendAck(notifyId: string): Promise<boolean> {
   if (isDemoMode()) {
     return true
@@ -114,14 +144,15 @@ export async function getSimulationStatus(): Promise<SimulationState> {
 export async function createFlashSale(
   title: string,
   desc: string,
-  targetUserIds: string[]
+  targetUserIds: string[],
+  audienceId?: string
 ): Promise<void> {
   if (isDemoMode()) {
     return
   }
   await notifyClient.request('/flash-sale/notify', {
     method: 'POST',
-    body: { title, description: desc, target_uids: targetUserIds },
+    body: { title, description: desc, target_uids: targetUserIds, audience_id: audienceId },
   })
 }
 
@@ -147,4 +178,152 @@ export async function getNotificationAttempts(notifyId: string): Promise<Notific
     `/notifications/${notifyId}/attempts`
   )
   return res.data
+}
+
+export async function getNotificationTrace(notifyId: string): Promise<NotificationTrace> {
+  const res = await notifyClient.request<NotifyResponse<NotificationTrace>>(
+    `/notifications/${notifyId}/trace`
+  )
+  return res.data
+}
+
+export async function getOrderTimeline(orderId: string): Promise<OrderTimeline> {
+  const res = await notifyClient.request<NotifyResponse<OrderTimeline>>(
+    `/orders/${orderId}/timeline`
+  )
+  return res.data
+}
+
+export async function listDLQ(filters: DLQFilters = {}): Promise<NotificationDLQ[]> {
+  const params = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  })
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  const res = await notifyClient.request<NotifyResponse<NotificationDLQ[]>>(`/dlq${suffix}`)
+  return res.data
+}
+
+export async function replayDLQ(dlqId: string, note?: string, operator = 'dashboard'): Promise<NotificationDLQ> {
+  const res = await notifyClient.request<NotifyResponse<{ replayed: boolean; item: NotificationDLQ }>>(
+    `/dlq/${dlqId}/replay`,
+    { method: 'POST', body: { operator, note } }
+  )
+  return res.data.item
+}
+
+export async function resolveDLQ(dlqId: string, resolution = 'resolved', note?: string, operator = 'dashboard'): Promise<NotificationDLQ> {
+  const res = await notifyClient.request<NotifyResponse<{ resolved: boolean; item: NotificationDLQ }>>(
+    `/dlq/${dlqId}/resolve`,
+    { method: 'POST', body: { operator, resolution, note } }
+  )
+  return res.data.item
+}
+
+export async function bulkReplayDLQ(filter: DLQFilters, note?: string, operator = 'dashboard'): Promise<DLQBulkResult | ReplayApprovalGate> {
+  const res = await notifyClient.request<NotifyResponse<DLQBulkResult | ReplayApprovalGate>>('/dlq/bulk/replay', {
+    method: 'POST',
+    body: { ...filter, operator, note },
+  })
+  return res.data
+}
+
+export async function bulkResolveDLQ(filter: DLQFilters, resolution = 'resolved', note?: string, operator = 'dashboard'): Promise<DLQBulkResult | ReplayApprovalGate> {
+  const res = await notifyClient.request<NotifyResponse<DLQBulkResult | ReplayApprovalGate>>('/dlq/bulk/resolve', {
+    method: 'POST',
+    body: { ...filter, operator, resolution, note },
+  })
+  return res.data
+}
+
+export async function getDLQAudits(dlqId: string): Promise<RecoveryAudit[]> {
+  const res = await notifyClient.request<NotifyResponse<RecoveryAudit[]>>(`/dlq/${dlqId}/audits`)
+  return res.data
+}
+
+export async function listRecoveryAudits(filters: {
+  operator?: string
+  action?: string
+  business_type?: string
+  since?: string
+  until?: string
+  limit?: number
+} = {}): Promise<RecoveryAudit[]> {
+  const params = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  })
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  const res = await notifyClient.request<NotifyResponse<RecoveryAudit[]>>(`/recovery/audits${suffix}`)
+  return res.data
+}
+
+export async function createReplayRequest(body: {
+  action: 'replay' | 'resolve'
+  filter: DLQFilters
+  operator?: string
+  resolution?: string
+  note?: string
+  throttle_per_sec?: number
+}): Promise<ReplayApprovalRequest> {
+  const res = await notifyClient.request<NotifyResponse<ReplayApprovalRequest>>('/recovery/replay-requests', {
+    method: 'POST',
+    body,
+  })
+  return res.data
+}
+
+export async function listReplayRequests(status?: string): Promise<ReplayApprovalRequest[]> {
+  const suffix = status ? `?status=${encodeURIComponent(status)}` : ''
+  const res = await notifyClient.request<NotifyResponse<ReplayApprovalRequest[]>>(`/recovery/replay-requests${suffix}`)
+  return res.data
+}
+
+export async function approveReplayRequest(id: string, operator = 'dashboard', note?: string): Promise<ReplayApprovalRequest> {
+  const res = await notifyClient.request<NotifyResponse<ReplayApprovalRequest>>(`/recovery/replay-requests/${id}/approve`, {
+    method: 'PATCH',
+    body: { operator, note },
+  })
+  return res.data
+}
+
+export async function executeReplayRequest(id: string, operator = 'dashboard'): Promise<ReplayApprovalRequest> {
+  const res = await notifyClient.request<NotifyResponse<ReplayApprovalRequest>>(`/recovery/replay-requests/${id}/execute`, {
+    method: 'POST',
+    body: { operator },
+  })
+  return res.data
+}
+
+export async function importCampaignAudience(campaignId: string, body: {
+  name?: string
+  definition?: Record<string, string>
+  target_uids: string[]
+  batch_size?: number
+}): Promise<{ audience: CampaignAudience; batches: CampaignAudienceBatch[] }> {
+  const res = await notifyClient.request<NotifyResponse<{ audience: CampaignAudience; batches: CampaignAudienceBatch[] }>>(
+    `/campaigns/${campaignId}/audience/import`,
+    { method: 'POST', body }
+  )
+  return res.data
+}
+
+export async function listCampaignAudienceTargets(campaignId: string, audienceId: string): Promise<CampaignAudienceTarget[]> {
+  const res = await notifyClient.request<NotifyResponse<CampaignAudienceTarget[]>>(
+    `/campaigns/${campaignId}/audiences/${audienceId}/targets`
+  )
+  return res.data
+}
+
+export async function listCampaignAudienceBatches(campaignId: string, audienceId: string): Promise<CampaignAudienceBatch[]> {
+  const res = await notifyClient.request<NotifyResponse<CampaignAudienceBatch[]>>(
+    `/campaigns/${campaignId}/audiences/${audienceId}/batches`
+  )
+  return res.data
+}
+
+export async function retryCampaignAudienceBatch(campaignId: string, audienceId: string, batchId: string): Promise<void> {
+  await notifyClient.request(`/campaigns/${campaignId}/audiences/${audienceId}/batches/${batchId}/retry`, {
+    method: 'POST',
+  })
 }

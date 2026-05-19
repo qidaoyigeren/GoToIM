@@ -4,14 +4,16 @@ import (
 	"context"
 
 	"github.com/Terry-Mao/goim/internal/mq"
+	"github.com/Terry-Mao/goim/internal/tracectx"
 	log "github.com/Terry-Mao/goim/pkg/log"
 )
 
 // DeliveryResult records the outcome of a single message delivery attempt.
 type DeliveryResult struct {
-	MsgID  string
-	UID    int64
-	Status mq.DeliveryStatus
+	MsgID   string
+	UID     int64
+	Status  mq.DeliveryStatus
+	TraceID string
 }
 
 // ACKReporter writes delivery status back to the MQ/Logic layer
@@ -34,6 +36,7 @@ func (r *ACKReporter) Report(ctx context.Context, result DeliveryResult) {
 	if result.Status == mq.StatusFailed {
 		status = "failed"
 	}
+	ctx = tracectx.WithTraceID(ctx, result.TraceID)
 	if err := r.producer.EnqueueACK(ctx, result.MsgID, result.UID, status); err != nil {
 		log.Warningf("ack report failed: msg_id=%s uid=%d err=%v", result.MsgID, result.UID, err)
 	}

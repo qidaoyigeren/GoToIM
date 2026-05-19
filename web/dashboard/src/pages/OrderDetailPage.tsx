@@ -2,9 +2,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import { useOrderDetail } from '@/hooks/useOrders'
 import { useNotificationStore } from '@/stores/notificationStore'
-import { getNotificationAttempts } from '@/api/notify'
-import type { NotificationAttempt } from '@/types/notification'
-import type { TraceRecord } from '@/components/order-detail/PushTraceCard'
+import { getNotificationTrace, getOrderTimeline } from '@/api/notify'
+import type { NotificationTrace, OrderTimeline } from '@/types/notification'
 import OrderInfo from '@/components/order-detail/OrderInfo'
 import StatusTimeline from '@/components/order-detail/StatusTimeline'
 import MessageRecord from '@/components/order-detail/MessageRecord'
@@ -19,37 +18,41 @@ export default function OrderDetailPage() {
   const navigate = useNavigate()
   const { data: order, isLoading, error, refetch } = useOrderDetail(id!)
   const notifications = useNotificationStore((s) => s.notifications)
-  const [traces, setTraces] = useState<TraceRecord[]>([])
+  const [trace, setTrace] = useState<NotificationTrace | null>(null)
+  const [timeline, setTimeline] = useState<OrderTimeline | null>(null)
 
-  // Filter notifications for this order
   const orderNotifications = useMemo(
     () => order ? notifications.filter((n) => n.order_id === order.order_id) : [],
     [notifications, order]
   )
-  const orderNotificationIds = useMemo(
-    () => orderNotifications.map((n) => n.notify_id).join('|'),
-    [orderNotifications]
-  )
 
-  // Fetch real delivery attempts from the API
   useEffect(() => {
+    if (!id) return
     let cancelled = false
-    const loadTraces = async () => {
-      if (orderNotifications.length === 0) {
-        setTraces([])
-        return
-      }
+    const load = async () => {
       try {
-        const results = await Promise.all(orderNotifications.map((n) => getNotificationAttempts(n.notify_id)))
+        const data = await getOrderTimeline(id)
         if (cancelled) return
-        setTraces(results.flat().map(mapAttemptToTrace))
+        setTimeline(data)
+        const firstNotification = data.notifications[0]
+        if (!firstNotification) {
+          setTrace(null)
+          return
+        }
+        const traceData = await getNotificationTrace(firstNotification.notify_id)
+        if (!cancelled) setTrace(traceData)
       } catch {
-        if (!cancelled) setTraces([])
+        if (!cancelled) {
+          setTimeline(null)
+          setTrace(null)
+        }
       }
     }
-    void loadTraces()
-    return () => { cancelled = true }
-  }, [orderNotifications, orderNotificationIds])
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [id])
 
   if (isLoading) {
     return (
@@ -62,29 +65,31 @@ export default function OrderDetailPage() {
   }
 
   if (error || !order) {
-    return <ErrorState message="加载订单失败" onRetry={() => refetch()} />
+    return <ErrorState message="Failed to load order" onRetry={() => refetch()} />
   }
 
-  // Generate status timestamps from order data
   const statusTimestamps: Partial<Record<string, string>> = {
     created: order.created_at,
   }
   if (order.status !== 'created') statusTimestamps[order.status] = order.updated_at
 
+  const timelineNotifications = timeline?.notifications.length ? timeline.notifications : orderNotifications
+
   return (
     <div className="space-y-6 animate-fade-in">
       <button
         onClick={() => navigate('/orders')}
-        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+        className="inline-flex items-center gap-1.5 text-sm text-gray-500 transition-colors hover:text-gray-700"
       >
         <ArrowLeft size={16} />
-        返回订单列表
+        Back to orders
       </button>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
           <OrderInfo order={order} />
-          <PushTraceCard traces={traces} />
+          <PushTraceCard trace={trace} />
+          {timeline && <BusinessTimeline timeline={timeline} />}
         </div>
         <div className="space-y-6">
           <StatusTimeline currentStatus={order.status} statusTimestamps={statusTimestamps} />
@@ -92,32 +97,49 @@ export default function OrderDetailPage() {
         </div>
       </div>
 
-      {orderNotifications.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">消息记录</h3>
+      {timelineNotifications.length > 0 && (
+        <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+          <h3 className="mb-3 text-sm font-semibold text-gray-700">Message records</h3>
           <div className="space-y-2">
-            {orderNotifications.map((n) => (
-              <MessageRecord key={n.notify_id} notification={n} />
+            {timelineNotifications.map((n) => (
+              <button
+                key={n.notify_id}
+                type="button"
+                className="w-full text-left"
+                onClick={() => {
+                  void getNotificationTrace(n.notify_id).then(setTrace)
+                }}
+              >
+                <MessageRecord notification={n} />
+              </button>
             ))}
           </div>
-        </div>
+        </section>
       )}
     </div>
   )
 }
 
-function mapAttemptToTrace(a: NotificationAttempt): TraceRecord {
-  const raw = (a.path || a.channel || '').toLowerCase()
-  const channel = raw.includes('kafka') ? 'kafka_fallback' as const : 'grpc_direct' as const
-  const statusMap: Record<string, TraceRecord['status']> = {
-    delivered: 'delivered', acked: 'acked', failed: 'failed',
-  }
-  return {
-    msg_id: a.attempt_id,
-    target: a.target,
-    channel,
-    status: statusMap[a.status] || 'pending',
-    timestamp: a.started_at,
-    retry_count: Math.max(0, (a.attempt_no || 1) - 1),
-  }
+function BusinessTimeline({ timeline }: { timeline: OrderTimeline }) {
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+      <h3 className="text-sm font-semibold text-gray-800">Business timeline</h3>
+      <div className="mt-4 space-y-3">
+        {timeline.timeline.map((event) => (
+          <div key={`${event.type}-${event.id}`} className="flex gap-3">
+            <div className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-gray-400" />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium text-gray-800">{event.label}</p>
+                {event.status && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{event.status}</span>}
+                {event.delivery_path && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">{event.delivery_path}</span>}
+              </div>
+              {event.detail && <p className="mt-0.5 text-xs text-gray-500">{event.detail}</p>}
+              <p className="mt-0.5 text-xs text-gray-400">{new Date(event.occurred_at).toLocaleString()}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
 }

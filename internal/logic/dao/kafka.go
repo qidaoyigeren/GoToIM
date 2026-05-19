@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/IBM/sarama"
 	pb "github.com/Terry-Mao/goim/api/logic"
 	"github.com/Terry-Mao/goim/internal/mq"
+	"github.com/Terry-Mao/goim/internal/tracectx"
 	log "github.com/Terry-Mao/goim/pkg/log"
 	"google.golang.org/protobuf/proto"
 )
@@ -104,17 +106,22 @@ func (d *Dao) BroadcastMsg(c context.Context, op, speed int32, msg []byte) (err 
 	return
 }
 
-// PublishACK publishes an ACK event to the ACK topic for async consumers (e.g., analytics, sender notification).
-func (d *Dao) PublishACK(c context.Context, msgID string, uid int64, status string) error {
+// PublishACK publishes an ACK event to the ACK topic for async consumers (e.g., Notify Server ACK sync).
+// The event includes device-level info for bridging IM and business ACK data sources.
+func (d *Dao) PublishACK(c context.Context, msgID string, uid int64, status, deviceID, sessionID string) error {
 	topic := d.c.Kafka.ACKTopic
 	if topic == "" {
 		return nil // ACK topic not configured, skip
 	}
+	traceID := tracectx.TraceID(c)
+	// Build AckEvent JSON for cross-system ACK bridging (Phase 1)
+	ackEvent := fmt.Sprintf(`{"msg_id":"%s","user_id":"%d","device_id":"%s","session_id":"%s","ack_time":%d,"status":"%s","trace_id":"%s"}`,
+		msgID, uid, deviceID, sessionID, time.Now().UnixMilli(), status, traceID)
 	ackMsg := &pb.PushMsg{
 		Type:      pb.PushMsg_PUSH,
 		Operation: 19, // OpPushMsgAck
 		Keys:      []string{fmt.Sprintf("uid:%d", uid)},
-		Msg:       []byte(fmt.Sprintf(`{"msg_id":"%s","uid":%d,"status":"%s"}`, msgID, uid, status)),
+		Msg:       []byte(ackEvent),
 	}
 	b, err := proto.Marshal(ackMsg)
 	if err != nil {
@@ -124,6 +131,9 @@ func (d *Dao) PublishACK(c context.Context, msgID string, uid int64, status stri
 		Key:   sarama.StringEncoder(msgID),
 		Topic: topic,
 		Value: sarama.ByteEncoder(b),
+	}
+	if traceID != "" {
+		m.Headers = []sarama.RecordHeader{{Key: []byte(mq.HeaderTraceID), Value: []byte(traceID)}}
 	}
 	if _, _, err = d.kafkaPub.SendMessage(m); err != nil {
 		log.Errorf("PublishACK.send(msg_id:%s) error(%v)", msgID, err)
@@ -188,9 +198,9 @@ func (d *Dao) BroadcastViaMQ(ctx context.Context, op, speed int32, msg []byte) e
 }
 
 // PublishACKViaMQ publishes an ACK event through the MQ abstraction.
-func (d *Dao) PublishACKViaMQ(ctx context.Context, msgID string, uid int64, status string) error {
+func (d *Dao) PublishACKViaMQ(ctx context.Context, msgID string, uid int64, status, deviceID, sessionID string) error {
 	if d.mqProducer == nil {
-		return d.PublishACK(ctx, msgID, uid, status)
+		return d.PublishACK(ctx, msgID, uid, status, deviceID, sessionID)
 	}
 	return d.mqProducer.EnqueueACK(ctx, msgID, uid, status)
 }

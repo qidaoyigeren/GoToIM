@@ -229,12 +229,12 @@ func (l *Logic) Receive(c context.Context, mid int64, p *protocol.Proto) (err er
 			log.Errorf("unmarshal ack body error(%v)", err)
 			return err
 		}
-		// 调用 Router 的 HandleACK：从待确认队列中移除对应的消息
-		if err := l.router.HandleACK(c, mid, ack.MsgID); err != nil {
+		// 调用 Router 的 HandleACKWithDevice：设备级 ACK 追踪（向后兼容旧客户端）
+		if err := l.router.HandleACKWithDevice(c, mid, ack.MsgID, ack.DeviceID, ack.SessionID); err != nil {
 			log.Errorf("handle ack error(%v) mid:%d msg_id:%s", err, mid, ack.MsgID)
 			return err
 		}
-		log.Infof("ack received mid:%d msg_id:%s seq:%d", mid, ack.MsgID, ack.Seq)
+		log.Infof("ack received mid:%d msg_id:%s seq:%d device:%s", mid, ack.MsgID, ack.Seq, ack.DeviceID)
 
 	case protocol.OpSyncReq:
 		// --- 同步请求消息 ---

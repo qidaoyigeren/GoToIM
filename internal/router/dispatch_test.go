@@ -2,10 +2,12 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/Terry-Mao/goim/api/protocol"
 	"github.com/Terry-Mao/goim/internal/logic/service"
 	"github.com/Terry-Mao/goim/internal/mq"
 	"github.com/stretchr/testify/assert"
@@ -212,6 +214,44 @@ func (m *mockMessageDAO) GetOfflineQueueSize(ctx context.Context, uid int64) (in
 func (m *mockMessageDAO) IncrMessageRetryCount(ctx context.Context, msgID string) (int64, error) {
 	return 1, nil
 }
+func (m *mockMessageDAO) RecordDeviceACK(ctx context.Context, msgID, deviceID, sessionID string, ackTime int64) error {
+	return nil
+}
+func (m *mockMessageDAO) GetDeviceACKs(ctx context.Context, msgID string) (map[string]string, error) {
+	return nil, nil
+}
+
+// Phase 2: device cursor and merge index mocks
+func (m *mockMessageDAO) GetDeviceCursor(ctx context.Context, uid int64, deviceID string) (int64, error) {
+	return 0, nil
+}
+func (m *mockMessageDAO) SetDeviceCursor(ctx context.Context, uid int64, deviceID string, seq int64) error {
+	return nil
+}
+func (m *mockMessageDAO) GetOfflineMessagesByDeviceCursor(ctx context.Context, uid int64, deviceID string, limit int) ([]string, error) {
+	return nil, nil
+}
+func (m *mockMessageDAO) AdvanceDeviceCursor(ctx context.Context, uid int64, deviceID string, seq int64) error {
+	return nil
+}
+func (m *mockMessageDAO) SetMergeIndex(ctx context.Context, uid int64, bizType, bizID, msgID string) error {
+	return nil
+}
+func (m *mockMessageDAO) GetMergeIndex(ctx context.Context, uid int64, bizType, bizID string) (string, error) {
+	return "", nil
+}
+func (m *mockMessageDAO) StoreOfflineMsgPayload(ctx context.Context, msgID string, data []byte) error {
+	return nil
+}
+func (m *mockMessageDAO) GetOfflineMsgPayload(ctx context.Context, msgID string) ([]byte, error) {
+	return nil, nil
+}
+func (m *mockMessageDAO) UpdateOfflineMsgPayload(ctx context.Context, msgID string, data []byte) error {
+	return nil
+}
+func (m *mockMessageDAO) UpdateOfflineMsgTime(ctx context.Context, uid int64, msgID string, newSeq float64) error {
+	return nil
+}
 
 // mockPushDAO implements dao.PushDAO for testing.
 type mockPushDAO struct{}
@@ -225,7 +265,7 @@ func (m *mockPushDAO) BroadcastRoomMsg(ctx context.Context, op int32, room strin
 func (m *mockPushDAO) BroadcastMsg(ctx context.Context, op, speed int32, msg []byte) error {
 	return nil
 }
-func (m *mockPushDAO) PublishACK(ctx context.Context, msgID string, uid int64, status string) error {
+func (m *mockPushDAO) PublishACK(ctx context.Context, msgID string, uid int64, status, deviceID, sessionID string) error {
 	return nil
 }
 
@@ -271,6 +311,32 @@ func TestRouteByUserUsesUIDAsPartitionKey(t *testing.T) {
 	// The message Key should be the uid string, not a connection key
 	assert.Equal(t, "9999", prod.enqueued[0].Key)
 	assert.Equal(t, DeliveryStats{Kafka: 1}, engine.Stats())
+}
+
+func TestBuildMQHeadersExtractsTraceFromWrappedBizEnvelope(t *testing.T) {
+	env := mq.BizEnvelope{
+		MsgID:        "msg-1",
+		BizID:        "ord-1",
+		BusinessType: "order",
+		EventType:    "paid",
+		Priority:     "high",
+		TTLSeconds:   30,
+		TraceID:      "trace-wrapped",
+		CreatedAtMS:  time.Now().UnixMilli(),
+	}
+	payload, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	body, err := protocol.MarshalMsgBody(&protocol.MsgBody{MsgID: "msg-1", ToUID: 1001, Content: payload})
+	if err != nil {
+		t.Fatalf("marshal msg body: %v", err)
+	}
+	parsed := parseBizEnvelope(body, "msg-1")
+	headers := buildMQHeaders(parsed)
+	if headers[mq.HeaderTraceID] != "trace-wrapped" || headers[mq.HeaderBusinessType] != "order" || headers[mq.HeaderPriority] != "high" {
+		t.Fatalf("headers = %+v", headers)
+	}
 }
 
 func TestRouteByUserDirectPushSuccess(t *testing.T) {

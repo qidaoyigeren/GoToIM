@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Terry-Mao/goim/internal/logic/dao"
+	"github.com/Terry-Mao/goim/internal/tracectx"
 	log "github.com/Terry-Mao/goim/pkg/log"
 	"github.com/Terry-Mao/goim/pkg/metrics"
 )
@@ -35,6 +36,19 @@ func NewAckService(d dao.MessageDAO, pd dao.PushDAO) *AckService {
 
 // HandleAck processes an ACK from a client.
 func (s *AckService) HandleAck(ctx context.Context, uid int64, msgID string) error {
+	return s.HandleAckWithDevice(ctx, uid, msgID, "", "")
+}
+
+// HandleAckWithDevice processes an ACK with device-level tracking.
+// deviceID and sessionID are optional (empty for legacy clients, will fallback to "unknown").
+func (s *AckService) HandleAckWithDevice(ctx context.Context, uid int64, msgID, deviceID, sessionID string) error {
+	traceID := tracectx.TraceID(ctx)
+	if traceID == "" {
+		if data, err := s.dao.GetMessageStatus(ctx, msgID); err == nil {
+			traceID = data["trace_id"]
+		}
+	}
+	ctx = tracectx.WithTraceID(ctx, traceID)
 	// Update message status to acked
 	if err := s.dao.UpdateMessageStatus(ctx, msgID, MsgStatusAcked); err != nil {
 		return fmt.Errorf("update msg status: %w", err)
@@ -47,13 +61,22 @@ func (s *AckService) HandleAck(ctx context.Context, uid int64, msgID string) err
 
 	// Publish ACK event to Kafka for async consumers
 	if s.pushDAO != nil {
-		if err := s.pushDAO.PublishACK(ctx, msgID, uid, MsgStatusAcked); err != nil {
+		if err := s.pushDAO.PublishACK(ctx, msgID, uid, MsgStatusAcked, deviceID, sessionID); err != nil {
 			log.Warningf("publish ack event: uid=%d msg_id=%s err=%v", uid, msgID, err)
 		}
 	}
 
+	// Record device-level ACK (best-effort)
+	if deviceID == "" {
+		deviceID = "unknown"
+	}
+	ackTime := time.Now().UnixMilli()
+	if err := s.dao.RecordDeviceACK(ctx, msgID, deviceID, sessionID, ackTime); err != nil {
+		log.Warningf("record device ack failed: uid=%d msg_id=%s device=%s err=%v", uid, msgID, deviceID, err)
+	}
+
 	metrics.MsgAckTotal.Inc()
-	log.Infof("ack processed: uid=%d msg_id=%s", uid, msgID)
+	log.Infof("ack processed: uid=%d msg_id=%s device=%s", uid, msgID, deviceID)
 	return nil
 }
 
@@ -73,6 +96,11 @@ func (s *AckService) BatchHandleAck(ctx context.Context, acks []struct {
 // TrackMessage stores message metadata for delivery tracking.
 // Skips if the message is already tracked (idempotent).
 func (s *AckService) TrackMessage(ctx context.Context, msgID string, fromUID, toUID int64, op int32, body []byte) error {
+	traceID := tracectx.TraceID(ctx)
+	if traceID == "" {
+		traceID = tracectx.FromJSONPayload(body)
+	}
+	ctx = tracectx.WithTraceID(ctx, traceID)
 	// Check if already tracked
 	existing, _ := s.dao.GetMessageStatus(ctx, msgID)
 	if len(existing) > 0 {
@@ -87,6 +115,9 @@ func (s *AckService) TrackMessage(ctx context.Context, msgID string, fromUID, to
 		"retry_cnt":  0,
 		"created_at": time.Now().UnixMilli(),
 		"updated_at": time.Now().UnixMilli(),
+	}
+	if traceID != "" {
+		fields["trace_id"] = traceID
 	}
 	if err := s.dao.SetMessageStatus(ctx, msgID, fields); err != nil {
 		return fmt.Errorf("set msg status: %w", err)

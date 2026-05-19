@@ -39,6 +39,10 @@ type DispatchEngine struct {
 	ackHandler  *ACKHandler
 	pusher      CometPusher
 	idGen       IDGenerator
+	limiter     *RateLimiter         // optional: per-user + global rate limiter
+	limiterV2   *MultiDimRateLimiter // optional: multi-dimensional rate limiter (Phase 2)
+	attemptRec  *AttemptRecorder     // optional: delivery attempt logger (Phase 1)
+	stateRec    *StateRecorder       // optional: delivery state machine (Phase 2)
 	directTotal atomic.Int64
 	kafkaTotal  atomic.Int64
 }
@@ -58,6 +62,7 @@ type DeliveryResult struct {
 	ErrorMessage string  `json:"error_message,omitempty"`
 	LatencyMs    float64 `json:"latency_ms"`
 	AttemptNo    int64   `json:"attempt_no"`
+	TraceID      string  `json:"trace_id,omitempty"`
 }
 
 // NewDispatchEngine creates a new DispatchEngine.
@@ -87,6 +92,29 @@ func (e *DispatchEngine) SetBroadcastFallback(b DirectBroadcaster) {
 	e.broadcaster = b
 }
 
+// SetRateLimiter sets the rate limiter for the dispatch engine.
+func (e *DispatchEngine) SetRateLimiter(l *RateLimiter) {
+	e.limiter = l
+}
+
+// SetAttemptRecorder sets the delivery attempt recorder for the dispatch engine.
+func (e *DispatchEngine) SetAttemptRecorder(r *AttemptRecorder) {
+	e.attemptRec = r
+}
+
+// SetStateRecorder sets the delivery state machine recorder on both engine and ACK handler.
+func (e *DispatchEngine) SetStateRecorder(r *StateRecorder) {
+	e.stateRec = r
+	if e.ackHandler != nil {
+		e.ackHandler.stateRec = r
+	}
+}
+
+// SetMultiDimRateLimiter sets the multi-dimensional rate limiter (Phase 2).
+func (e *DispatchEngine) SetMultiDimRateLimiter(l *MultiDimRateLimiter) {
+	e.limiterV2 = l
+}
+
 // Stats returns delivery path counters accumulated by the dispatch engine.
 func (e *DispatchEngine) Stats() DeliveryStats {
 	return DeliveryStats{
@@ -98,6 +126,12 @@ func (e *DispatchEngine) Stats() DeliveryStats {
 // HandleACK processes a client ACK for a delivered message.
 func (e *DispatchEngine) HandleACK(ctx context.Context, uid int64, msgID string) error {
 	return e.ackHandler.HandleACK(ctx, uid, msgID)
+}
+
+// HandleACKWithDevice processes an ACK with device-level tracking.
+// deviceID and sessionID are optional (empty string for legacy clients).
+func (e *DispatchEngine) HandleACKWithDevice(ctx context.Context, uid int64, msgID, deviceID, sessionID string) error {
+	return e.ackHandler.HandleACKWithDevice(ctx, uid, msgID, deviceID, sessionID)
 }
 
 // TrackMessage stores message metadata for delivery tracking (idempotent).

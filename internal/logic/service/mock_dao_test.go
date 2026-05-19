@@ -216,6 +216,44 @@ func (m *mockMessageDAO) GetOfflineQueueSize(_ context.Context, uid int64) (int6
 func (m *mockMessageDAO) IncrMessageRetryCount(_ context.Context, msgID string) (int64, error) {
 	return 1, nil
 }
+func (m *mockMessageDAO) RecordDeviceACK(_ context.Context, msgID, deviceID, sessionID string, ackTime int64) error {
+	return nil
+}
+func (m *mockMessageDAO) GetDeviceACKs(_ context.Context, msgID string) (map[string]string, error) {
+	return nil, nil
+}
+
+// Phase 2 mocks
+func (m *mockMessageDAO) GetDeviceCursor(_ context.Context, uid int64, deviceID string) (int64, error) {
+	return 0, nil
+}
+func (m *mockMessageDAO) SetDeviceCursor(_ context.Context, uid int64, deviceID string, seq int64) error {
+	return nil
+}
+func (m *mockMessageDAO) GetOfflineMessagesByDeviceCursor(_ context.Context, uid int64, deviceID string, limit int) ([]string, error) {
+	return nil, nil
+}
+func (m *mockMessageDAO) AdvanceDeviceCursor(_ context.Context, uid int64, deviceID string, seq int64) error {
+	return nil
+}
+func (m *mockMessageDAO) SetMergeIndex(_ context.Context, uid int64, bizType, bizID, msgID string) error {
+	return nil
+}
+func (m *mockMessageDAO) GetMergeIndex(_ context.Context, uid int64, bizType, bizID string) (string, error) {
+	return "", nil
+}
+func (m *mockMessageDAO) StoreOfflineMsgPayload(_ context.Context, msgID string, data []byte) error {
+	return nil
+}
+func (m *mockMessageDAO) GetOfflineMsgPayload(_ context.Context, msgID string) ([]byte, error) {
+	return nil, nil
+}
+func (m *mockMessageDAO) UpdateOfflineMsgPayload(_ context.Context, msgID string, data []byte) error {
+	return nil
+}
+func (m *mockMessageDAO) UpdateOfflineMsgTime(_ context.Context, uid int64, msgID string, newSeq float64) error {
+	return nil
+}
 
 // ============ mockPushDAO ============
 
@@ -271,7 +309,7 @@ func (m *mockPushDAO) BroadcastMsg(_ context.Context, op, speed int32, msg []byt
 	return nil
 }
 
-func (m *mockPushDAO) PublishACK(_ context.Context, msgID string, uid int64, status string) error {
+func (m *mockPushDAO) PublishACK(_ context.Context, msgID string, uid int64, status, deviceID, sessionID string) error {
 	return nil // no-op in mock
 }
 

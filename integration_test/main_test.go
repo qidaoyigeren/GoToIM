@@ -461,6 +461,10 @@ func TestCompleteIMChain(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
+	if os.Getenv("GOIM_ENABLE_INFRA_TESTS") != "1" {
+		fmt.Println("GOIM_ENABLE_INFRA_TESTS != 1; skipping chain integration tests")
+		os.Exit(0)
+	}
 	fmt.Println("=== goim Chain Integration Test ===")
 	fmt.Println("Redis: 127.0.0.1:6379")
 	fmt.Println("Kafka: 127.0.0.1:9092")

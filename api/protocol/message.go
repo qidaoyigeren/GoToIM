@@ -194,15 +194,22 @@ func UnmarshalMsgBody(data []byte) (*MsgBody, error) {
 //  1. 将消息状态标记为已投递（UpdateMessageStatus）；
 //  2. 从该用户的离线队列中移除该消息（RemoveFromOfflineQueue）；
 //  3. 可选：向发送者发送「已送达」回执。
+//  4. 写入设备级 ACK 记录（msg_acks:{msg_id} hash），支持多端 ACK 策略。
 //
-// 二进制编码格式：
+// 二进制编码格式（v1，带可选扩展字段）：
 //
-//	+------------------+----------+---------+
-//	| msg_id_len (2B)  | msg_id   | seq     |
-//	| uint16 BigEndian | []byte   | int64   |
-//	+------------------+----------+---------+
+//	+------------------+----------+---------+--------+---------------------------+
+//	| msg_id_len (2B)  | msg_id   | seq     | flags  | optional fields           |
+//	| uint16 BigEndian | []byte   | int64   | uint8  | (device_id, session_id)   |
+//	+------------------+----------+---------+--------+---------------------------+
 //
-// 总长度 = 2 + len(msg_id) + 8
+// flags (bitmask):
+//
+//	0x01 = device_id present
+//	0x02 = session_id present
+//
+// 向后兼容：旧格式（无 flags 字节）长度 = 2 + len(msg_id) + 8。
+// 解析时若数据正好为该长度，则 device_id / session_id 为空。
 type AckBody struct {
 	// MsgID 被确认消息的全局唯一 ID。
 	// 与 MsgBody.MsgID 对应，告诉服务器「我在确认哪条消息」。
@@ -212,43 +219,80 @@ type AckBody struct {
 	// 与 MsgBody.Seq 对应，提供冗余校验——服务器可同时用 msg_id 和 seq
 	// 双重匹配，防止因 ID 生成异常导致的误确认。
 	Seq int64
+
+	// DeviceID 确认设备的标识（可选，向后兼容）。
+	// 用于设备级 ACK 追踪和多端 ACK 策略评估。
+	// 老客户端不传时为空字符串。
+	DeviceID string
+
+	// SessionID 确认会话的标识（可选，向后兼容）。
+	SessionID string
 }
 
 // MarshalAckBody 将 AckBody 序列化为二进制字节切片。
 //
-// 编码格式：[msg_id_len:2][msg_id:N][seq:8]
+// 编码格式（v1）：
 //
-// 返回值：
-//   - []byte: 编码后的字节数据，赋值给 OpSendMsgAck / OpPushMsgAck 的 Proto.Body
-//   - error:  当 msg_id 长度超过 65535 字节时返回错误
+//	[msg_id_len:2][msg_id:N][seq:8][flags:1]
+//	若 flags & 0x01: [device_id_len:2][device_id:N]
+//	若 flags & 0x02: [session_id_len:2][session_id:N]
 func MarshalAckBody(ab *AckBody) ([]byte, error) {
 	msgIDBytes := []byte(ab.MsgID)
 	if len(msgIDBytes) > 65535 {
 		return nil, errors.New("msg_id too long")
 	}
-	size := 2 + len(msgIDBytes) + 8
+	deviceIDBytes := []byte(ab.DeviceID)
+	sessionIDBytes := []byte(ab.SessionID)
+	if len(deviceIDBytes) > 65535 || len(sessionIDBytes) > 65535 {
+		return nil, errors.New("device_id or session_id too long")
+	}
+
+	flags := byte(0)
+	extSize := 1 // flags byte
+	if len(deviceIDBytes) > 0 {
+		flags |= 0x01
+		extSize += 2 + len(deviceIDBytes)
+	}
+	if len(sessionIDBytes) > 0 {
+		flags |= 0x02
+		extSize += 2 + len(sessionIDBytes)
+	}
+
+	size := 2 + len(msgIDBytes) + 8 + extSize
 	buf := make([]byte, size)
 
 	binary.BigEndian.PutUint16(buf[0:2], uint16(len(msgIDBytes)))
 	copy(buf[2:2+len(msgIDBytes)], msgIDBytes)
 	offset := 2 + len(msgIDBytes)
 	binary.BigEndian.PutUint64(buf[offset:offset+8], uint64(ab.Seq))
+	offset += 8
+	buf[offset] = flags
+	offset++
+
+	if flags&0x01 != 0 {
+		binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(len(deviceIDBytes)))
+		offset += 2
+		copy(buf[offset:], deviceIDBytes)
+		offset += len(deviceIDBytes)
+	}
+	if flags&0x02 != 0 {
+		binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(len(sessionIDBytes)))
+		offset += 2
+		copy(buf[offset:], sessionIDBytes)
+	}
 
 	return buf, nil
 }
 
 // UnmarshalAckBody 从二进制字节切片反序列化出 AckBody。
 //
-// 返回值：
-//   - *AckBody: 解码后的 ACK 体指针
-//   - error:    数据长度不足时返回错误
+// 向后兼容：若数据长度为 2 + msgIDLen + 8（旧格式），则 device_id/session_id 为空。
 func UnmarshalAckBody(data []byte) (*AckBody, error) {
-	// 至少需要 2 字节来读取 msg_id 长度前缀
 	if len(data) < 2 {
 		return nil, errors.New("data too short for ack")
 	}
 	msgIDLen := int(binary.BigEndian.Uint16(data[0:2]))
-	// 总共至少需要 2(长度前缀) + msgIDLen + 8(seq) 字节
+	// 旧格式至少需要 2(长度前缀) + msgIDLen + 8(seq) 字节
 	if len(data) < 2+msgIDLen+8 {
 		return nil, errors.New("data too short for AckBody")
 	}
@@ -257,6 +301,32 @@ func UnmarshalAckBody(data []byte) (*AckBody, error) {
 	ab.MsgID = string(data[2 : 2+msgIDLen])
 	offset := 2 + msgIDLen
 	ab.Seq = int64(binary.BigEndian.Uint64(data[offset : offset+8]))
+	offset += 8
+
+	// 向后兼容：旧格式到 seq 就结束了
+	if offset >= len(data) {
+		return ab, nil
+	}
+
+	// v1 扩展字段：flags byte
+	flags := data[offset]
+	offset++
+
+	if flags&0x01 != 0 && offset+2 <= len(data) {
+		devLen := int(binary.BigEndian.Uint16(data[offset : offset+2]))
+		offset += 2
+		if offset+devLen <= len(data) {
+			ab.DeviceID = string(data[offset : offset+devLen])
+			offset += devLen
+		}
+	}
+	if flags&0x02 != 0 && offset+2 <= len(data) {
+		sessLen := int(binary.BigEndian.Uint16(data[offset : offset+2]))
+		offset += 2
+		if offset+sessLen <= len(data) {
+			ab.SessionID = string(data[offset : offset+sessLen])
+		}
+	}
 
 	return ab, nil
 }

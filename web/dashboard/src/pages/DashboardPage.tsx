@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import StatsCards from '@/components/dashboard/StatsCards'
+import SLACards from '@/components/dashboard/SLACards'
+import DLQRecoveryPanel from '@/components/dashboard/DLQRecoveryPanel'
 import OrderStatusFunnel from '@/components/dashboard/OrderStatusFunnel'
 import PushThroughputChart from '@/components/dashboard/PushThroughputChart'
 import EventStream from '@/components/dashboard/EventStream'
@@ -60,6 +62,7 @@ export default function DashboardPage() {
       </div>
 
       <StatsCards />
+      <SLACards />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-2 space-y-6">
@@ -70,6 +73,7 @@ export default function DashboardPage() {
         </div>
         <div className="space-y-6">
           <AlertCards />
+          <DLQRecoveryPanel />
         </div>
       </div>
 

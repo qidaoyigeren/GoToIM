@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -19,6 +20,10 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	flag.Parse()
+	if os.Getenv("GOIM_ENABLE_INFRA_TESTS") != "1" {
+		fmt.Println("GOIM_ENABLE_INFRA_TESTS != 1; skipping logic infrastructure initialization")
+		os.Exit(m.Run())
+	}
 	if err := conf.Init(); err != nil {
 		panic(err)
 	}

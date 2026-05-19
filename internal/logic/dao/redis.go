@@ -26,6 +26,7 @@ const (
 	_prefixOfflineQueue  = "offline:%d"           // uid -> ZSET of msg_id:seq
 	_prefixKeySession    = "key_sid:%s"           // connection key -> sid (reverse index for O(1) heartbeat)
 	_prefixRetryCnt      = "retry_cnt:%s:%d:%d"   // topic:partition:offset -> retry count
+	_prefixDeviceACKs    = "msg_acks:%s"          // msg_id -> device ACK records (hash)
 )
 
 func keyMidServer(mid int64) string {
@@ -66,6 +67,10 @@ func keyOfflineQueue(uid int64) string {
 
 func keyKeySession(key string) string {
 	return fmt.Sprintf(_prefixKeySession, key)
+}
+
+func keyDeviceACKs(msgID string) string {
+	return fmt.Sprintf(_prefixDeviceACKs, msgID)
 }
 
 // pingRedis check redis connection.
@@ -698,4 +703,47 @@ func (d *Dao) Incr(ctx context.Context, topic string, partition int32, offset in
 		log.Warningf("retry counter expire failed for key=%s: %v", key, err)
 	}
 	return n, nil
+}
+
+// ============ Device-Level ACK Operations ============
+
+// RecordDeviceACK stores a device-level ACK record for a message.
+// Uses msg_acks:{msg_id} hash with device_id as field and JSON {session_id, ack_time} as value.
+// TTL matches message status expiry (7 days).
+func (d *Dao) RecordDeviceACK(c context.Context, msgID, deviceID, sessionID string, ackTime int64) error {
+	conn := d.redis.Get()
+	defer conn.Close()
+
+	value := fmt.Sprintf(`{"session_id":"%s","ack_time":%d}`, sessionID, ackTime)
+	key := keyDeviceACKs(msgID)
+	if err := conn.Send("HSET", key, deviceID, value); err != nil {
+		log.Errorf("conn.Send(HSET %s %s) error(%v)", key, deviceID, err)
+		return err
+	}
+	if err := conn.Send("EXPIRE", key, 7*24*3600); err != nil {
+		return err
+	}
+	if err := conn.Flush(); err != nil {
+		return err
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := conn.Receive(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetDeviceACKs returns all device ACK records for a message.
+func (d *Dao) GetDeviceACKs(c context.Context, msgID string) (map[string]string, error) {
+	conn := d.redis.Get()
+	defer conn.Close()
+	res, err := redis.StringMap(conn.Do("HGETALL", keyDeviceACKs(msgID)))
+	if err != nil {
+		if err == redis.ErrNil {
+			return nil, nil
+		}
+		log.Errorf("conn.Do(HGETALL %s) error(%v)", keyDeviceACKs(msgID), err)
+	}
+	return res, err
 }

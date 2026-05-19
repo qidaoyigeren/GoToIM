@@ -71,6 +71,49 @@ export interface PlatformStats {
   ack_policy_satisfied_rate?: number
 }
 
+export interface RateBreakdown {
+  key: string
+  total: number
+  successful: number
+  success_rate: number
+}
+
+export interface CountBreakdown {
+  key: string
+  count: number
+}
+
+export interface RetryPressureBreakdown {
+  business_type: string
+  total: number
+  retried: number
+  retry_rate: number
+}
+
+export interface BusinessSLA {
+  window_seconds: number
+  since: string
+  until: string
+  total_notifications: number
+  successful_notifications: number
+  notification_success_rate: number
+  ack_satisfied_count: number
+  ack_satisfaction_rate: number
+  dlq_count: number
+  dlq_rate: number
+  retried_notifications: number
+  retry_rate: number
+  delivery_latency_p95_ms: number
+  delivery_latency_p99_ms: number
+  ack_latency_p95_ms: number
+  ack_latency_p99_ms: number
+  success_by_business_type: RateBreakdown[]
+  success_by_delivery_path: RateBreakdown[]
+  failure_reason_ranking: CountBreakdown[]
+  dlq_reason_ranking: CountBreakdown[]
+  retry_pressure_by_business_type: RetryPressureBreakdown[]
+}
+
 export interface SimulationState {
   active: boolean
   mode: string

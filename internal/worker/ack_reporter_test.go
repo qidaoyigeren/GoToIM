@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Terry-Mao/goim/internal/mq"
+	"github.com/Terry-Mao/goim/internal/tracectx"
 )
 
 // mockProducer implements mq.Producer for testing.
@@ -16,9 +17,10 @@ type mockProducer struct {
 }
 
 type ackRecord struct {
-	msgID  string
-	uid    int64
-	status string
+	msgID   string
+	uid     int64
+	status  string
+	traceID string
 }
 
 func (m *mockProducer) EnqueueToUser(ctx context.Context, uid int64, msg *mq.Message) error {
@@ -36,7 +38,7 @@ func (m *mockProducer) EnqueueBroadcast(ctx context.Context, msg *mq.Message, sp
 func (m *mockProducer) EnqueueACK(ctx context.Context, msgID string, uid int64, status string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.acks = append(m.acks, ackRecord{msgID, uid, status})
+	m.acks = append(m.acks, ackRecord{msgID: msgID, uid: uid, status: status, traceID: tracectx.TraceID(ctx)})
 	return nil
 }
 func (m *mockProducer) EnqueueDelayed(ctx context.Context, uid int64, msg *mq.Message, delayMs int64) error {
@@ -90,6 +92,24 @@ func TestACKReporterDelivered(t *testing.T) {
 	}
 	if acks[0].status != "delivered" {
 		t.Errorf("status = %q, want %q", acks[0].status, "delivered")
+	}
+}
+
+func TestACKReporterPropagatesTrace(t *testing.T) {
+	p := &mockProducer{}
+	r := &ACKReporter{}
+	r.SetProducer(p)
+
+	r.Report(context.Background(), DeliveryResult{
+		MsgID:   "msg-trace",
+		UID:     1001,
+		Status:  mq.StatusDelivered,
+		TraceID: "trace-ack",
+	})
+
+	acks := p.getACKs()
+	if len(acks) != 1 || acks[0].traceID != "trace-ack" {
+		t.Fatalf("acks = %+v, want trace-ack", acks)
 	}
 }
 

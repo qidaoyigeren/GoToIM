@@ -12,29 +12,34 @@ const (
 
 // Policy describes business-level delivery and ACK behavior for a notification.
 type Policy struct {
-	BusinessType     string
-	EventType        string
-	Priority         string
-	TTL              time.Duration
-	AckPolicy        string
-	ExpectedAckCount int64
-	MaxRetries       int64
-	FallbackEnabled  bool
-	DLQEnabled       bool
+	BusinessType         string
+	EventType            string
+	Priority             string
+	TTL                  time.Duration
+	AckPolicy            string
+	ExpectedAckCount     int64
+	MaxRetries           int64
+	FallbackEnabled      bool
+	DLQEnabled           bool
+	CompensationStrategy CompensationStrategy
+	TemplateName         string
 }
 
-// Resolve returns the default policy for a business event.
-func Resolve(businessType, eventType string) Policy {
+// resolveBuiltin returns the built-in hardcoded policy fallback.
+// Used when no PolicyManager is configured.
+func resolveBuiltin(businessType, eventType string) Policy {
 	p := Policy{
-		BusinessType:     businessType,
-		EventType:        eventType,
-		Priority:         "normal",
-		TTL:              10 * time.Minute,
-		AckPolicy:        AckAnyDevice,
-		ExpectedAckCount: 1,
-		MaxRetries:       3,
-		FallbackEnabled:  true,
-		DLQEnabled:       true,
+		BusinessType:         businessType,
+		EventType:            eventType,
+		Priority:             "normal",
+		TTL:                  10 * time.Minute,
+		AckPolicy:            AckAnyDevice,
+		ExpectedAckCount:     1,
+		MaxRetries:           3,
+		FallbackEnabled:      true,
+		DLQEnabled:           true,
+		CompensationStrategy: CompensationRetryThenDLQ,
+		TemplateName:         "default_notification",
 	}
 
 	switch businessType + "." + eventType {
@@ -70,6 +75,8 @@ func Resolve(businessType, eventType string) Policy {
 		p.ExpectedAckCount = 0
 		p.MaxRetries = 1
 		p.DLQEnabled = false
+		p.CompensationStrategy = CompensationRetryThenDrop
+		p.TemplateName = "flash_sale_template"
 	}
 	return p
 }

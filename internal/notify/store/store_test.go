@@ -324,6 +324,158 @@ func TestStoreDLQReplayResolveAndStats(t *testing.T) {
 	}
 }
 
+func TestStoreNotificationTraceTimelineAndSLA(t *testing.T) {
+	st := newTestStore(t)
+	order := sampleOrder("ord-trace")
+	notif := sampleNotification("ntf-trace")
+	notif.OrderID = order.OrderID
+	notif.AckPolicy = "any_device"
+	notif.ExpectedAckCount = 1
+	outbox := sampleOutbox("obx-trace", notif.NotifyID)
+	outbox.OrderID = order.OrderID
+	if err := st.CreateOrderNotificationOutbox(order, notif, outbox, "", "", "", "", nil); err != nil {
+		t.Fatalf("CreateOrderNotificationOutbox: %v", err)
+	}
+	now := time.Now()
+	order.Status = model.OrderPaid
+	order.UpdatedAt = now
+	event := &model.OrderStatusEvent{EventID: "evt-trace", OrderID: order.OrderID, FromStatus: model.OrderCreated, ToStatus: model.OrderPaid, CreatedAt: now}
+	statusNotif := sampleNotification("ntf-trace-paid")
+	statusNotif.OrderID = order.OrderID
+	statusNotif.EventType = "paid"
+	statusOutbox := sampleOutbox("obx-trace-paid", statusNotif.NotifyID)
+	statusOutbox.OrderID = order.OrderID
+	if err := st.ChangeOrderNotificationOutbox(order, event, statusNotif, statusOutbox, "", "", "", "", nil); err != nil {
+		t.Fatalf("ChangeOrderNotificationOutbox: %v", err)
+	}
+	finished := time.Now()
+	if err := st.MarkOutboxSent(outbox.OutboxID, &model.NotificationAttempt{
+		AttemptID: "atm-trace", NotifyID: notif.NotifyID, Channel: "grpc_direct", Target: notif.UserID,
+		Status: "direct_sent", Path: "grpc_direct", LatencyMs: 10, AttemptNo: 1, StartedAt: finished, FinishedAt: &finished,
+	}, finished); err != nil {
+		t.Fatalf("MarkOutboxSent: %v", err)
+	}
+	if recorded, err := st.RecordAck(&model.NotificationAck{
+		AckID: "ack-trace", NotifyID: notif.NotifyID, UserID: notif.UserID, MsgID: "msg-trace", DeviceID: "dev-1", LatencyMs: 25, CreatedAt: time.Now(),
+	}); err != nil || !recorded {
+		t.Fatalf("RecordAck recorded=%v err=%v", recorded, err)
+	}
+	trace, err := st.GetNotificationTrace(notif.NotifyID)
+	if err != nil {
+		t.Fatalf("GetNotificationTrace: %v", err)
+	}
+	if trace.Outbox == nil || trace.DeliveryPath != "grpc_direct" || len(trace.Attempts) != 1 || len(trace.ACKs) != 1 || !trace.ACKPolicyStatus.Satisfied {
+		t.Fatalf("trace = %+v", trace)
+	}
+	if trace.TraceID != notif.NotifyID || trace.Notification.TraceID != notif.NotifyID || trace.Outbox.TraceID != notif.NotifyID || trace.Attempts[0].TraceID != notif.NotifyID {
+		t.Fatalf("trace ids not propagated: %+v", trace)
+	}
+	timeline, err := st.GetOrderTimeline(order.OrderID)
+	if err != nil {
+		t.Fatalf("GetOrderTimeline: %v", err)
+	}
+	if len(timeline.StatusEvents) != 1 || len(timeline.Notifications) != 2 || len(timeline.Timeline) < 4 {
+		t.Fatalf("timeline = %+v", timeline)
+	}
+	foundTraceEvent := false
+	for _, event := range timeline.Timeline {
+		if event.NotifyID == notif.NotifyID && event.TraceID == notif.NotifyID {
+			foundTraceEvent = true
+			break
+		}
+	}
+	if !foundTraceEvent {
+		t.Fatalf("timeline missing trace_id for %s: %+v", notif.NotifyID, timeline.Timeline)
+	}
+	sla, err := st.BusinessSLA(time.Now().Add(-time.Hour), time.Now().Add(time.Hour), "order", "grpc_direct")
+	if err != nil {
+		t.Fatalf("BusinessSLA: %v", err)
+	}
+	if sla.TotalNotifications != 1 || sla.NotificationSuccessRate != 1 || sla.ACKSatisfactionRate != 1 || sla.DeliveryLatencyP95Ms != 10 || sla.ACKLatencyP99Ms != 25 {
+		t.Fatalf("sla = %+v", sla)
+	}
+	failedAt := time.Now()
+	if err := st.MarkOutboxRetry(statusOutbox.OutboxID, 1, failedAt.Add(time.Minute), "logic unavailable", &model.NotificationAttempt{
+		AttemptID: "atm-trace-failed", NotifyID: statusNotif.NotifyID, Channel: "logic_push", Target: statusNotif.UserID,
+		Status: "direct_failed", Path: "grpc_direct", ErrorCode: "logic_unavailable", ErrorMessage: "logic unavailable",
+		LatencyMs: 30, AttemptNo: 1, StartedAt: failedAt, FinishedAt: &failedAt,
+	}); err != nil {
+		t.Fatalf("MarkOutboxRetry failed drilldown: %v", err)
+	}
+	drilldown, err := st.BusinessSLA(time.Now().Add(-time.Hour), time.Now().Add(time.Hour), "order", "")
+	if err != nil {
+		t.Fatalf("BusinessSLA drilldown: %v", err)
+	}
+	if len(drilldown.FailureReasonRanking) == 0 || drilldown.FailureReasonRanking[0].Key != "logic_unavailable" {
+		t.Fatalf("failure drilldown = %+v", drilldown.FailureReasonRanking)
+	}
+	if len(drilldown.RetryPressureByBusinessType) == 0 || drilldown.RetryPressureByBusinessType[0].Retried == 0 {
+		t.Fatalf("retry drilldown = %+v", drilldown.RetryPressureByBusinessType)
+	}
+}
+
+func TestStoreBulkDLQRecoveryWritesAudit(t *testing.T) {
+	st := newTestStore(t)
+	for i := 1; i <= 2; i++ {
+		order := sampleOrder("ord-bulk-" + string(rune('0'+i)))
+		notif := sampleNotification("ntf-bulk-" + string(rune('0'+i)))
+		notif.OrderID = order.OrderID
+		outbox := sampleOutbox("obx-bulk-"+string(rune('0'+i)), notif.NotifyID)
+		outbox.OrderID = order.OrderID
+		if err := st.CreateOrderNotificationOutbox(order, notif, outbox, "", "", "", "", nil); err != nil {
+			t.Fatalf("CreateOrderNotificationOutbox %d: %v", i, err)
+		}
+		if err := st.MoveOutboxToDLQ(outbox, &model.NotificationDLQ{
+			DLQID: "dlq-bulk-" + string(rune('0'+i)), NotifyID: notif.NotifyID, OutboxID: outbox.OutboxID, UserID: notif.UserID,
+			OrderID: order.OrderID, Reason: "http_4xx", LastError: "bad request", PayloadJSON: outbox.PayloadJSON, RetryCount: 2, CreatedAt: time.Now(),
+		}, nil, "dlq"); err != nil {
+			t.Fatalf("MoveOutboxToDLQ %d: %v", i, err)
+		}
+	}
+	replay, err := st.BulkReplayDLQ(model.DLQBulkFilter{Reason: "http_4xx", BusinessType: "order", Limit: 1}, "operator-1", "try again")
+	if err != nil {
+		t.Fatalf("BulkReplayDLQ: %v", err)
+	}
+	if replay.Matched != 1 || replay.Replayed != 1 || len(replay.Items) != 1 {
+		t.Fatalf("replay result = %+v", replay)
+	}
+	resolve, err := st.BulkResolveDLQ(model.DLQBulkFilter{Reason: "http_4xx", BusinessType: "order", Limit: 10}, "operator-2", "closed", "no replay")
+	if err != nil {
+		t.Fatalf("BulkResolveDLQ: %v", err)
+	}
+	if resolve.Matched != 1 || resolve.Resolved != 1 {
+		t.Fatalf("resolve result = %+v", resolve)
+	}
+	audits, err := st.count(`SELECT COUNT(*) FROM notification_recovery_audit`)
+	if err != nil {
+		t.Fatalf("audit count: %v", err)
+	}
+	if audits != 2 {
+		t.Fatalf("audits = %d, want 2", audits)
+	}
+	replayAudits, err := st.ListRecoveryAudits(model.RecoveryAuditFilter{Operator: "operator-1", Action: "replay", BusinessType: "order", Limit: 10})
+	if err != nil {
+		t.Fatalf("ListRecoveryAudits replay: %v", err)
+	}
+	if len(replayAudits) != 1 || replayAudits[0].Note != "try again" || replayAudits[0].BeforeStatus != "dlq" || replayAudits[0].AfterStatus != "pending" {
+		t.Fatalf("replay audits = %+v", replayAudits)
+	}
+	dlqAudits, err := st.ListRecoveryAuditsByDLQ(replay.Items[0].DLQID)
+	if err != nil {
+		t.Fatalf("ListRecoveryAuditsByDLQ: %v", err)
+	}
+	if len(dlqAudits) != 1 || dlqAudits[0].DLQID != replay.Items[0].DLQID {
+		t.Fatalf("dlq audits = %+v", dlqAudits)
+	}
+	resolved, err := st.ListDLQFiltered(model.DLQBulkFilter{Resolved: "true", Operator: "operator-2", Limit: 10})
+	if err != nil {
+		t.Fatalf("ListDLQFiltered resolved: %v", err)
+	}
+	if len(resolved) != 1 || resolved[0].LatestAudit == nil || resolved[0].LatestAudit.Operator != "operator-2" {
+		t.Fatalf("resolved dlq with latest audit = %+v", resolved)
+	}
+}
+
 func TestMySQLIntegrationNotifyStore(t *testing.T) {
 	st, cleanup := openMySQLTest(t)
 	t.Cleanup(cleanup)

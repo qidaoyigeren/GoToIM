@@ -11,6 +11,7 @@ type FlashSaleRequest struct {
 	Title       string   `json:"title" binding:"required"`
 	Description string   `json:"description"`
 	TargetUIDs  []string `json:"target_uids"`
+	AudienceID  string   `json:"audience_id,omitempty"`
 }
 
 // HandleCreateFlashSale handles POST /api/flash-sale/notify.
@@ -21,7 +22,7 @@ func (h *Handler) HandleCreateFlashSale(c *gin.Context) {
 		return
 	}
 
-	sale, err := h.flashSaleSvc.CreateFlashSale(req.Title, req.Description, req.TargetUIDs)
+	sale, err := h.flashSaleSvc.CreateFlashSaleWithAudience(req.Title, req.Description, req.TargetUIDs, req.AudienceID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": -500, "message": err.Error()})
 		return

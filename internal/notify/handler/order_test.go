@@ -14,11 +14,11 @@ import (
 )
 
 func TestHandleOrderStatusChangeInvalidTransitionReturnsConflict(t *testing.T) {
+	gin.SetMode(gin.TestMode)
 	dsn := os.Getenv("GOIM_NOTIFY_MYSQL_DSN")
 	if dsn == "" {
 		t.Skip("GOIM_NOTIFY_MYSQL_DSN not set, skipping MySQL test")
 	}
-	gin.SetMode(gin.TestMode)
 	st, err := store.Open(dsn)
 	if err != nil {
 		t.Fatalf("open mysql store: %v", err)

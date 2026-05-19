@@ -86,6 +86,16 @@ func (h *Handler) HandleGetOrder(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": order})
 }
 
+// HandleGetOrderTimeline handles GET /api/orders/:order_id/timeline.
+func (h *Handler) HandleGetOrderTimeline(c *gin.Context) {
+	timeline, err := h.orderSvc.GetOrderTimeline(c.Param("order_id"))
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": timeline})
+}
+
 // HandleGetUserOrders handles GET /api/orders/:uid.
 func (h *Handler) HandleGetUserOrders(c *gin.Context) {
 	uid := c.Param("uid")

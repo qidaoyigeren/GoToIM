@@ -9,6 +9,7 @@ import (
 	pb "github.com/Terry-Mao/goim/api/logic"
 	"github.com/Terry-Mao/goim/internal/mq"
 	"github.com/Terry-Mao/goim/internal/mq/kafka"
+	"github.com/Terry-Mao/goim/internal/tracectx"
 	"google.golang.org/protobuf/proto"
 
 	log "github.com/Terry-Mao/goim/pkg/log"
@@ -109,6 +110,7 @@ func (w *DeliveryWorker) UpdateComets(addrs map[string]string) {
 
 // processMessage handles a single message from the MQ.
 func (w *DeliveryWorker) processMessage(ctx context.Context, msg *mq.Message) error {
+	ctx = tracectx.WithTraceID(ctx, tracectx.FromHeaders(msg.Headers))
 	pushMsg := new(pb.PushMsg)
 	if err := proto.Unmarshal(msg.Value, pushMsg); err != nil {
 		log.Errorf("proto.Unmarshal error(%v)", err)

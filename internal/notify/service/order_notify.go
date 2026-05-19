@@ -23,6 +23,16 @@ var (
 	ErrInvalidTransition = errors.New("invalid transition")
 )
 
+// transitionError wraps a model.TransitionError so that both
+// errors.Is(err, ErrInvalidTransition) and errors.As(err, &TransitionError) work.
+type transitionError struct {
+	err error
+}
+
+func (e *transitionError) Error() string        { return e.err.Error() }
+func (e *transitionError) Unwrap() error        { return e.err }
+func (e *transitionError) Is(target error) bool { return target == ErrInvalidTransition }
+
 // AckInput captures optional client ACK metadata.
 type AckInput struct {
 	NotifyID       string `json:"notify_id"`
@@ -30,6 +40,7 @@ type AckInput struct {
 	DeviceID       string `json:"device_id,omitempty"`
 	SessionID      string `json:"session_id,omitempty"`
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	TraceID        string `json:"trace_id,omitempty"`
 }
 
 // DeviceResolver provides the notification-time target device snapshot used by ACK policies.
@@ -54,6 +65,51 @@ type OrderNotifyService struct {
 	deviceResolver      DeviceResolver
 	scenarioMu          sync.RWMutex
 	activeScenarioRunID string
+	rateLimiters        sync.Map // campaignID -> *rateLimiter
+}
+
+type rateLimiter struct {
+	tokens     float64
+	lastRefill time.Time
+	mu         sync.Mutex
+	ratePerSec float64
+}
+
+func (rl *rateLimiter) allow() bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	now := time.Now()
+	elapsed := now.Sub(rl.lastRefill).Seconds()
+	rl.tokens += elapsed * rl.ratePerSec
+	if rl.tokens > rl.ratePerSec {
+		rl.tokens = rl.ratePerSec
+	}
+	rl.lastRefill = now
+	if rl.tokens >= 1.0 {
+		rl.tokens -= 1.0
+		return true
+	}
+	return false
+}
+
+func (s *OrderNotifyService) tryAcquireCampaignToken(campaignID string, rateLimit int) bool {
+	if rateLimit <= 0 {
+		return true
+	}
+	rl := &rateLimiter{
+		tokens:     float64(rateLimit),
+		lastRefill: time.Now(),
+		ratePerSec: float64(rateLimit),
+	}
+	actual, _ := s.rateLimiters.LoadOrStore(campaignID, rl)
+	limiter := actual.(*rateLimiter)
+	// Update rate if it changed
+	if int(limiter.ratePerSec) != rateLimit {
+		limiter.mu.Lock()
+		limiter.ratePerSec = float64(rateLimit)
+		limiter.mu.Unlock()
+	}
+	return limiter.allow()
 }
 
 // StatsCollector tracks realtime and legacy aggregate platform metrics.
@@ -104,6 +160,12 @@ func (s *OrderNotifyService) Close() error {
 // Store exposes the backing store for focused tests.
 func (s *OrderNotifyService) Store() *store.SQLStore {
 	return s.store
+}
+
+// FindNotifyIDByMsgID looks up a notification by IM message ID.
+// Used by AckBridgeConsumer to bridge IM-layer ACKs to notification ACKs.
+func (s *OrderNotifyService) FindNotifyIDByMsgID(msgID string) (string, error) {
+	return s.store.FindNotifyIDByMsgID(msgID)
 }
 
 // SetDeviceResolver installs a target device source for primary/all-device ACK policies.
@@ -187,8 +249,8 @@ func (s *OrderNotifyService) ChangeOrderStatusIdempotent(orderID string, newStat
 	if err != nil {
 		return nil, nil, err
 	}
-	if !model.ValidTransition(order.Status, newStatus) {
-		return nil, nil, fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, order.Status, newStatus)
+	if err := model.ValidTransition(order.Status, newStatus); err != nil {
+		return nil, nil, &transitionError{err: err}
 	}
 
 	now := time.Now()
@@ -367,6 +429,90 @@ func (s *OrderNotifyService) ResolveDLQ(id, user, resolution string) error {
 	return s.store.ResolveDLQ(id, user, resolution)
 }
 
+func (s *OrderNotifyService) GetNotificationTrace(notifyID string) (*model.NotificationTrace, error) {
+	return s.store.GetNotificationTrace(notifyID)
+}
+
+func (s *OrderNotifyService) GetOrderTimeline(orderID string) (*model.OrderTimeline, error) {
+	return s.store.GetOrderTimeline(orderID)
+}
+
+func (s *OrderNotifyService) BusinessSLA(window time.Duration, businessType, deliveryPath string) (model.BusinessSLAMetrics, error) {
+	if window <= 0 {
+		window = 24 * time.Hour
+	}
+	until := time.Now()
+	return s.store.BusinessSLA(until.Add(-window), until, businessType, deliveryPath)
+}
+
+func (s *OrderNotifyService) ReplayDLQWithNote(id, user, note string) (*model.NotificationDLQ, error) {
+	return s.store.ReplayDLQWithNote(id, user, note)
+}
+
+func (s *OrderNotifyService) ResolveDLQWithNote(id, user, resolution, note string) (*model.NotificationDLQ, error) {
+	return s.store.ResolveDLQWithNote(id, user, resolution, note)
+}
+
+func (s *OrderNotifyService) BulkReplayDLQ(filter model.DLQBulkFilter, user, note string) (model.DLQBulkResult, error) {
+	return s.store.BulkReplayDLQ(filter, user, note)
+}
+
+func (s *OrderNotifyService) BulkResolveDLQ(filter model.DLQBulkFilter, user, resolution, note string) (model.DLQBulkResult, error) {
+	return s.store.BulkResolveDLQ(filter, user, resolution, note)
+}
+
+func (s *OrderNotifyService) CreateReplayApprovalRequest(req *model.ReplayApprovalRequest) error {
+	return s.store.CreateReplayApprovalRequest(req)
+}
+
+func (s *OrderNotifyService) GetReplayApprovalRequest(id string) (*model.ReplayApprovalRequest, error) {
+	return s.store.GetReplayApprovalRequest(id)
+}
+
+func (s *OrderNotifyService) ListReplayApprovalRequests(status string, limit int) ([]*model.ReplayApprovalRequest, error) {
+	return s.store.ListReplayApprovalRequests(status, limit)
+}
+
+func (s *OrderNotifyService) UpdateReplayApprovalStatus(id, status, approver, note string) (*model.ReplayApprovalRequest, error) {
+	return s.store.UpdateReplayApprovalStatus(id, status, approver, note)
+}
+
+func (s *OrderNotifyService) ExecuteReplayApprovalRequest(id, operator string) (*model.ReplayApprovalRequest, error) {
+	return s.store.ExecuteReplayApprovalRequest(id, operator)
+}
+
+func (s *OrderNotifyService) ImportCampaignAudience(campaignID, name string, definition map[string]string, targetUIDs []string, batchSize int) (*model.CampaignAudience, []*model.CampaignAudienceBatch, error) {
+	return s.store.ImportCampaignAudience(campaignID, name, definition, targetUIDs, batchSize)
+}
+
+func (s *OrderNotifyService) ListCampaignAudienceTargets(audienceID string, statuses []string, limit int) ([]*model.CampaignAudienceTarget, error) {
+	return s.store.ListCampaignAudienceTargets(audienceID, statuses, limit)
+}
+
+func (s *OrderNotifyService) ListCampaignAudienceBatches(audienceID string) ([]*model.CampaignAudienceBatch, error) {
+	return s.store.ListCampaignAudienceBatches(audienceID)
+}
+
+func (s *OrderNotifyService) MarkCampaignAudienceTargetCreated(audienceID, userID, notifyID string) error {
+	return s.store.MarkCampaignAudienceTargetCreated(audienceID, userID, notifyID)
+}
+
+func (s *OrderNotifyService) RetryCampaignAudienceBatch(batchID string) error {
+	return s.store.RetryCampaignAudienceBatch(batchID)
+}
+
+func (s *OrderNotifyService) ListDLQFiltered(filter model.DLQBulkFilter) ([]*model.NotificationDLQ, error) {
+	return s.store.ListDLQFiltered(filter)
+}
+
+func (s *OrderNotifyService) ListRecoveryAuditsByDLQ(dlqID string) ([]*model.NotificationRecoveryAudit, error) {
+	return s.store.ListRecoveryAuditsByDLQ(dlqID)
+}
+
+func (s *OrderNotifyService) ListRecoveryAudits(filter model.RecoveryAuditFilter) ([]*model.NotificationRecoveryAudit, error) {
+	return s.store.ListRecoveryAudits(filter)
+}
+
 func (s *OrderNotifyService) createNotification(userID string, nType model.NotifyType, orderID string, status model.OrderStatus, extra map[string]string, idempotencyKey string) *model.Notification {
 	title, content := statusNotification(string(status), orderID, extra)
 	now := time.Now()
@@ -390,6 +536,7 @@ func (s *OrderNotifyService) createNotification(userID string, nType model.Notif
 		BusinessAckStatus: "pending",
 		IdempotencyKey:    idempotencyKey,
 		ScenarioRunID:     s.currentScenarioRunID(),
+		TraceID:           generateTraceID(),
 	}
 	s.applyDeviceTargets(notif)
 	return notif
@@ -397,6 +544,7 @@ func (s *OrderNotifyService) createNotification(userID string, nType model.Notif
 
 func (s *OrderNotifyService) createOutbox(notif *model.Notification) (*model.NotificationOutbox, error) {
 	payload := BuildNotificationJSON(string(notif.Type), notif.Title, notif.Content, notif.NotifyID, notif.OrderID)
+	payload["trace_id"] = nonEmptyString(notif.TraceID, notif.NotifyID)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
@@ -406,24 +554,27 @@ func (s *OrderNotifyService) createOutbox(notif *model.Notification) (*model.Not
 		now = time.Now()
 	}
 	return &model.NotificationOutbox{
-		OutboxID:      generateOutboxID(),
-		NotifyID:      notif.NotifyID,
-		UserID:        notif.UserID,
-		OrderID:       notif.OrderID,
-		BusinessType:  notif.BusinessType,
-		EventType:     notif.EventType,
-		PayloadJSON:   string(body),
-		Priority:      notif.Priority,
-		TTLSeconds:    notif.TTLSeconds,
-		Status:        "pending",
-		ScenarioRunID: notif.ScenarioRunID,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		OutboxID:             generateOutboxID(),
+		NotifyID:             notif.NotifyID,
+		UserID:               notif.UserID,
+		OrderID:              notif.OrderID,
+		BusinessType:         notif.BusinessType,
+		EventType:            notif.EventType,
+		PayloadJSON:          string(body),
+		Priority:             notif.Priority,
+		TTLSeconds:           notif.TTLSeconds,
+		Status:               "pending",
+		ScenarioRunID:        notif.ScenarioRunID,
+		TraceID:              nonEmptyString(notif.TraceID, notif.NotifyID),
+		CompensationStrategy: string(policy.Resolve(notif.BusinessType, notif.EventType).CompensationStrategy),
+		CreatedAt:            now,
+		UpdatedAt:            now,
 	}, nil
 }
 
 func (s *OrderNotifyService) sendNotification(notif *model.Notification) {
 	payload := BuildNotificationJSON(string(notif.Type), notif.Title, notif.Content, notif.NotifyID, notif.OrderID)
+	payload["trace_id"] = nonEmptyString(notif.TraceID, notif.NotifyID)
 	startedAt := time.Now()
 	finishedAt := startedAt
 	channel := "logic_push"
@@ -460,6 +611,7 @@ func (s *OrderNotifyService) sendNotification(notif *model.Notification) {
 		Target:       target,
 		Status:       attemptStatus,
 		ErrorMessage: errMsg,
+		TraceID:      nonEmptyString(notif.TraceID, notif.NotifyID),
 		StartedAt:    startedAt,
 		FinishedAt:   &finishedAt,
 	})
@@ -510,6 +662,7 @@ func (s *OrderNotifyService) SendCustomNotificationIdempotent(userID string, nTy
 		BusinessAckStatus: "pending",
 		IdempotencyKey:    idempotencyKey,
 		ScenarioRunID:     s.currentScenarioRunID(),
+		TraceID:           generateTraceID(),
 	}
 	s.applyDeviceTargets(notif)
 	outbox, err := s.createOutbox(notif)
@@ -561,6 +714,7 @@ func (s *OrderNotifyService) createFlashSaleNotificationForTarget(userID, campai
 		ExpectedAckCount:  p.ExpectedAckCount,
 		BusinessAckStatus: "pending",
 		ScenarioRunID:     s.currentScenarioRunID(),
+		TraceID:           generateTraceID(),
 	}
 	s.applyDeviceTargets(notif)
 	outbox, err := s.createOutbox(notif)
@@ -628,6 +782,7 @@ func (s *OrderNotifyService) RecordAckIdempotent(input AckInput, idempotencyKey 
 		DeviceID:  input.DeviceID,
 		SessionID: input.SessionID,
 		LatencyMs: latencyMs,
+		TraceID:   nonEmptyString(input.TraceID, notif.TraceID),
 		CreatedAt: ackAt,
 	}
 	recorded, err := s.store.RecordAckWithIdempotency(ack, "ack", idempotencyKey, "notification_ack", input.NotifyID, nil)
@@ -801,6 +956,7 @@ var (
 	outboxSeq   int64
 	dlqSeq      int64
 	scenarioSeq int64
+	traceSeq    int64
 )
 
 func generateOrderID() string {
@@ -841,6 +997,11 @@ func generateDLQID() string {
 func generateScenarioID() string {
 	seq := atomic.AddInt64(&scenarioSeq, 1)
 	return fmt.Sprintf("SCN-%d-%06d", time.Now().UnixNano(), seq)
+}
+
+func generateTraceID() string {
+	seq := atomic.AddInt64(&traceSeq, 1)
+	return fmt.Sprintf("TRC-%d-%06d", time.Now().UnixNano(), seq)
 }
 
 func ratio(part, total int64) float64 {

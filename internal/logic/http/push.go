@@ -1,11 +1,11 @@
 package http
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"strconv"
 
+	"github.com/Terry-Mao/goim/internal/tracectx"
 	"github.com/gin-gonic/gin"
 )
 
@@ -24,7 +24,8 @@ func (s *Server) pushKeys(c *gin.Context) {
 		errors(c, RequestErr, err.Error())
 		return
 	}
-	msgIDs, err := s.logic.PushKeys(context.TODO(), arg.Op, arg.Keys, msg)
+	ctx := tracectx.WithTraceID(tracectx.WithHTTPTrace(c.Request.Context(), c.Request), tracectx.FromJSONPayload(msg))
+	msgIDs, err := s.logic.PushKeys(ctx, arg.Op, arg.Keys, msg)
 	if err != nil {
 		result(c, nil, RequestErr)
 		return
@@ -47,7 +48,8 @@ func (s *Server) pushMids(c *gin.Context) {
 		errors(c, RequestErr, err.Error())
 		return
 	}
-	results, err := s.logic.PushMidsDetailed(context.TODO(), arg.Op, arg.Mids, msg)
+	ctx := tracectx.WithTraceID(tracectx.WithHTTPTrace(c.Request.Context(), c.Request), tracectx.FromJSONPayload(msg))
+	results, err := s.logic.PushMidsDetailed(ctx, arg.Op, arg.Mids, msg)
 	if err != nil {
 		errors(c, ServerErr, err.Error())
 		return
@@ -79,7 +81,8 @@ func (s *Server) pushOffline(c *gin.Context) {
 	seqStr := c.DefaultQuery("seq", "0")
 	seq, _ := strconv.ParseInt(seqStr, 10, 64)
 	msgID := s.logic.GenerateMsgID()
-	if err := s.logic.PushToUser(context.TODO(), msgID, mid, int32(op), msg, seq); err != nil {
+	ctx := tracectx.WithTraceID(tracectx.WithHTTPTrace(c.Request.Context(), c.Request), tracectx.FromJSONPayload(msg))
+	if err := s.logic.PushToUser(ctx, msgID, mid, int32(op), msg, seq); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -103,7 +106,8 @@ func (s *Server) pushRoom(c *gin.Context) {
 		errors(c, RequestErr, err.Error())
 		return
 	}
-	msgID, err := s.logic.PushRoom(c, arg.Op, arg.Type, arg.Room, msg)
+	ctx := tracectx.WithTraceID(tracectx.WithHTTPTrace(c.Request.Context(), c.Request), tracectx.FromJSONPayload(msg))
+	msgID, err := s.logic.PushRoom(ctx, arg.Op, arg.Type, arg.Room, msg)
 	if err != nil {
 		errors(c, ServerErr, err.Error())
 		return
@@ -126,7 +130,8 @@ func (s *Server) pushAll(c *gin.Context) {
 		errors(c, RequestErr, err.Error())
 		return
 	}
-	msgID, err := s.logic.PushAll(c, arg.Op, arg.Speed, msg)
+	ctx := tracectx.WithTraceID(tracectx.WithHTTPTrace(c.Request.Context(), c.Request), tracectx.FromJSONPayload(msg))
+	msgID, err := s.logic.PushAll(ctx, arg.Op, arg.Speed, msg)
 	if err != nil {
 		errors(c, ServerErr, err.Error())
 		return

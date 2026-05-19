@@ -227,7 +227,49 @@ The Order Notification Platform now uses a durable outbox pipeline for reliable 
 - Scenario runs are available at `POST /api/scenarios`, `GET /api/scenarios/:id`, `POST /api/scenarios/:id/stop`, and `GET /api/scenarios/:id/events`; legacy `/api/simulate/*` endpoints remain compatible.
 - `/api/platform/stats` still returns the legacy dashboard fields and now also includes `delivery_path_detail`, retry/outbox/DLQ counts, notification type counts, and ACK policy satisfaction rate. `logic_push` is reported separately and is not counted as Kafka fallback.
 
-Phase 3 work remains for OpenTelemetry traces, a management UI, complex campaign audiences, and real cross-service delivery path feedback.
+### Order Notification Pipeline Completion Notes
+
+Phase status:
+
+- Phase 1 and Phase 2 are complete.
+- Phase 3 is complete for notification trace, order timeline, SLA, DLQ recovery, bulk recovery, recovery audit, and dashboard SLA/DLQ/trace integration.
+- Phase 4 has production-ready propagation hooks and governance baselines: trace/correlation propagation, Prometheus circuit breaker metrics, replay approvals, throttled recovery execution, and imported campaign audiences. Full OTLP span exporting and managed Grafana dashboards remain external deployment work.
+
+Trace propagation:
+
+- Notify persists `trace_id` on notifications, outbox rows, attempts, DLQ rows, and ACK rows when available.
+- PushClient sends `X-Trace-ID` and `X-Correlation-ID` to Logic. Logic carries the trace in request context, Router writes it to MQ headers, Kafka consumers restore it into context, and ACK publication includes `trace_id` in payload/headers.
+- Operator APIs expose trace data through `/api/notifications/:notify_id/trace`, `/api/orders/:order_id/timeline`, attempts, DLQ records, and ACK records.
+
+Prometheus metrics and alert examples:
+
+- `/metrics` exposes `goim_notify_push_circuit_breaker_state{state="closed|open|half_open"}`, `goim_notify_push_circuit_breaker_open_total`, `goim_notify_push_circuit_breaker_failures`, and `goim_notify_push_circuit_breaker_blocked_total`.
+- Alert examples:
+  - `goim_notify_push_circuit_breaker_state{state="open"} == 1` for 5 minutes.
+  - `increase(goim_notify_push_circuit_breaker_open_total[10m]) > 3`.
+  - `rate(goim_logic_push_total{status="failed"}[5m]) > 10`.
+
+Replay approval and throttling:
+
+- Large bulk replay/resolve requests over `GOIM_REPLAY_APPROVAL_THRESHOLD` (default `100`) create a pending approval instead of executing immediately.
+- Approval APIs: `POST /api/recovery/replay-requests`, `GET /api/recovery/replay-requests`, `GET /api/recovery/replay-requests/:id`, `PATCH /api/recovery/replay-requests/:id/approve`, `PATCH /api/recovery/replay-requests/:id/reject`, `PATCH /api/recovery/replay-requests/:id/cancel`, and `POST /api/recovery/replay-requests/:id/execute`.
+- Requests preserve operator, approver, filter, note, resolution, matched count, threshold, throttle rate, and execution result.
+
+Campaign audience workflow:
+
+- Imported audience snapshots are stored with target rows and batch records.
+- APIs: `POST /api/campaigns/:id/audience/import`, `GET /api/campaigns/:id/audiences/:audience_id/targets`, `GET /api/campaigns/:id/audiences/:audience_id/batches`, and `POST /api/campaigns/:id/audiences/:audience_id/batches/:batch_id/retry`.
+- `POST /api/flash-sale/notify` accepts `audience_id`; when supplied, the targeted flash sale uses the imported audience snapshot. Existing `target_uids: []` room-level broadcast semantics are unchanged.
+
+Local test prerequisites:
+
+- Unit tests that require MySQL skip unless `GOIM_NOTIFY_MYSQL_DSN` is set.
+- Logic DAO and chain integration tests are gated by `GOIM_ENABLE_INFRA_TESTS=1` because they construct real Kafka/Redis clients.
+- Full integration runs need MySQL, Kafka, and Redis available. Without those services, use the focused suites:
+  - `go test ./internal/notify/...`
+  - `go test ./internal/router/...`
+  - `go test ./internal/logic/service ./internal/logic/http ./internal/mq/...`
+  - `go test ./internal/worker/...`
 
 ## 压测数据
 
@@ -303,7 +345,7 @@ goim/
 | Job | `cmd/job/job-example.toml` |
 | Notify | `cmd/notify-server/notify-example.toml` |
 
-Notify Server uses MySQL as the persistence backend. `cmd/notify-server/notify-example.toml` is configured for MySQL:
+Notify Server supports both MySQL and SQLite. `cmd/notify-server/notify-example.toml` is configured for production-like MySQL:
 
 ```toml
 [storage]
@@ -311,18 +353,67 @@ driver = "mysql"
 dsn = "goim:goim@tcp(127.0.0.1:3306)/goim_notify?charset=utf8mb4&parseTime=true&loc=Local"
 ```
 
-Create the `goim_notify` database before starting Notify Server. The schema is initialized on startup and persists orders, status events, notifications, delivery attempts, ACK receipts, and idempotency keys.
+Create the `goim_notify` database before starting Notify Server. The schema is initialized on startup and persists orders, status events, notifications, outbox rows, delivery attempts, ACK receipts, DLQ rows, recovery audit records, scenario runs, and idempotency keys.
 
 ```sql
 CREATE DATABASE goim_notify CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-Tests require a running MySQL instance. Enable them with:
+For local SQLite development, use:
+
+```toml
+[storage]
+driver = "sqlite"
+dsn = "target/notify.db"
+```
+
+The default unit tests use SQLite. Optional MySQL integration tests can be enabled with:
 
 ```bash
 GOIM_NOTIFY_MYSQL_DSN='goim:goim@tcp(127.0.0.1:3306)/goim_notify?charset=utf8mb4&parseTime=true&loc=Local' \
   go test ./internal/notify/...
 ```
+
+If you do not already have MySQL running locally, start a disposable test database with Docker:
+
+```bash
+docker run --name goim-notify-mysql -e MYSQL_ROOT_PASSWORD=root \
+  -e MYSQL_DATABASE=goim_notify -e MYSQL_USER=goim -e MYSQL_PASSWORD=goim \
+  -p 3306:3306 -d mysql:8.4
+
+GOIM_NOTIFY_MYSQL_DSN='goim:goim@tcp(127.0.0.1:3306)/goim_notify?charset=utf8mb4&parseTime=true&loc=Local' \
+  go test ./internal/notify/store -run MySQL -v
+```
+
+### Notify Server Phase 3 Operations APIs
+
+The order notification pipeline now exposes business-grade operational views:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/notifications/:notify_id/trace` | Full notification trace: metadata, business reference, outbox, attempts, delivery path, retries, DLQ, ACKs, and ACK policy status |
+| GET | `/api/orders/:order_id/timeline` | Complete order timeline with status changes, notifications, attempts, ACK events, and DLQ events |
+| GET | `/api/platform/sla?window=24h` | Business SLA metrics: delivery/ACK/DLQ/retry rates, P95/P99 latency, failure reason ranking, DLQ reason ranking, and retry pressure by business type |
+| GET | `/api/dlq?resolved=false&reason=&business_type=&older_than_seconds=&operator=` | DLQ operations list with business filters and latest recovery audit per item |
+| GET | `/api/dlq/:id/audits` | Recovery audit history for one DLQ item |
+| GET | `/api/recovery/audits?operator=&action=&business_type=&since=&until=&limit=` | Operator recovery audit history across DLQ items |
+| POST | `/api/dlq/:id/replay` | Replay one DLQ item and audit the operator action |
+| POST | `/api/dlq/:id/resolve` | Resolve one DLQ item with notes and audit |
+| POST | `/api/dlq/bulk/replay` | Bulk replay DLQ items by reason, business type, age, and limit |
+| POST | `/api/dlq/bulk/resolve` | Bulk resolve DLQ items with resolution notes |
+
+Recovery APIs accept `operator`/`resolved_by` in the JSON body or `X-Operator` in the request header. If neither is supplied, the operator is recorded as `api`. Recovery audit responses include `audit_id`, `action`, `operator`, `dlq_id`, `notify_id`, `outbox_id`, `business_type`, `reason`, `resolution`, `note`, `before_status`, `after_status`, and `created_at`.
+
+Trace readiness:
+- `trace_id` is persisted on notifications, outbox rows, delivery attempts, and DLQ rows.
+- Trace IDs are returned in notification traces, order timeline events, delivery attempts, and DLQ records.
+- The current phase provides correlation data and propagation hooks; full OpenTelemetry propagation across Notify, Logic, Router, Job, and ACK reporting remains a follow-up.
+
+Operational policy summary:
+- Retry uses the notification policy max retry count, exponential backoff, outbox locking, and terminal DLQ movement for permanent or exhausted failures.
+- ACK policy status is business-facing: `none` and `best_effort` are satisfied immediately; `any_device`, `all_devices`, and `primary_device` depend on recorded device ACKs.
+- Targeted flash-sale notifications create per-user notification/outbox rows. Broadcast flash-sale notifications create one reliable room-level outbox row for `room:flash_sale_all`; they do not provide per-user ACK coverage.
+- Common recovery playbook: check `/api/platform/sla`, inspect the notification trace, replay transient DLQ reasons after Logic recovers, resolve permanent invalid payload or bad target failures with notes, and use bulk actions only with narrow filters.
 
 ## 业务场景
 

@@ -54,4 +54,34 @@ var (
 		Name:      "retry_total",
 		Help:      "Total retry attempts",
 	}, []string{"result"})
+
+	// NotifyPushCircuitBreakerState exposes the PushClient circuit breaker state.
+	// The active state label is set to 1 and the inactive states are set to 0.
+	NotifyPushCircuitBreakerState = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "push_circuit_breaker_state",
+		Help:      "PushClient circuit breaker state, labelled closed/open/half_open",
+	}, []string{"state"})
+
+	NotifyPushCircuitBreakerOpenTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "push_circuit_breaker_open_total",
+		Help:      "Total number of times the PushClient circuit breaker opened",
+	})
+
+	NotifyPushCircuitBreakerFailures = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "push_circuit_breaker_failures",
+		Help:      "Current consecutive PushClient circuit breaker failure count",
+	})
+
+	NotifyPushCircuitBreakerBlockedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "push_circuit_breaker_blocked_total",
+		Help:      "Total PushClient requests blocked while the circuit breaker is open",
+	})
 )

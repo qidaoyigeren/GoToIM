@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/Terry-Mao/goim/internal/notify/model"
 	"github.com/Terry-Mao/goim/internal/notify/service"
 	"github.com/Terry-Mao/goim/internal/notify/store"
 	"github.com/gin-gonic/gin"
@@ -17,6 +18,15 @@ func idempotencyKey(c *gin.Context, bodyKey string) string {
 }
 
 func writeServiceError(c *gin.Context, err error) {
+	var te *model.TransitionError
+	if errors.As(err, &te) {
+		c.JSON(http.StatusConflict, gin.H{
+			"code":    409,
+			"error":   "invalid_transition",
+			"details": te,
+		})
+		return
+	}
 	switch {
 	case errors.Is(err, service.ErrOrderNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"code": -404, "message": "order not found"})

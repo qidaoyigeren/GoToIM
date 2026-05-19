@@ -16,7 +16,7 @@ import (
 	"github.com/Terry-Mao/goim/internal/notify/store"
 )
 
-func newTestOrderService(t *testing.T) *OrderNotifyService {
+func openMySQLTestStore(t *testing.T) *store.SQLStore {
 	t.Helper()
 	dsn := os.Getenv("GOIM_NOTIFY_MYSQL_DSN")
 	if dsn == "" {
@@ -24,8 +24,15 @@ func newTestOrderService(t *testing.T) *OrderNotifyService {
 	}
 	st, err := store.Open(dsn)
 	if err != nil {
-		t.Fatalf("open mysql store: %v", err)
+		t.Fatalf("Open: %v", err)
 	}
+	return st
+}
+
+func newTestOrderService(t *testing.T) *OrderNotifyService {
+	t.Helper()
+	st := openMySQLTestStore(t)
+	t.Cleanup(func() { _ = st.Close() })
 	svc := NewOrderNotifyServiceWithStore(nil, st)
 	t.Cleanup(func() { _ = svc.Close() })
 	return svc
@@ -500,8 +507,8 @@ func TestScenarioRunStatsAreIsolatedByRunID(t *testing.T) {
 	if got2.DeliveryPathDetail.Failed != 1 || got2.DeliveryPathDetail.GrpcDirect != 0 {
 		t.Fatalf("run2 delivery detail = %+v", got2.DeliveryPathDetail)
 	}
-	if got1.LatencyP95Ms <= 0 || got1.LatencyP99Ms <= 0 {
-		t.Fatalf("run1 latency p95=%f p99=%f, want positive", got1.LatencyP95Ms, got1.LatencyP99Ms)
+	if got1.P95LatencyMs <= 0 || got1.P99LatencyMs <= 0 {
+		t.Fatalf("run1 latency p95=%f p99=%f, want positive", got1.P95LatencyMs, got1.P99LatencyMs)
 	}
 	if len(got1.RecentEvents) == 0 || len(got2.RecentEvents) == 0 {
 		t.Fatalf("recent events run1=%d run2=%d, want non-empty", len(got1.RecentEvents), len(got2.RecentEvents))

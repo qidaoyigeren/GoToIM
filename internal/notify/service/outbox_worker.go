@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/Terry-Mao/goim/api/protocol"
 	"github.com/Terry-Mao/goim/internal/notify/model"
 	"github.com/Terry-Mao/goim/internal/notify/policy"
+	"github.com/Terry-Mao/goim/internal/tracectx"
 )
 
 // OutboxWorkerConfig controls durable delivery polling.
@@ -37,11 +39,13 @@ func DefaultOutboxWorkerConfig() OutboxWorkerConfig {
 
 // OutboxWorker asynchronously delivers notification_outbox rows.
 type OutboxWorker struct {
-	svc      *OrderNotifyService
-	cfg      OutboxWorkerConfig
-	workerID string
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
+	svc             *OrderNotifyService
+	cfg             OutboxWorkerConfig
+	workerID        string
+	stopCh          chan struct{}
+	wg              sync.WaitGroup
+	cleanupInterval time.Duration
+	lastCleanup     time.Time
 }
 
 // NewOutboxWorker creates a worker for the order notification service.
@@ -59,10 +63,11 @@ func NewOutboxWorker(svc *OrderNotifyService, cfg OutboxWorkerConfig) *OutboxWor
 		cfg.MaxRetries = 5
 	}
 	return &OutboxWorker{
-		svc:      svc,
-		cfg:      cfg,
-		workerID: fmt.Sprintf("notify-outbox-%d", time.Now().UnixNano()),
-		stopCh:   make(chan struct{}),
+		svc:             svc,
+		cfg:             cfg,
+		workerID:        fmt.Sprintf("notify-outbox-%d", time.Now().UnixNano()),
+		stopCh:          make(chan struct{}),
+		cleanupInterval: 10 * time.Minute,
 	}
 }
 
@@ -78,6 +83,14 @@ func (w *OutboxWorker) Start() {
 		defer ticker.Stop()
 		for {
 			_ = w.ProcessOnce(context.Background())
+			if time.Since(w.lastCleanup) > w.cleanupInterval {
+				if deleted, err := w.svc.store.CleanupStaleIdempotencyKeys(24 * time.Hour); err != nil {
+					log.Printf("idempotency key cleanup failed: %v", err)
+				} else if deleted > 0 {
+					log.Printf("cleaned up %d stale idempotency keys", deleted)
+				}
+				w.lastCleanup = time.Now()
+			}
 			select {
 			case <-ticker.C:
 			case <-w.stopCh:
@@ -109,6 +122,8 @@ func (w *OutboxWorker) ProcessOnce(ctx context.Context) error {
 
 func (s *OrderNotifyService) processOutbox(ctx context.Context, outbox *model.NotificationOutbox, workerMaxRetries int64) error {
 	now := time.Now()
+	traceID := nonEmptyString(outbox.TraceID, outbox.NotifyID)
+	ctx = tracectx.WithTraceID(ctx, traceID)
 	maxRetries := workerMaxRetries
 	p := policy.Resolve(outbox.BusinessType, outbox.EventType)
 	if p.MaxRetries > 0 && p.MaxRetries < maxRetries {
@@ -117,6 +132,25 @@ func (s *OrderNotifyService) processOutbox(ctx context.Context, outbox *model.No
 	if outbox.TTLSeconds > 0 && now.After(outbox.CreatedAt.Add(time.Duration(outbox.TTLSeconds)*time.Second)) {
 		return s.moveOutboxTerminal(outbox, "expired", "ttl_expired", "notification ttl expired", nil)
 	}
+
+	// Check campaign status — skip if paused or cancelled
+	if outbox.OrderID != "" && outbox.BusinessType == "flash_sale" {
+		campaign, err := s.store.GetCampaign(outbox.OrderID)
+		if err == nil {
+			if campaign.Status == "paused" || campaign.Status == "cancelled" {
+				log.Printf("[outbox] campaign %s is %s, skipping outbox %s", outbox.OrderID, campaign.Status, outbox.OutboxID)
+				return nil
+			}
+			// Campaign rate limiting
+			if campaign.RateLimit > 0 {
+				if !s.tryAcquireCampaignToken(outbox.OrderID, campaign.RateLimit) {
+					log.Printf("[outbox] campaign %s rate limited (limit=%d), skipping outbox %s", outbox.OrderID, campaign.RateLimit, outbox.OutboxID)
+					return nil
+				}
+			}
+		}
+	}
+
 	if s.pushClient == nil {
 		err := &PushError{Type: "connection_refused", Class: "transient", Message: "push client is not configured", Retryable: true}
 		return s.handleOutboxFailure(outbox, err, maxRetries)
@@ -134,6 +168,7 @@ func (s *OrderNotifyService) processOutbox(ctx context.Context, outbox *model.No
 			Path:         "failed",
 			ErrorCode:    "invalid_payload",
 			ErrorMessage: err.Error(),
+			TraceID:      nonEmptyString(outbox.TraceID, outbox.NotifyID),
 			StartedAt:    started,
 			FinishedAt:   ptrTime(time.Now()),
 		})
@@ -152,6 +187,7 @@ func (s *OrderNotifyService) processOutbox(ctx context.Context, outbox *model.No
 				TargetNode: outbox.UserID,
 				LatencyMs:  float64(time.Since(started).Microseconds()) / 1000.0,
 				AttemptNo:  outbox.RetryCount + 1,
+				TraceID:    traceID,
 			}}
 		}
 	} else if mid, parseErr := strconv.ParseInt(outbox.UserID, 10, 64); parseErr == nil {
@@ -164,6 +200,9 @@ func (s *OrderNotifyService) processOutbox(ctx context.Context, outbox *model.No
 		result := firstDeliveryResult(results)
 		if result.Path == "" {
 			result.Path = "logic_push"
+		}
+		if result.TraceID == "" {
+			result.TraceID = traceID
 		}
 		if result.AttemptNo == 0 {
 			result.AttemptNo = outbox.RetryCount + 1
@@ -186,6 +225,7 @@ func (s *OrderNotifyService) processOutbox(ctx context.Context, outbox *model.No
 			ErrorMessage: result.ErrorMessage,
 			LatencyMs:    result.LatencyMs,
 			AttemptNo:    result.AttemptNo,
+			TraceID:      result.TraceID,
 			StartedAt:    started,
 			FinishedAt:   &finished,
 		}, finished)
@@ -212,6 +252,7 @@ func (s *OrderNotifyService) handleOutboxDeliveryResultFailure(outbox *model.Not
 		ErrorMessage: err.Error(),
 		LatencyMs:    result.LatencyMs,
 		AttemptNo:    nonZeroInt64(result.AttemptNo, nextRetry),
+		TraceID:      nonEmptyString(outbox.TraceID, outbox.NotifyID),
 		StartedAt:    started,
 		FinishedAt:   &finished,
 	}
@@ -221,7 +262,7 @@ func (s *OrderNotifyService) handleOutboxDeliveryResultFailure(outbox *model.Not
 		return s.store.MarkOutboxRetry(outbox.OutboxID, nextRetry, finished.Add(delay), err.Error(), attempt)
 	}
 	s.incrementScenarioRun(outbox.ScenarioRunID, 0, 0, 0, 0, 1, 1)
-	return s.moveOutboxTerminal(outbox, "dlq", pushFailureReason(err), err.Error(), attempt)
+	return s.applyCompensationStrategy(outbox, pushFailureReason(err), err.Error(), attempt)
 }
 
 func (s *OrderNotifyService) handleOutboxFailure(outbox *model.NotificationOutbox, err error, maxRetries int64) error {
@@ -238,6 +279,7 @@ func (s *OrderNotifyService) handleOutboxFailure(outbox *model.NotificationOutbo
 		ErrorMessage: err.Error(),
 		LatencyMs:    0,
 		AttemptNo:    nextRetry,
+		TraceID:      nonEmptyString(outbox.TraceID, outbox.NotifyID),
 		StartedAt:    finished,
 		FinishedAt:   &finished,
 	}
@@ -247,7 +289,46 @@ func (s *OrderNotifyService) handleOutboxFailure(outbox *model.NotificationOutbo
 		return s.store.MarkOutboxRetry(outbox.OutboxID, nextRetry, finished.Add(delay), err.Error(), attempt)
 	}
 	s.incrementScenarioRun(outbox.ScenarioRunID, 0, 0, 0, 0, 1, 1)
-	return s.moveOutboxTerminal(outbox, "dlq", pushFailureReason(err), err.Error(), attempt)
+	return s.applyCompensationStrategy(outbox, pushFailureReason(err), err.Error(), attempt)
+}
+
+func (s *OrderNotifyService) applyCompensationStrategy(outbox *model.NotificationOutbox, reason, lastError string, attempt *model.NotificationAttempt) error {
+	cs := outbox.CompensationStrategy
+	if cs == "" {
+		cs = "retry_then_dlq"
+	}
+	switch cs {
+	case "immediate_dlq":
+		log.Printf("[compensation] outbox %s: immediate_dlq — reason=%s", outbox.OutboxID, reason)
+		return s.moveOutboxTerminal(outbox, "dlq", reason, lastError, attempt)
+	case "retry_then_drop":
+		log.Printf("[compensation] outbox %s: retry_then_drop — reason=%s", outbox.OutboxID, reason)
+		return s.store.MarkOutboxDropped(outbox.OutboxID, lastError, attempt)
+	case "retry_then_alert":
+		log.Printf("[compensation] outbox %s: retry_then_alert — reason=%s", outbox.OutboxID, reason)
+		// Also route to DLQ for operator visibility
+		dlq := &model.NotificationDLQ{
+			DLQID:                generateDLQID(),
+			NotifyID:             outbox.NotifyID,
+			OutboxID:             outbox.OutboxID,
+			UserID:               outbox.UserID,
+			OrderID:              outbox.OrderID,
+			Reason:               reason,
+			LastError:            lastError,
+			PayloadJSON:          outbox.PayloadJSON,
+			RetryCount:           outbox.RetryCount,
+			CompensationStrategy: cs,
+			TraceID:              nonEmptyString(outbox.TraceID, outbox.NotifyID),
+			CreatedAt:            time.Now(),
+		}
+		return s.store.MoveOutboxToDLQ(outbox, dlq, attempt, "dlq")
+	case "retry_then_dlq", "":
+		log.Printf("[compensation] outbox %s: retry_then_dlq — reason=%s", outbox.OutboxID, reason)
+		return s.moveOutboxTerminal(outbox, "dlq", reason, lastError, attempt)
+	default:
+		log.Printf("[compensation] outbox %s: unknown strategy %q, falling back to dlq", outbox.OutboxID, cs)
+		return s.moveOutboxTerminal(outbox, "dlq", reason, lastError, attempt)
+	}
 }
 
 func deliveryResultFailed(result DeliveryResult) bool {
@@ -289,16 +370,18 @@ func attemptStatusForPath(path string) string {
 
 func (s *OrderNotifyService) moveOutboxTerminal(outbox *model.NotificationOutbox, status, reason, lastError string, attempt *model.NotificationAttempt) error {
 	return s.store.MoveOutboxToDLQ(outbox, &model.NotificationDLQ{
-		DLQID:       generateDLQID(),
-		NotifyID:    outbox.NotifyID,
-		OutboxID:    outbox.OutboxID,
-		UserID:      outbox.UserID,
-		OrderID:     outbox.OrderID,
-		Reason:      reason,
-		LastError:   lastError,
-		PayloadJSON: outbox.PayloadJSON,
-		RetryCount:  outbox.RetryCount,
-		CreatedAt:   time.Now(),
+		DLQID:                generateDLQID(),
+		NotifyID:             outbox.NotifyID,
+		OutboxID:             outbox.OutboxID,
+		UserID:               outbox.UserID,
+		OrderID:              outbox.OrderID,
+		Reason:               reason,
+		LastError:            lastError,
+		PayloadJSON:          outbox.PayloadJSON,
+		RetryCount:           outbox.RetryCount,
+		CompensationStrategy: outbox.CompensationStrategy,
+		TraceID:              nonEmptyString(outbox.TraceID, outbox.NotifyID),
+		CreatedAt:            time.Now(),
 	}, attempt, status)
 }
 

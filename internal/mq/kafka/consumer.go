@@ -2,11 +2,13 @@ package kafka
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/IBM/sarama"
 	"github.com/Terry-Mao/goim/internal/mq"
+	"github.com/Terry-Mao/goim/internal/tracectx"
 
 	log "github.com/Terry-Mao/goim/pkg/log"
 )
@@ -109,7 +111,22 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 			}
 		}
 
-		err := h.handler(session.Context(), msg)
+		// Phase 2: TTL expiry check — if expired, route straight to DLQ
+		if expired, reason := checkTTLExpired(msg); expired {
+			log.Warningf("message expired: topic=%s offset=%d reason=%s", raw.Topic, raw.Offset, reason)
+			if h.dlq != nil {
+				dlqMsg := *msg // copy
+				if dlqErr := h.dlq.Send(session.Context(), &dlqMsg, reason); dlqErr != nil {
+					log.Errorf("dlq send for expired msg failed: %v", dlqErr)
+					continue
+				}
+			}
+			session.MarkMessage(raw, "")
+			continue
+		}
+
+		msgCtx := tracectx.WithTraceID(session.Context(), tracectx.FromHeaders(msg.Headers))
+		err := h.handler(msgCtx, msg)
 		if err == nil {
 			session.MarkMessage(raw, "")
 			continue
@@ -134,6 +151,33 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 		// Non-DLQ error: skip offset commit → Kafka redelivers
 	}
 	return nil
+}
+
+// checkTTLExpired returns true if the message has exceeded its TTL.
+// Reads goim_ttl_seconds and goim_created_at_unix_ms headers.
+func checkTTLExpired(msg *mq.Message) (bool, string) {
+	ttlStr := msg.Headers[mq.HeaderTTLSeconds]
+	if ttlStr == "" {
+		return false, ""
+	}
+	ttlSec, err := strconv.ParseInt(ttlStr, 10, 64)
+	if err != nil || ttlSec <= 0 {
+		return false, ""
+	}
+	createdStr := msg.Headers[mq.HeaderCreatedAtUnixMS]
+	createdMS := msg.Timestamp // fallback to Kafka message timestamp
+	if createdStr != "" {
+		if v, err := strconv.ParseInt(createdStr, 10, 64); err == nil && v > 0 {
+			createdMS = v
+		}
+	}
+	nowMS := time.Now().UnixMilli()
+	expireAtMS := createdMS + ttlSec*1000
+	if nowMS > expireAtMS {
+		expiredDurationMS := nowMS - expireAtMS
+		return true, fmt.Sprintf("ttl expired: %ds exceeded by %dms", ttlSec, expiredDurationMS)
+	}
+	return false, ""
 }
 
 // isDeadLetter checks whether the error signals that the message should be

@@ -2,17 +2,20 @@ package notify
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/Terry-Mao/goim/internal/notify/conf"
 	"github.com/Terry-Mao/goim/internal/notify/handler"
+	"github.com/Terry-Mao/goim/internal/notify/policy"
 	"github.com/Terry-Mao/goim/internal/notify/service"
 	"github.com/Terry-Mao/goim/internal/notify/simulator"
 	"github.com/Terry-Mao/goim/internal/notify/store"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Server is the notify HTTP server.
@@ -38,6 +41,18 @@ func New(cfg *conf.Config) *Server {
 	if err != nil {
 		panic(err)
 	}
+
+	// Initialize policy manager with hot-reload support
+	policy.InitPolicyManager("configs/notify_policy.yaml")
+	log.Println("[server] policy manager initialized")
+
+	// Seed default notification templates
+	if err := notifyStore.SeedDefaultTemplates(); err != nil {
+		log.Printf("[server] seed templates warning: %v", err)
+	} else {
+		log.Println("[server] default templates seeded")
+	}
+
 	orderSvc := service.NewOrderNotifyServiceWithStore(pushClient, notifyStore)
 	flashSaleSvc := service.NewFlashSaleService(pushClient, orderSvc.GetStatsCollector())
 	flashSaleSvc.SetOrderService(orderSvc)
@@ -86,16 +101,22 @@ func New(cfg *conf.Config) *Server {
 }
 
 func (s *Server) initRouter() {
+	// Prometheus metrics — independent of /api group
+	s.engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
 	api := s.engine.Group("/api")
 	api.POST("/order/create", s.handler.HandleCreateOrder)
 	api.POST("/order/status-change", s.handler.HandleOrderStatusChange)
 	api.GET("/orders/:order_id", s.handler.HandleGetOrder)
+	api.GET("/orders/:order_id/timeline", s.handler.HandleGetOrderTimeline)
 	api.GET("/orders/user/:uid", s.handler.HandleGetUserOrders)
 	api.POST("/flash-sale/notify", s.handler.HandleCreateFlashSale)
 	api.POST("/logistics/update", s.handler.HandleLogistisUpdate)
 	api.GET("/user/:uid/notifications", s.handler.HandleGetUserNotifications)
 	api.GET("/notifications/:notify_id/attempts", s.handler.HandleListAttempts)
+	api.GET("/notifications/:notify_id/trace", s.handler.HandleNotificationTrace)
 	api.GET("/platform/stats", s.handler.HandleGetPlatformStats)
+	api.GET("/platform/sla", s.handler.HandleGetBusinessSLA)
 	api.POST("/simulate/start", s.handler.HandleSimulateStart)
 	api.POST("/simulate/stop", s.handler.HandleSimulateStop)
 	api.GET("/simulate/status", s.handler.HandleSimulateStatus)
@@ -105,9 +126,33 @@ func (s *Server) initRouter() {
 	api.GET("/scenarios/:id/events", s.handler.HandleScenarioEvents)
 	api.GET("/dlq", s.handler.HandleListDLQ)
 	api.GET("/dlq/:id", s.handler.HandleGetDLQ)
+	api.GET("/dlq/:id/audits", s.handler.HandleDLQAudits)
+	api.POST("/dlq/bulk/replay", s.handler.HandleBulkReplayDLQ)
+	api.POST("/dlq/bulk/resolve", s.handler.HandleBulkResolveDLQ)
 	api.POST("/dlq/:id/replay", s.handler.HandleReplayDLQ)
 	api.POST("/dlq/:id/resolve", s.handler.HandleResolveDLQ)
+	api.GET("/recovery/audits", s.handler.HandleRecoveryAudits)
+	api.GET("/recovery/replay-requests", s.handler.HandleListReplayRequests)
+	api.POST("/recovery/replay-requests", s.handler.HandleCreateReplayRequest)
+	api.GET("/recovery/replay-requests/:id", s.handler.HandleGetReplayRequest)
+	api.PATCH("/recovery/replay-requests/:id/approve", s.handler.HandleApproveReplayRequest)
+	api.PATCH("/recovery/replay-requests/:id/reject", s.handler.HandleRejectReplayRequest)
+	api.PATCH("/recovery/replay-requests/:id/cancel", s.handler.HandleCancelReplayRequest)
+	api.POST("/recovery/replay-requests/:id/execute", s.handler.HandleExecuteReplayRequest)
 	api.POST("/ack", s.handler.HandleACK)
+
+	// Phase 3: Campaign lifecycle
+	api.GET("/campaigns/:id", s.handler.HandleGetCampaign)
+	api.POST("/campaigns/:id/audience/import", s.handler.HandleImportCampaignAudience)
+	api.GET("/campaigns/:id/audiences/:audience_id/targets", s.handler.HandleListCampaignAudienceTargets)
+	api.GET("/campaigns/:id/audiences/:audience_id/batches", s.handler.HandleListCampaignAudienceBatches)
+	api.POST("/campaigns/:id/audiences/:audience_id/batches/:batch_id/retry", s.handler.HandleRetryCampaignAudienceBatch)
+	api.PATCH("/campaigns/:id/pause", s.handler.HandlePauseCampaign)
+	api.PATCH("/campaigns/:id/resume", s.handler.HandleResumeCampaign)
+	api.PATCH("/campaigns/:id/cancel", s.handler.HandleCancelCampaign)
+
+	// Phase 3: Scenario report
+	api.GET("/scenarios/:id/report", s.handler.HandleScenarioReport)
 }
 
 func startStatsRefresher(orderSvc *service.OrderNotifyService, interval time.Duration) (chan struct{}, chan struct{}) {

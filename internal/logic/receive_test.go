@@ -134,6 +134,44 @@ func (m *recvMockMessageDAO) GetOfflineQueueSize(_ context.Context, uid int64) (
 func (m *recvMockMessageDAO) IncrMessageRetryCount(_ context.Context, msgID string) (int64, error) {
 	return 1, nil
 }
+func (m *recvMockMessageDAO) RecordDeviceACK(_ context.Context, msgID, deviceID, sessionID string, ackTime int64) error {
+	return nil
+}
+func (m *recvMockMessageDAO) GetDeviceACKs(_ context.Context, msgID string) (map[string]string, error) {
+	return nil, nil
+}
+
+// Phase 2 mocks
+func (m *recvMockMessageDAO) GetDeviceCursor(_ context.Context, uid int64, deviceID string) (int64, error) {
+	return 0, nil
+}
+func (m *recvMockMessageDAO) SetDeviceCursor(_ context.Context, uid int64, deviceID string, seq int64) error {
+	return nil
+}
+func (m *recvMockMessageDAO) GetOfflineMessagesByDeviceCursor(_ context.Context, uid int64, deviceID string, limit int) ([]string, error) {
+	return nil, nil
+}
+func (m *recvMockMessageDAO) AdvanceDeviceCursor(_ context.Context, uid int64, deviceID string, seq int64) error {
+	return nil
+}
+func (m *recvMockMessageDAO) SetMergeIndex(_ context.Context, uid int64, bizType, bizID, msgID string) error {
+	return nil
+}
+func (m *recvMockMessageDAO) GetMergeIndex(_ context.Context, uid int64, bizType, bizID string) (string, error) {
+	return "", nil
+}
+func (m *recvMockMessageDAO) StoreOfflineMsgPayload(_ context.Context, msgID string, data []byte) error {
+	return nil
+}
+func (m *recvMockMessageDAO) GetOfflineMsgPayload(_ context.Context, msgID string) ([]byte, error) {
+	return nil, nil
+}
+func (m *recvMockMessageDAO) UpdateOfflineMsgPayload(_ context.Context, msgID string, data []byte) error {
+	return nil
+}
+func (m *recvMockMessageDAO) UpdateOfflineMsgTime(_ context.Context, uid int64, msgID string, newSeq float64) error {
+	return nil
+}
 
 type recvMockPushDAO struct {
 	mu        sync.Mutex
@@ -169,7 +207,7 @@ func (m *recvMockPushDAO) BroadcastMsg(_ context.Context, op, speed int32, msg [
 	return nil
 }
 
-func (m *recvMockPushDAO) PublishACK(_ context.Context, msgID string, uid int64, status string) error {
+func (m *recvMockPushDAO) PublishACK(_ context.Context, msgID string, uid int64, status, deviceID, sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.ackCalls = append(m.ackCalls, struct {
