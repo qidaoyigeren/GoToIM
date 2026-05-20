@@ -9,7 +9,7 @@ const config = {
   logicBaseUrl: '/goim',
 
   // Comet WebSocket — direct to comet server in dev, proxied or direct in production
-  wsUrl: import.meta.env.VITE_WS_URL || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/sub`,
+  wsUrl: import.meta.env.VITE_WS_URL || (import.meta.env.DEV ? 'ws://127.0.0.1:3102/sub' : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/sub`),
 
   // Default user for local business scenarios
   defaultUserId: '10001',

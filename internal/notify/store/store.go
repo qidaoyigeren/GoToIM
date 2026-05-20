@@ -2051,28 +2051,100 @@ func buildTimeline(events []*model.OrderStatusEvent, notifs []*model.Notificatio
 func (s *SQLStore) BusinessSLA(since, until time.Time, businessType, deliveryPath string) (model.BusinessSLAMetrics, error) {
 	sinceS, untilS := formatTime(since), formatTime(until)
 	m := model.BusinessSLAMetrics{WindowSeconds: int64(until.Sub(since).Seconds()), Since: since, Until: until}
-	total, _ := s.countWhere(`SELECT COUNT(*) FROM notifications WHERE created_at >= ? AND created_at < ?`, sinceS, untilS)
+
+	notificationWhere := []string{"n.created_at >= ?", "n.created_at < ?"}
+	notificationArgs := []any{sinceS, untilS}
+	if businessType != "" {
+		notificationWhere = append(notificationWhere, "n.business_type = ?")
+		notificationArgs = append(notificationArgs, businessType)
+	}
+	if deliveryPath != "" {
+		notificationWhere = append(notificationWhere, `EXISTS (
+			SELECT 1 FROM notification_attempts a
+			WHERE a.notify_id = n.notify_id AND a.path = ?
+		)`)
+		notificationArgs = append(notificationArgs, deliveryPath)
+	}
+	notificationFilter := strings.Join(notificationWhere, " AND ")
+
+	total, _ := s.countWhere(`SELECT COUNT(*) FROM notifications n WHERE `+notificationFilter, notificationArgs...)
 	m.TotalNotifications = total
-	successful, _ := s.countWhere(`SELECT COUNT(*) FROM notifications WHERE created_at >= ? AND created_at < ? AND status IN ('delivered','acked')`, sinceS, untilS)
+
+	successArgs := append([]any(nil), notificationArgs...)
+	successful, _ := s.countWhere(`SELECT COUNT(*) FROM notifications n WHERE `+notificationFilter+` AND n.status IN ('delivered','acked')`, successArgs...)
 	m.SuccessfulNotifications = successful
 	if total > 0 {
 		m.NotificationSuccessRate = float64(successful) / float64(total)
 	}
-	ackSatisfied, _ := s.countWhere(`SELECT COUNT(*) FROM notifications WHERE created_at >= ? AND created_at < ? AND business_ack_status = 'satisfied'`, sinceS, untilS)
+
+	ackSatisfied, _ := s.countWhere(`SELECT COUNT(*) FROM notifications n WHERE `+notificationFilter+` AND n.business_ack_status = 'satisfied'`, notificationArgs...)
 	m.ACKSatisfiedCount = ackSatisfied
 	if total > 0 {
 		m.ACKSatisfactionRate = float64(ackSatisfied) / float64(total)
 	}
-	dlq, _ := s.countWhere(`SELECT COUNT(*) FROM notification_dlq WHERE created_at >= ? AND created_at < ?`, sinceS, untilS)
+
+	dlqWhere := []string{"d.created_at >= ?", "d.created_at < ?"}
+	dlqArgs := []any{sinceS, untilS}
+	if businessType != "" {
+		dlqWhere = append(dlqWhere, "d.business_type = ?")
+		dlqArgs = append(dlqArgs, businessType)
+	}
+	dlq, _ := s.countWhere(`SELECT COUNT(*) FROM notification_dlq d WHERE `+strings.Join(dlqWhere, " AND "), dlqArgs...)
 	m.DLQCount = dlq
 	if total > 0 {
 		m.DLQRate = float64(dlq) / float64(total)
 	}
-	retried, _ := s.countWhere(`SELECT COUNT(*) FROM notification_attempts WHERE started_at >= ? AND started_at < ? AND attempt_no > 1`, sinceS, untilS)
+
+	attemptWhere := []string{"a.started_at >= ?", "a.started_at < ?"}
+	attemptArgs := []any{sinceS, untilS}
+	if businessType != "" {
+		attemptWhere = append(attemptWhere, "n.business_type = ?")
+		attemptArgs = append(attemptArgs, businessType)
+	}
+	if deliveryPath != "" {
+		attemptWhere = append(attemptWhere, "a.path = ?")
+		attemptArgs = append(attemptArgs, deliveryPath)
+	}
+	attemptFilter := strings.Join(attemptWhere, " AND ")
+	retried, _ := s.countWhere(`SELECT COUNT(*) FROM notification_attempts a JOIN notifications n ON n.notify_id = a.notify_id WHERE `+attemptFilter+` AND a.attempt_no > 1`, attemptArgs...)
 	m.RetriedNotifications = retried
 	if total > 0 {
 		m.RetryRate = float64(retried) / float64(total)
 	}
+
+	deliveryLatencies, err := s.float64Column(`SELECT a.latency_ms
+		FROM notification_attempts a JOIN notifications n ON n.notify_id = a.notify_id
+		WHERE `+attemptFilter+` AND a.latency_ms > 0
+		ORDER BY a.latency_ms ASC`, attemptArgs...)
+	if err != nil {
+		return m, err
+	}
+	m.DeliveryLatencyP95Ms = percentile(deliveryLatencies, 0.95)
+	m.DeliveryLatencyP99Ms = percentile(deliveryLatencies, 0.99)
+
+	ackWhere := []string{"ack.created_at >= ?", "ack.created_at < ?"}
+	ackArgs := []any{sinceS, untilS}
+	if businessType != "" {
+		ackWhere = append(ackWhere, "n.business_type = ?")
+		ackArgs = append(ackArgs, businessType)
+	}
+	if deliveryPath != "" {
+		ackWhere = append(ackWhere, `EXISTS (
+			SELECT 1 FROM notification_attempts a
+			WHERE a.notify_id = ack.notify_id AND a.path = ?
+		)`)
+		ackArgs = append(ackArgs, deliveryPath)
+	}
+	ackLatencies, err := s.float64Column(`SELECT ack.latency_ms
+		FROM notification_acks ack JOIN notifications n ON n.notify_id = ack.notify_id
+		WHERE `+strings.Join(ackWhere, " AND ")+` AND ack.latency_ms > 0
+		ORDER BY ack.latency_ms ASC`, ackArgs...)
+	if err != nil {
+		return m, err
+	}
+	m.ACKLatencyP95Ms = percentile(ackLatencies, 0.95)
+	m.ACKLatencyP99Ms = percentile(ackLatencies, 0.99)
+
 	return m, nil
 }
 
@@ -2495,6 +2567,39 @@ func (s *SQLStore) countWhere(query string, args ...any) (int64, error) {
 		return 0, err
 	}
 	return n, nil
+}
+
+func (s *SQLStore) float64Column(query string, args ...any) ([]float64, error) {
+	rows, err := s.db.QueryContext(context.Background(), query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var values []float64
+	for rows.Next() {
+		var v float64
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		values = append(values, v)
+	}
+	return values, rows.Err()
+}
+
+func percentile(sorted []float64, p float64) float64 {
+	n := len(sorted)
+	if n == 0 {
+		return 0
+	}
+	idx := int(float64(n) * p)
+	if idx >= n {
+		idx = n - 1
+	}
+	if idx < 0 {
+		idx = 0
+	}
+	return sorted[idx]
 }
 
 func scanAck(row scanner) (*model.NotificationAck, error) {

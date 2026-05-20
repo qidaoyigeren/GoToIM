@@ -4,12 +4,10 @@ import OrderScenarioConsole from '@/components/realtime/OrderScenarioConsole'
 import { useConnectionStore } from '@/stores/connectionStore'
 import { useOnlineStore } from '@/stores/onlineStore'
 import { useRealtimeStore } from '@/stores/realtimeStore'
-import { useWebSocket } from '@/websocket/useWebSocket'
 import { Activity, Radio, Server, ShieldCheck, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 export default function RealtimeWorkbenchPage() {
-  useWebSocket()
   const stats = useRealtimeStore((s) => s.stats)
   const onlineStats = useOnlineStore((s) => s.stats)
   const connState = useConnectionStore((s) => s.state)

@@ -9,7 +9,6 @@ import EventStream from '@/components/dashboard/EventStream'
 import AlertCards from '@/components/dashboard/AlertCards'
 import { useOrders } from '@/hooks/useOrders'
 import { useNotifications } from '@/hooks/useNotifications'
-import { useWebSocket } from '@/websocket/useWebSocket'
 import { useOrderStore } from '@/stores/orderStore'
 import { useOnlineStore } from '@/stores/onlineStore'
 import { useRealtimeStore } from '@/stores/realtimeStore'
@@ -22,7 +21,6 @@ const EMPTY_ORDERS: Order[] = []
 export default function DashboardPage() {
   useOrders()
   useNotifications()
-  useWebSocket()
   const orders = useOrderStore((s) => s.orders) ?? EMPTY_ORDERS
   const stats = useRealtimeStore((s) => s.stats)
   const onlineStats = useOnlineStore((s) => s.stats)

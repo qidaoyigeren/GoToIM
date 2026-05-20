@@ -69,8 +69,14 @@ export function parseProto(buf: ArrayBuffer): Proto {
 // JSON body helpers for auth
 export function buildAuthBody(mid: string, key: string, roomId: string, platform: string, deviceId: string, accepts: number[], lastSeq: number): Uint8Array {
   const enc = new TextEncoder()
+  const numericMid = Number(mid)
+
+  if (!Number.isFinite(numericMid)) {
+    throw new Error(`Invalid GoIM auth mid: ${mid}`)
+  }
+
   return enc.encode(JSON.stringify({
-    mid: String(mid),
+    mid: numericMid,
     key,
     room_id: roomId,
     platform,

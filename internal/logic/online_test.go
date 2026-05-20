@@ -35,4 +35,9 @@ func TestOnline(t *testing.T) {
 	ips, conns := lg.OnlineTotal(c)
 	assert.Equal(t, ips, int64(100))
 	assert.Equal(t, conns, int64(200))
+
+	summary := lg.OnlineSummary(c)
+	assert.Equal(t, int64(100), summary.IPCount)
+	assert.Equal(t, int64(200), summary.ConnCount)
+	assert.Equal(t, int64(200), summary.UserCount)
 }

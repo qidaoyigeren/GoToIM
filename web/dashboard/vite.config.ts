@@ -13,11 +13,11 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:3121',
-      '/goim': 'http://localhost:3111',
-      '/metrics': 'http://localhost:3111',
+      '/api': 'http://127.0.0.1:3121',
+      '/goim': 'http://127.0.0.1:3111',
+      '/metrics': 'http://127.0.0.1:3111',
       '/sub': {
-        target: 'ws://localhost:3102',
+        target: 'ws://127.0.0.1:3102',
         ws: true,
       },
     },

@@ -28,6 +28,25 @@ export function useWebSocket() {
     client.setStatusHandler((state) => {
       setConnectionState(state)
       if (state === 'reconnecting') addReconnect()
+      if (state === 'connected') {
+        setSessions([
+          {
+            sid: `ws_${config.defaultUserId}_dashboard`,
+            uid: Number(config.defaultUserId),
+            key: `uid:${config.defaultUserId}`,
+            device_id: 'web-dashboard',
+            platform: 'web',
+            server: 'comet:3109',
+            room_id: 'order_room',
+            online: true,
+            last_hb: Date.now(),
+            created_at: new Date().toISOString(),
+          },
+        ])
+      }
+      if (state === 'disconnected') {
+        setSessions([])
+      }
     })
 
     client.setMessageHandler((event) => {
@@ -63,6 +82,20 @@ export function useWebSocket() {
           const latencyMs = (event.data.latency_ms as number) || 0
           setLatency(latencyMs)
           heartbeat()
+          setSessions([
+            {
+              sid: `ws_${config.defaultUserId}_dashboard`,
+              uid: Number(config.defaultUserId),
+              key: `uid:${config.defaultUserId}`,
+              device_id: 'web-dashboard',
+              platform: 'web',
+              server: 'comet:3109',
+              room_id: 'order_room',
+              online: true,
+              last_hb: Date.now(),
+              created_at: new Date().toISOString(),
+            },
+          ])
           break
         }
         case 'sync':
@@ -88,6 +121,7 @@ export function useWebSocket() {
     client.connect()
 
     return () => {
+      initialized.current = false
       client.disconnect()
     }
   // The client owns a single socket per mounted dashboard shell; reconnect logic is internal.

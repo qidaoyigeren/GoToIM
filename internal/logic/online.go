@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/Terry-Mao/goim/internal/logic/model"
-	log "github.com/Terry-Mao/goim/pkg/log"
 )
 
 var (
@@ -76,25 +75,11 @@ func (l *Logic) OnlineTotal(c context.Context) (int64, int64) {
 func (l *Logic) OnlineSummary(c context.Context) OnlineSummary {
 	ips, conns := l.OnlineTotal(c)
 	delivery := l.router.Stats()
-	summary := OnlineSummary{
+	return OnlineSummary{
 		IPCount:       ips,
 		ConnCount:     conns,
+		UserCount:     conns,
 		DirectPushed:  delivery.Direct,
 		KafkaFallback: delivery.Kafka,
 	}
-
-	userCount, err := l.dao.CountActiveUsers(c)
-	if err != nil {
-		log.Warningf("count active users failed: %v", err)
-	} else {
-		summary.UserCount = userCount
-	}
-
-	offlinePending, err := l.dao.CountOfflinePending(c)
-	if err != nil {
-		log.Warningf("count offline pending failed: %v", err)
-	} else {
-		summary.OfflinePending = offlinePending
-	}
-	return summary
 }
