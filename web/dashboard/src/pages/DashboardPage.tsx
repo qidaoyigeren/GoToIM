@@ -15,12 +15,15 @@ import { useOnlineStore } from '@/stores/onlineStore'
 import { useRealtimeStore } from '@/stores/realtimeStore'
 import { ArrowUpRight, CircleDollarSign, Clock3, ShieldCheck } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import type { Order } from '@/types/order'
+
+const EMPTY_ORDERS: Order[] = []
 
 export default function DashboardPage() {
   useOrders()
   useNotifications()
   useWebSocket()
-  const orders = useOrderStore((s) => s.orders)
+  const orders = useOrderStore((s) => s.orders) ?? EMPTY_ORDERS
   const stats = useRealtimeStore((s) => s.stats)
   const onlineStats = useOnlineStore((s) => s.stats)
 

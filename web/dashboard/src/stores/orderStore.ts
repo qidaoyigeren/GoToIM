@@ -13,7 +13,7 @@ type OrderStoreState = {
 export const useOrderStore = create<OrderStoreState>((set) => ({
   orders: [],
   selectedOrderId: null,
-  setOrders: (orders) => set({ orders }),
+  setOrders: (orders) => set({ orders: Array.isArray(orders) ? orders : [] }),
   addOrder: (order) => set((s) => ({ orders: [order, ...s.orders] })),
   updateOrderStatus: (orderId, newStatus, updatedAt) =>
     set((s) => ({

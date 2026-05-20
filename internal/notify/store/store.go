@@ -386,7 +386,7 @@ func (s *SQLStore) migrateSchema(ctx context.Context) error {
 }
 
 func (s *SQLStore) addColumnIfMissing(ctx context.Context, table, column, decl string) error {
-	rows, err := s.db.QueryContext(ctx, `SHOW COLUMNS FROM `+table+` LIKE ?`, column)
+	rows, err := s.db.QueryContext(ctx, `SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`, table, column)
 	if err != nil {
 		return err
 	}

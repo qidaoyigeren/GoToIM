@@ -4,6 +4,8 @@ import { AlertTriangle, CheckCircle2, History, RotateCcw, Search } from 'lucide-
 import { bulkReplayDLQ, bulkResolveDLQ, listDLQ, replayDLQ, resolveDLQ } from '@/api/notify'
 import type { DLQFilters, NotificationDLQ } from '@/types/notification'
 
+const EMPTY_DLQ_ITEMS: NotificationDLQ[] = []
+
 type ActionState = {
   note: string
   resolution: string
@@ -19,11 +21,13 @@ export default function DLQRecoveryPanel() {
     bulkConfirm: '',
   })
 
-  const { data = [] } = useQuery({
+  const { data } = useQuery({
     queryKey: ['dlq', filters],
     queryFn: () => listDLQ(filters),
     refetchInterval: 10_000,
   })
+
+  const items = data ?? EMPTY_DLQ_ITEMS
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['dlq'] })
   const replayOne = useMutation({
@@ -44,7 +48,7 @@ export default function DLQRecoveryPanel() {
   })
 
   const explicitBulkReady = action.bulkConfirm === 'CONFIRM'
-  const openCount = useMemo(() => data.filter((item) => !item.resolved_at).length, [data])
+  const openCount = useMemo(() => items.filter((item) => !item.resolved_at).length, [items])
 
   return (
     <section className="rounded-lg border border-gray-200 bg-white shadow-sm">
@@ -93,10 +97,10 @@ export default function DLQRecoveryPanel() {
       </div>
 
       <div className="divide-y divide-gray-100">
-        {data.slice(0, 8).map((item) => (
+        {items.slice(0, 8).map((item) => (
           <DLQRow key={item.dlq_id} item={item} onReplay={() => replayOne.mutate(item.dlq_id)} onResolve={() => resolveOne.mutate(item.dlq_id)} />
         ))}
-        {data.length === 0 && <p className="px-5 py-6 text-sm text-gray-500">No DLQ items match the current filters.</p>}
+        {items.length === 0 && <p className="px-5 py-6 text-sm text-gray-500">No DLQ items match the current filters.</p>}
       </div>
     </section>
   )

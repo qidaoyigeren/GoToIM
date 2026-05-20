@@ -184,14 +184,68 @@ export async function getNotificationTrace(notifyId: string): Promise<Notificati
   const res = await notifyClient.request<NotifyResponse<NotificationTrace>>(
     `/notifications/${notifyId}/trace`
   )
-  return res.data
+  return normalizeNotificationTrace(res.data, notifyId)
 }
 
 export async function getOrderTimeline(orderId: string): Promise<OrderTimeline> {
   const res = await notifyClient.request<NotifyResponse<OrderTimeline>>(
     `/orders/${orderId}/timeline`
   )
-  return res.data
+  return normalizeOrderTimeline(res.data)
+}
+
+function normalizeNotificationTrace(trace: NotificationTrace | null | undefined, notifyId: string): NotificationTrace {
+  if (!trace) {
+    return {
+      notification: {
+        notify_id: notifyId,
+        user_id: '',
+        type: 'system',
+        title: 'Notification trace',
+        content: '',
+        created_at: new Date().toISOString(),
+        status: 'pending',
+      },
+      trace_id: notifyId,
+      business_ref: { type: 'notification', id: notifyId },
+      attempts: [],
+      delivery_path: 'pending',
+      retry_count: 0,
+      acks: [],
+      ack_policy_status: {
+        policy: 'none',
+        status: 'pending',
+        expected_ack_count: 0,
+        acked_count: 0,
+        satisfied: false,
+      },
+    }
+  }
+
+  return {
+    ...trace,
+    attempts: Array.isArray(trace.attempts) ? trace.attempts : [],
+    acks: Array.isArray(trace.acks) ? trace.acks : [],
+    ack_policy_status: trace.ack_policy_status ?? {
+      policy: 'none',
+      status: 'pending',
+      expected_ack_count: 0,
+      acked_count: 0,
+      satisfied: false,
+    },
+  }
+}
+
+function normalizeOrderTimeline(timeline: OrderTimeline): OrderTimeline {
+  return {
+    ...timeline,
+    status_events: Array.isArray(timeline.status_events) ? timeline.status_events : [],
+    notifications: Array.isArray(timeline.notifications) ? timeline.notifications : [],
+    attempts: Array.isArray(timeline.attempts) ? timeline.attempts : [],
+    acks: Array.isArray(timeline.acks) ? timeline.acks : [],
+    dlq_events: Array.isArray(timeline.dlq_events) ? timeline.dlq_events : [],
+    timeline: Array.isArray(timeline.timeline) ? timeline.timeline : [],
+  }
 }
 
 export async function listDLQ(filters: DLQFilters = {}): Promise<NotificationDLQ[]> {

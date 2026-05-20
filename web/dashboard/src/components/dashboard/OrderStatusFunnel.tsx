@@ -1,7 +1,9 @@
 import { useMemo } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { useOrderStore } from '@/stores/orderStore'
-import { ORDER_STATUS_LABELS, type OrderStatus } from '@/types/order'
+import { ORDER_STATUS_LABELS, type Order, type OrderStatus } from '@/types/order'
+
+const EMPTY_ORDERS: Order[] = []
 
 const statusColors: Record<OrderStatus, string> = {
   created: '#3b82f6',
@@ -16,7 +18,7 @@ const statusColors: Record<OrderStatus, string> = {
 const order: OrderStatus[] = ['created', 'paid', 'confirmed', 'shipped', 'delivered']
 
 export default function OrderStatusFunnel() {
-  const orders = useOrderStore((s) => s.orders)
+  const orders = useOrderStore((s) => s.orders) ?? EMPTY_ORDERS
 
   const data = useMemo(() => {
     const counts: Record<string, number> = {}

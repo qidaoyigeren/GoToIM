@@ -74,8 +74,11 @@ export class GoimWSClient {
       }
     }
 
-    this.ws.onerror = (e) => {
-      console.log('[GoimWS] socket error:', e)
+    this.ws.onerror = () => {
+      console.warn(
+        `[GoimWS] WebSocket connection to ${this.url} failed. ` +
+        'If the backend comet server is not running, enable demo mode in the dashboard settings.'
+      )
     }
   }
 

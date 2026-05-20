@@ -17,8 +17,10 @@ export function useOrders(userId?: string) {
     queryKey: ['orders', uid],
     queryFn: async () => {
       const orders = await getUserOrders(uid)
-      setOrders(orders)
-      return orders
+      if (Array.isArray(orders)) {
+        setOrders(orders)
+      }
+      return orders ?? []
     },
     refetchInterval: 15000,
   })

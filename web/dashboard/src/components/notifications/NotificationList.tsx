@@ -1,13 +1,15 @@
 import { useMemo } from 'react'
 import { useNotificationStore } from '@/stores/notificationStore'
-import type { NotifyType } from '@/types/notification'
+import type { Notification, NotifyType } from '@/types/notification'
 import { NOTIFY_TYPE_LABELS } from '@/types/notification'
 import NotificationCard from './NotificationCard'
 import EmptyState from '@/components/ui/EmptyState'
 import { BellOff } from 'lucide-react'
 
+const EMPTY_NOTIFICATIONS: Notification[] = []
+
 export default function NotificationList() {
-  const notifications = useNotificationStore((s) => s.notifications)
+  const notifications = useNotificationStore((s) => s.notifications) ?? EMPTY_NOTIFICATIONS
   const typeFilter = useNotificationStore((s) => s.typeFilter)
   const setTypeFilter = useNotificationStore((s) => s.setTypeFilter)
   const markAllRead = useNotificationStore((s) => s.markAllRead)

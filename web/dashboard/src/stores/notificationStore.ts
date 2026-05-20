@@ -17,7 +17,10 @@ export const useNotificationStore = create<NotificationStoreState>((set, get) =>
   notifications: [],
   unreadCount: 0,
   typeFilter: 'all',
-  setNotifications: (list) => set({ notifications: list, unreadCount: list.filter((n) => n.status !== 'acked').length }),
+  setNotifications: (list) => {
+    const safeList = Array.isArray(list) ? list : []
+    set({ notifications: safeList, unreadCount: safeList.filter((n) => n.status !== 'acked').length })
+  },
   addNotification: (n) =>
     set((s) => ({
       notifications: [n, ...s.notifications],

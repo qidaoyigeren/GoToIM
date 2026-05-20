@@ -12,12 +12,15 @@ import SimulateStatusChange from '@/components/order-detail/SimulateStatusChange
 import { SkeletonCard } from '@/components/ui/Skeleton'
 import ErrorState from '@/components/ui/ErrorState'
 import { ArrowLeft } from 'lucide-react'
+import type { Notification } from '@/types/notification'
+
+const EMPTY_NOTIFICATIONS: Notification[] = []
 
 export default function OrderDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { data: order, isLoading, error, refetch } = useOrderDetail(id!)
-  const notifications = useNotificationStore((s) => s.notifications)
+  const notifications = useNotificationStore((s) => s.notifications) ?? EMPTY_NOTIFICATIONS
   const [trace, setTrace] = useState<NotificationTrace | null>(null)
   const [timeline, setTimeline] = useState<OrderTimeline | null>(null)
 
@@ -34,7 +37,7 @@ export default function OrderDetailPage() {
         const data = await getOrderTimeline(id)
         if (cancelled) return
         setTimeline(data)
-        const firstNotification = data.notifications[0]
+        const firstNotification = data.notifications?.[0]
         if (!firstNotification) {
           setTrace(null)
           return
@@ -73,7 +76,7 @@ export default function OrderDetailPage() {
   }
   if (order.status !== 'created') statusTimestamps[order.status] = order.updated_at
 
-  const timelineNotifications = timeline?.notifications.length ? timeline.notifications : orderNotifications
+  const timelineNotifications = timeline?.notifications?.length ? timeline.notifications : orderNotifications
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -125,7 +128,7 @@ function BusinessTimeline({ timeline }: { timeline: OrderTimeline }) {
     <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
       <h3 className="text-sm font-semibold text-gray-800">Business timeline</h3>
       <div className="mt-4 space-y-3">
-        {timeline.timeline.map((event) => (
+        {(timeline.timeline ?? []).map((event) => (
           <div key={`${event.type}-${event.id}`} className="flex gap-3">
             <div className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-gray-400" />
             <div className="min-w-0 flex-1">

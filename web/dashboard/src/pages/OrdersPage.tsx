@@ -6,7 +6,7 @@ import { Plus } from 'lucide-react'
 
 export default function OrdersPage() {
   const { isLoading } = useOrders()
-  const orders = useOrderStore((s) => s.orders)
+  const orders = useOrderStore((s) => s.orders) ?? []
   const createOrder = useCreateOrder()
   const navigate = useNavigate()
 

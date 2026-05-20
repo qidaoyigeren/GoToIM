@@ -18,8 +18,13 @@ export default function PushTraceCard({ trace }: Props) {
     )
   }
 
-  const ackSatisfied = trace.ack_policy_status?.satisfied
+  const attempts = Array.isArray(trace.attempts) ? trace.attempts : []
+  const acks = Array.isArray(trace.acks) ? trace.acks : []
+  const ackStatus = trace.ack_policy_status
+  const ackSatisfied = ackStatus?.satisfied
   const dlq = trace.dlq
+  const title = trace.notification?.title || trace.trace_id || 'Notification trace'
+  const status = trace.notification?.status || 'pending'
 
   return (
     <section className="rounded-lg border border-gray-200 bg-white shadow-sm">
@@ -30,25 +35,25 @@ export default function PushTraceCard({ trace }: Props) {
               <Route size={16} />
               Notification trace
             </div>
-            <p className="mt-1 text-xs text-gray-500">{trace.notification.title}</p>
+            <p className="mt-1 text-xs text-gray-500">{title}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Badge label={trace.notification.status} tone={trace.notification.status === 'acked' ? 'green' : 'gray'} />
+            <Badge label={status} tone={status === 'acked' ? 'green' : 'gray'} />
             <Badge label={trace.delivery_path || 'pending'} tone="blue" />
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 p-5 lg:grid-cols-4">
-        <Metric icon={RotateCcw} label="Retries" value={trace.retry_count.toString()} />
-        <Metric icon={ShieldCheck} label="ACK policy" value={ackSatisfied ? 'Satisfied' : trace.ack_policy_status.status || 'Pending'} />
-        <Metric icon={Clock3} label="Attempts" value={trace.attempts.length.toString()} />
+        <Metric icon={RotateCcw} label="Retries" value={(trace.retry_count ?? 0).toString()} />
+        <Metric icon={ShieldCheck} label="ACK policy" value={ackSatisfied ? 'Satisfied' : ackStatus?.status || 'Pending'} />
+        <Metric icon={Clock3} label="Attempts" value={attempts.length.toString()} />
         <Metric icon={dlq ? AlertTriangle : CheckCircle2} label="DLQ" value={dlq ? dlq.reason : 'Clear'} tone={dlq ? 'red' : 'green'} />
       </div>
 
       <div className="border-t border-gray-100 px-5 py-4">
         <div className="space-y-3">
-          {trace.attempts.map((attempt) => (
+          {attempts.map((attempt) => (
             <div key={attempt.attempt_id} className="flex items-start justify-between gap-4 rounded-md border border-gray-100 bg-gray-50 px-3 py-2">
               <div>
                 <p className="text-sm font-medium text-gray-800">{attempt.path || attempt.channel}</p>
@@ -63,12 +68,17 @@ export default function PushTraceCard({ trace }: Props) {
               </div>
             </div>
           ))}
-          {trace.acks.map((ack) => (
+          {acks.map((ack) => (
             <div key={ack.ack_id} className="flex items-center justify-between rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2">
               <span className="text-sm font-medium text-emerald-800">ACK received</span>
-              <span className="text-xs text-emerald-700">{Math.round(ack.latency_ms)}ms</span>
+              <span className="text-xs text-emerald-700">{Math.round(ack.latency_ms ?? 0)}ms</span>
             </div>
           ))}
+          {attempts.length === 0 && acks.length === 0 && (
+            <p className="rounded-md border border-gray-100 bg-gray-50 px-3 py-3 text-sm text-gray-500">
+              No delivery attempts or ACKs have been recorded yet.
+            </p>
+          )}
         </div>
       </div>
     </section>

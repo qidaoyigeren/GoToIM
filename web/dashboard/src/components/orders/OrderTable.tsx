@@ -1,13 +1,15 @@
 import { useState, useMemo } from 'react'
 import { useOrderStore } from '@/stores/orderStore'
-import type { OrderStatus } from '@/types/order'
+import type { Order, OrderStatus } from '@/types/order'
 import OrderFilters from './OrderFilters'
 import OrderRow from './OrderRow'
 import EmptyState from '@/components/ui/EmptyState'
 import { PackageSearch } from 'lucide-react'
 
+const EMPTY_ORDERS: Order[] = []
+
 export default function OrderTable() {
-  const orders = useOrderStore((s) => s.orders)
+  const orders = useOrderStore((s) => s.orders) ?? EMPTY_ORDERS
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all')
   const [page, setPage] = useState(1)

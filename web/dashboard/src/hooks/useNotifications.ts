@@ -11,8 +11,9 @@ export function useNotifications(userId?: string) {
     queryKey: ['notifications', uid],
     queryFn: async () => {
       const list = await getUserNotifications(uid)
-      setNotifications(list)
-      return list
+      const safe = list ?? []
+      setNotifications(safe)
+      return safe
     },
     refetchInterval: 10000,
   })
