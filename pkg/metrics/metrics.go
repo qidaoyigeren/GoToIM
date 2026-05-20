@@ -84,4 +84,28 @@ var (
 		Name:      "push_circuit_breaker_blocked_total",
 		Help:      "Total PushClient requests blocked while the circuit breaker is open",
 	})
+
+	// SpoolWriteTotal counts messages written to the local durable spool.
+	SpoolWriteTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "router",
+		Name:      "spool_write_total",
+		Help:      "Total messages written to local durable spool (Redis+Kafka both failed)",
+	})
+
+	// SpoolReplayTotal counts spool replay attempts by result.
+	SpoolReplayTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "router",
+		Name:      "spool_replay_total",
+		Help:      "Total spool replay attempts (success/failed/expired)",
+	}, []string{"result"})
+
+	// SpoolFileCount tracks the current number of files in the spool directory.
+	SpoolFileCount = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "goim",
+		Subsystem: "router",
+		Name:      "spool_file_count",
+		Help:      "Current number of spool files awaiting replay",
+	})
 )

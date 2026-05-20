@@ -44,6 +44,7 @@ type Logic struct {
 	syncSvc     *service.SyncService
 	cometPusher *CometPusher
 	router      *router.DispatchEngine // Phase 2: Message Router
+	spoolReplay *router.SpoolReplayWorker
 	idGen       *snowflake.Snowflake
 }
 
@@ -85,6 +86,12 @@ func New(c *conf.Config) (l *Logic) {
 
 	l.syncSvc = service.NewSyncService(l.dao, l.sessionMgr, l.router)
 
+	// SpoolReplayWorker: replays messages from local durable spool (last-resort fallback)
+	if l.dao.MQProducer() != nil {
+		l.spoolReplay = router.NewSpoolReplayWorker(l.dao, l.dao.MQProducer(), router.SpoolReplayConfig{})
+		l.spoolReplay.Start()
+	}
+
 	l.initRegions()
 	l.initNodes()
 	_ = l.loadOnline()
@@ -100,6 +107,9 @@ func (l *Logic) Ping(c context.Context) (err error) {
 // Close close resources.
 func (l *Logic) Close() {
 	l.cancel()
+	if l.spoolReplay != nil {
+		l.spoolReplay.Stop()
+	}
 	l.cometPusher.Close()
 	l.dao.Close()
 }

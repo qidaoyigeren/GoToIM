@@ -29,6 +29,10 @@ type AckService struct {
 	pushDAO dao.PushDAO
 }
 
+type atomicMessageTracker interface {
+	TrackMessageAtomic(ctx context.Context, msgID string, fields map[string]interface{}) (bool, error)
+}
+
 // NewAckService creates a new AckService.
 func NewAckService(d dao.MessageDAO, pd dao.PushDAO) *AckService {
 	return &AckService{dao: d, pushDAO: pd}
@@ -101,11 +105,7 @@ func (s *AckService) TrackMessage(ctx context.Context, msgID string, fromUID, to
 		traceID = tracectx.FromJSONPayload(body)
 	}
 	ctx = tracectx.WithTraceID(ctx, traceID)
-	// Check if already tracked
-	existing, _ := s.dao.GetMessageStatus(ctx, msgID)
-	if len(existing) > 0 {
-		return nil
-	}
+	now := time.Now().UnixMilli()
 	fields := map[string]interface{}{
 		"status":     MsgStatusPending,
 		"from_uid":   fromUID,
@@ -113,11 +113,27 @@ func (s *AckService) TrackMessage(ctx context.Context, msgID string, fromUID, to
 		"op":         op,
 		"body":       base64.StdEncoding.EncodeToString(body),
 		"retry_cnt":  0,
-		"created_at": time.Now().UnixMilli(),
-		"updated_at": time.Now().UnixMilli(),
+		"created_at": now,
+		"updated_at": now,
 	}
 	if traceID != "" {
 		fields["trace_id"] = traceID
+	}
+	if tracker, ok := s.dao.(atomicMessageTracker); ok {
+		added, err := tracker.TrackMessageAtomic(ctx, msgID, fields)
+		if err != nil {
+			return fmt.Errorf("track msg atomically: %w", err)
+		}
+		if !added {
+			return nil
+		}
+		return nil
+	}
+
+	// Fallback for tests and legacy DAO implementations.
+	existing, _ := s.dao.GetMessageStatus(ctx, msgID)
+	if len(existing) > 0 {
+		return nil
 	}
 	if err := s.dao.SetMessageStatus(ctx, msgID, fields); err != nil {
 		return fmt.Errorf("set msg status: %w", err)

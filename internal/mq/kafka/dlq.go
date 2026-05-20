@@ -2,7 +2,6 @@ package kafka
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/IBM/sarama"
 	"github.com/Terry-Mao/goim/internal/mq"
@@ -37,10 +36,20 @@ func (d *DLQ) Send(ctx context.Context, msg *mq.Message, reason string) error {
 	if msg.Key != "" {
 		km.Key = sarama.StringEncoder(msg.Key)
 	}
-	if reason != "" {
-		km.Headers = []sarama.RecordHeader{
-			{Key: []byte("dlq-reason"), Value: []byte(reason)},
+	if len(msg.Headers) > 0 {
+		km.Headers = make([]sarama.RecordHeader, 0, len(msg.Headers)+1)
+		for k, v := range msg.Headers {
+			km.Headers = append(km.Headers, sarama.RecordHeader{
+				Key:   []byte(k),
+				Value: []byte(v),
+			})
 		}
+	}
+	if reason != "" {
+		km.Headers = append(km.Headers, sarama.RecordHeader{
+			Key:   []byte("dlq-reason"),
+			Value: []byte(reason),
+		})
 	}
 	_, _, err := d.pub.SendMessage(km)
 	return err
@@ -50,6 +59,3 @@ func (d *DLQ) Send(ctx context.Context, msg *mq.Message, reason string) error {
 func (d *DLQ) Close() error {
 	return d.pub.Close()
 }
-
-// ensure imports used
-var _ = fmt.Sprintf

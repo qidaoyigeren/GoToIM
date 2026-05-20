@@ -1,4 +1,3 @@
-// Package service 提供 IM 业务逻辑层的核心服务实现。
 package service
 
 import (
@@ -11,37 +10,23 @@ import (
 	log "github.com/Terry-Mao/goim/pkg/log"
 )
 
-// DirectPusher 定义直接推送接口，负责通过 gRPC 将消息推送到指定会话所在的 comet 节点。
-// 这是 SyncService 对底层推送能力的抽象，便于测试时替换为 mock 实现。
+// DirectPusher defines the direct push capability used by SyncService.
 type DirectPusher interface {
-	// DirectPush 向指定会话列表推送消息。
-	// sessions: 目标会话列表（通常属于同一用户的不同设备）
-	// op: 操作码，标识消息类型（如 OpSyncReply 表示同步回复）
-	// body: 已序列化的协议体字节数组
 	DirectPush(ctx context.Context, sessions []*Session, op int32, body []byte) ([]*Session, error)
 }
 
-// SyncService 负责离线消息同步和多设备消息同步。
-//
-// 核心职责：
-//  1. 用户上线时，从 Redis 离线队列拉取遗漏的消息并推送到其所有在线设备
-//  2. 提供主动拉取离线消息列表的接口（分页查询）
-//
-// 工作流程：
-//
-//	当消息被推送到用户但某些设备不在线时，消息 ID 会被写入该用户的 Redis 离线队列。
-//	用户下次上线时，OnUserOnline 会消费这个队列，逐条取出消息内容并推送。
-//	每条消息的状态（如已 ACK）都会被检查，已确认的消息会从队列中清理。
-type SyncService struct {
-	dao     dao.MessageDAO  // 消息数据访问层，负责 Redis 离线队列和消息状态的读写
-	sessMgr *SessionManager // 会话管理器，用于查询用户当前在线的所有设备会话
-	pusher  DirectPusher    // 直接推送器，将同步消息发送到指定会话所在的 comet 节点
+type batchMessageStatusGetter interface {
+	BatchGetMessageStatus(ctx context.Context, msgIDs []string) ([]map[string]string, error)
 }
 
-// NewSyncService 创建一个 SyncService 实例。
-// d: 消息 DAO 实现
-// sessMgr: 会话管理器
-// pusher: 直接推送器实现
+// SyncService handles offline message sync and device cursor based pulls.
+type SyncService struct {
+	dao     dao.MessageDAO
+	sessMgr *SessionManager
+	pusher  DirectPusher
+}
+
+// NewSyncService creates a SyncService.
 func NewSyncService(d dao.MessageDAO, sessMgr *SessionManager, pusher DirectPusher) *SyncService {
 	return &SyncService{
 		dao:     d,
@@ -50,18 +35,12 @@ func NewSyncService(d dao.MessageDAO, sessMgr *SessionManager, pusher DirectPush
 	}
 }
 
-// OnUserOnline 用户上线时的回调，负责检测并推送离线期间遗漏的消息。
-// 向后兼容：使用 legacy cursor（fallback to lastSeq）。
-//
-// 参数：
-//   - uid: 上线用户的 ID
-//   - lastSeq: 用户客户端上报的最后一条消息序号
+// OnUserOnline syncs offline messages for legacy clients.
 func (s *SyncService) OnUserOnline(ctx context.Context, uid int64, lastSeq int64) error {
 	return s.OnUserOnlineWithDevice(ctx, uid, "", lastSeq)
 }
 
-// OnUserOnlineWithDevice 支持设备级 cursor 的上线同步（Phase 2）。
-// deviceID 为空时 fallback 到 legacy cursor。
+// OnUserOnlineWithDevice syncs offline messages using a device-level cursor.
 func (s *SyncService) OnUserOnlineWithDevice(ctx context.Context, uid int64, deviceID string, lastSeq int64) error {
 	cursorSeq, _ := s.dao.GetDeviceCursor(ctx, uid, deviceID)
 	if cursorSeq > lastSeq {
@@ -70,230 +49,152 @@ func (s *SyncService) OnUserOnlineWithDevice(ctx context.Context, uid int64, dev
 	return s.syncOffline(ctx, uid, deviceID, lastSeq)
 }
 
-// GetOfflineMessagesByDevice 按设备 cursor 拉取离线消息（Phase 2）。
+// GetOfflineMessagesByDevice fetches offline messages after the device cursor.
 func (s *SyncService) GetOfflineMessagesByDevice(ctx context.Context, uid int64, deviceID string, limit int32) (*protocol.SyncReplyBody, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
 	msgIDs, err := s.dao.GetOfflineMessagesByDeviceCursor(ctx, uid, deviceID, int(limit))
 	if err != nil {
 		return nil, err
 	}
-	return s.buildSyncReply(ctx, uid, deviceID, msgIDs, int32(len(msgIDs)))
+	return s.buildSyncReply(ctx, uid, deviceID, msgIDs, limit)
 }
 
-// syncOffline 实际执行离线同步逻辑（Phase 2 从 OnUserOnline 提取）。
 func (s *SyncService) syncOffline(ctx context.Context, uid int64, deviceID string, lastSeq int64) error {
-	// 第一步：从 Redis 离线队列获取 lastSeq 之后的消息 ID 列表
-	// float64(lastSeq) 是 Redis ZSet 的 score，用于范围查询
-	// 100 是单次拉取上限
 	msgIDs, err := s.dao.GetOfflineQueue(ctx, uid, float64(lastSeq), 100)
 	if err != nil {
 		return fmt.Errorf("get offline queue: %w", err)
 	}
-
-	// 没有离线消息，无需同步
 	if len(msgIDs) == 0 {
 		return nil
 	}
 
 	log.Infof("syncing offline messages: uid=%d count=%d last_seq=%d", uid, len(msgIDs), lastSeq)
 
-	// 第二步：获取用户当前所有在线设备的会话
-	// 注意：互踢仅限"同一用户+同一设备"（uid + device_id），不同设备（如手机、iPad、PC）
-	// 可以同时在线，因此这里可能返回多个 session，需要推送到每一台设备
-	// 如果用户没有任何在线设备，消息保留在队列中等待下次上线
 	sessions, err := s.sessMgr.GetSessions(ctx, uid)
 	if err != nil || len(sessions) == 0 {
 		return nil
 	}
 
-	// 第三步：逐条处理离线消息
-	// seq 从 lastSeq 开始递增，为每条消息分配新的序列号
-	seq := lastSeq
-	for _, msgID := range msgIDs {
-		// 获取消息的完整元数据（状态、发送方、接收方、时间戳、消息体）
-		msgData, err := s.dao.GetMessageStatus(ctx, msgID)
-		if err != nil || len(msgData) == 0 {
-			continue
-		}
-
-		// 如果消息已被确认（ACK），说明其他设备已经处理过，直接清理队列
-		status := msgData["status"]
-		if status == MsgStatusAcked {
-			s.dao.RemoveFromOfflineQueue(ctx, uid, msgID)
-			continue
-		}
-
-		// 递增序号，构建同步消息体
-		seq++
-		mb := &protocol.MsgBody{
-			MsgID: msgID,
-			Seq:   seq,
-		}
-
-		// 从 Redis 返回的字符串字段中解析消息元数据
-		// msgData 中的值都是字符串格式（Redis hash 存储），需要解析为数值
-		if v, ok := msgData["from_uid"]; ok {
-			fmt.Sscanf(v, "%d", &mb.FromUID)
-		}
-		if v, ok := msgData["to_uid"]; ok {
-			fmt.Sscanf(v, "%d", &mb.ToUID)
-		}
-		if v, ok := msgData["created_at"]; ok {
-			fmt.Sscanf(v, "%d", &mb.Timestamp)
-		}
-
-		// 消息体以 base64 编码存储，需要解码还原原始字节
-		if v, ok := msgData["body"]; ok && v != "" {
-			if decoded, err := base64.StdEncoding.DecodeString(v); err == nil {
-				mb.Content = decoded
-			}
-		}
-
-		// 构建同步回复包
-		// CurrentSeq: 当前消息的序号
-		// HasMore: false 表示这批已处理完（线上推送逐条发送，不是批量返回）
-		syncBody := &protocol.SyncReplyBody{
-			CurrentSeq: seq,
-			HasMore:    false,
-			Messages:   []*protocol.MsgBody{mb},
-		}
-
-		// 序列化为协议字节数组
-		syncBytes, err := protocol.MarshalSyncReply(syncBody)
-		if err != nil {
-			log.Warningf("marshal sync reply failed: %v", err)
-			continue
-		}
-
-		// 推送到该用户的所有在线设备（手机、PC、Web 等）
-		for _, sess := range sessions {
-			if sess == nil {
-				continue
-			}
-			_, _ = s.pusher.DirectPush(ctx, []*Session{sess}, protocol.OpSyncReply, syncBytes)
-		}
+	statuses, err := s.batchGetMessageStatus(ctx, msgIDs)
+	if err != nil {
+		return fmt.Errorf("batch get message status: %w", err)
+	}
+	messages, seq := s.buildMessagesFromStatuses(ctx, uid, lastSeq, msgIDs, statuses)
+	if len(messages) == 0 {
+		return nil
 	}
 
-	// Phase 2: advance device cursor after successful sync
+	syncBytes, err := protocol.MarshalSyncReply(&protocol.SyncReplyBody{
+		CurrentSeq: seq,
+		HasMore:    false,
+		Messages:   messages,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal sync reply: %w", err)
+	}
+
+	if _, err := s.pusher.DirectPush(ctx, sessions, protocol.OpSyncReply, syncBytes); err != nil {
+		log.Warningf("batch sync push failed: uid=%d count=%d err=%v", uid, len(messages), err)
+		return nil
+	}
+
 	if deviceID != "" && seq > lastSeq {
 		_ = s.dao.AdvanceDeviceCursor(ctx, uid, deviceID, seq)
 	}
-
 	return nil
 }
 
-// buildSyncReply constructs a sync reply from message IDs (Phase 2 helper).
 func (s *SyncService) buildSyncReply(ctx context.Context, uid int64, deviceID string, msgIDs []string, limit int32) (*protocol.SyncReplyBody, error) {
 	lastSeq, _ := s.dao.GetDeviceCursor(ctx, uid, deviceID)
 	reply := &protocol.SyncReplyBody{
 		CurrentSeq: lastSeq,
 		HasMore:    len(msgIDs) >= int(limit),
 	}
-	seq := lastSeq
-	for _, msgID := range msgIDs {
-		msgData, err := s.dao.GetMessageStatus(ctx, msgID)
-		if err != nil || len(msgData) == 0 {
-			continue
-		}
-		if msgData["status"] == MsgStatusAcked {
-			s.dao.RemoveFromOfflineQueue(ctx, uid, msgID)
-			continue
-		}
-		seq++
-		mb := &protocol.MsgBody{MsgID: msgID, Seq: seq}
-		if v, ok := msgData["from_uid"]; ok {
-			fmt.Sscanf(v, "%d", &mb.FromUID)
-		}
-		if v, ok := msgData["to_uid"]; ok {
-			fmt.Sscanf(v, "%d", &mb.ToUID)
-		}
-		if v, ok := msgData["created_at"]; ok {
-			fmt.Sscanf(v, "%d", &mb.Timestamp)
-		}
-		if v, ok := msgData["body"]; ok && v != "" {
-			if decoded, err := base64.StdEncoding.DecodeString(v); err == nil {
-				mb.Content = decoded
-			}
-		}
-		reply.Messages = append(reply.Messages, mb)
-		reply.CurrentSeq = seq
+	statuses, err := s.batchGetMessageStatus(ctx, msgIDs)
+	if err != nil {
+		return nil, err
 	}
+	reply.Messages, reply.CurrentSeq = s.buildMessagesFromStatuses(ctx, uid, lastSeq, msgIDs, statuses)
 	return reply, nil
 }
 
-// GetOfflineMessages 主动拉取离线消息列表，返回指定范围的离线消息详情。
-//
-// 与 OnUserOnline 的区别：
-//   - OnUserOnline 是服务端主动推送——上线时自动触发，逐条推送到所有设备
-//   - GetOfflineMessages 是客户端主动拉取——客户端可以分页请求，一次返回一批消息
-//
-// 参数：
-//   - uid: 用户 ID
-//   - lastSeq: 起始序号，只拉取 seq > lastSeq 的消息
-//   - limit: 每次拉取的数量上限（1-200，超出范围自动修正为 100）
-//
-// 返回值：
-//   - SyncReplyBody: 包含消息列表、当前序号、是否还有更多消息
-//   - error: 查询失败时的错误信息
+// GetOfflineMessages fetches a page of offline messages after lastSeq.
 func (s *SyncService) GetOfflineMessages(ctx context.Context, uid int64, lastSeq int64, limit int32) (*protocol.SyncReplyBody, error) {
-	// 参数校验：limit 必须在有效范围内
 	if limit <= 0 || limit > 200 {
 		limit = 100
 	}
-
-	// 从 Redis 离线队列获取消息 ID 列表
 	msgIDs, err := s.dao.GetOfflineQueue(ctx, uid, float64(lastSeq), int(limit))
 	if err != nil {
 		return nil, fmt.Errorf("get offline queue: %w", err)
 	}
-
-	// 构建回复体
-	// HasMore: 如果返回的消息数量达到 limit，说明可能还有更多消息
 	reply := &protocol.SyncReplyBody{
 		CurrentSeq: lastSeq,
 		HasMore:    len(msgIDs) >= int(limit),
 	}
-
-	// 逐条获取消息详情并填充到回复列表
-	seq := lastSeq
-	for _, msgID := range msgIDs {
-		msgData, err := s.dao.GetMessageStatus(ctx, msgID)
-		if err != nil || len(msgData) == 0 {
-			continue
-		}
-
-		// 跳过已确认的消息并清理队列
-		status := msgData["status"]
-		if status == MsgStatusAcked {
-			s.dao.RemoveFromOfflineQueue(ctx, uid, msgID)
-			continue
-		}
-
-		seq++
-		mb := &protocol.MsgBody{
-			MsgID: msgID,
-			Seq:   seq,
-		}
-		// 从 Redis hash 字段解析消息元数据（Redis 存储均为字符串，需转换）
-		if v, ok := msgData["from_uid"]; ok {
-			fmt.Sscanf(v, "%d", &mb.FromUID)
-		}
-		if v, ok := msgData["to_uid"]; ok {
-			fmt.Sscanf(v, "%d", &mb.ToUID)
-		}
-		if v, ok := msgData["created_at"]; ok {
-			fmt.Sscanf(v, "%d", &mb.Timestamp)
-		}
-		// 解码 base64 编码的消息体
-		if v, ok := msgData["body"]; ok && v != "" {
-			if decoded, err := base64.StdEncoding.DecodeString(v); err == nil {
-				mb.Content = decoded
-			}
-		}
-
-		// 追加到消息列表，并更新当前序号
-		reply.Messages = append(reply.Messages, mb)
-		reply.CurrentSeq = seq
+	statuses, err := s.batchGetMessageStatus(ctx, msgIDs)
+	if err != nil {
+		return nil, err
 	}
-
+	reply.Messages, reply.CurrentSeq = s.buildMessagesFromStatuses(ctx, uid, lastSeq, msgIDs, statuses)
 	return reply, nil
+}
+
+func (s *SyncService) batchGetMessageStatus(ctx context.Context, msgIDs []string) ([]map[string]string, error) {
+	if len(msgIDs) == 0 {
+		return nil, nil
+	}
+	if getter, ok := s.dao.(batchMessageStatusGetter); ok {
+		return getter.BatchGetMessageStatus(ctx, msgIDs)
+	}
+	statuses := make([]map[string]string, 0, len(msgIDs))
+	for _, msgID := range msgIDs {
+		data, err := s.dao.GetMessageStatus(ctx, msgID)
+		if err != nil {
+			return nil, err
+		}
+		statuses = append(statuses, data)
+	}
+	return statuses, nil
+}
+
+func (s *SyncService) buildMessagesFromStatuses(ctx context.Context, uid int64, lastSeq int64, msgIDs []string, statuses []map[string]string) ([]*protocol.MsgBody, int64) {
+	seq := lastSeq
+	messages := make([]*protocol.MsgBody, 0, len(msgIDs))
+	for i, msgID := range msgIDs {
+		if i >= len(statuses) {
+			break
+		}
+		msgData := statuses[i]
+		if len(msgData) == 0 {
+			continue
+		}
+		if msgData["status"] == MsgStatusAcked {
+			_ = s.dao.RemoveFromOfflineQueue(ctx, uid, msgID)
+			continue
+		}
+		seq++
+		messages = append(messages, msgBodyFromStatus(msgID, seq, msgData))
+	}
+	return messages, seq
+}
+
+func msgBodyFromStatus(msgID string, seq int64, msgData map[string]string) *protocol.MsgBody {
+	mb := &protocol.MsgBody{MsgID: msgID, Seq: seq}
+	if v := msgData["from_uid"]; v != "" {
+		fmt.Sscanf(v, "%d", &mb.FromUID)
+	}
+	if v := msgData["to_uid"]; v != "" {
+		fmt.Sscanf(v, "%d", &mb.ToUID)
+	}
+	if v := msgData["created_at"]; v != "" {
+		fmt.Sscanf(v, "%d", &mb.Timestamp)
+	}
+	if v := msgData["body"]; v != "" {
+		if decoded, err := base64.StdEncoding.DecodeString(v); err == nil {
+			mb.Content = decoded
+		}
+	}
+	return mb
 }

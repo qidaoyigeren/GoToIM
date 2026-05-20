@@ -16,6 +16,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -479,9 +481,11 @@ func (e *DispatchEngine) reliableEnqueue(ctx context.Context, msgID string, toUI
 	// ── 步骤 1：写入离线队列（Redis ZSet） ──────────────────────────────
 	// 即使用户在线，也写入离线队列作为"最后防线"。
 	// ZSet 的 score 为 seq，value 为 msgID，方便客户端按序拉取。
+	var offlineErr error
 	if err := e.msgDAO.AddToOfflineQueue(ctx, toUID, msgID, float64(seq)); err != nil {
 		log.Warningf("add to offline queue failed: uid=%d msg_id=%s err=%v", toUID, msgID, err)
 		// 离线队列写入失败不阻塞后续 Kafka 投递
+		offlineErr = err
 	}
 
 	// ── 步骤 2：提取有效连接键 ──────────────────────────────────────────
@@ -507,14 +511,83 @@ func (e *DispatchEngine) reliableEnqueue(ctx context.Context, msgID string, toUI
 		// 序列化为 pb.PushMsg（type=pbPush），分区键为 uidKey，保证同用户消息有序
 		pushMsg := pushMsgBytes(pbPush, op, server, keys, "", body, 0)
 		uidKey := fmt.Sprintf("%d", toUID)
-		return e.producer.EnqueueToUser(ctx, toUID, &mq.Message{
+		msg := &mq.Message{
 			Key:     uidKey,
 			Value:   pushMsg,
 			Headers: buildMQHeaders(env),
-		})
+		}
+		if err := e.producer.EnqueueToUser(ctx, toUID, msg); err != nil {
+			return e.spoolReliableMessage(msgID, toUID, op, body, seq, server, keys, msg.Headers, offlineErr, err)
+		}
+		return nil
 	}
 	// 降级路径：无 Kafka 时直接调用 DAO 推送
-	return e.dao.PushMsg(ctx, op, server, keys, body)
+	if err := e.dao.PushMsg(ctx, op, server, keys, body); err != nil {
+		return e.spoolReliableMessage(msgID, toUID, op, body, seq, server, keys, buildMQHeaders(env), offlineErr, err)
+	}
+	return nil
+}
+
+type localSpoolRecord struct {
+	MsgID     string            `json:"msg_id"`
+	ToUID     int64             `json:"to_uid"`
+	Op        int32             `json:"op"`
+	Body      []byte            `json:"body"`
+	Seq       int64             `json:"seq"`
+	Server    string            `json:"server"`
+	Keys      []string          `json:"keys"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Reason    string            `json:"reason"`
+	CreatedAt int64             `json:"created_at_unix_ms"`
+}
+
+func (e *DispatchEngine) spoolReliableMessage(msgID string, toUID int64, op int32, body []byte, seq int64, server string, keys []string, headers map[string]string, offlineErr, enqueueErr error) error {
+	if offlineErr == nil {
+		return enqueueErr
+	}
+	reason := fmt.Sprintf("offline queue failed: %v; enqueue failed: %v", offlineErr, enqueueErr)
+	if err := writeLocalSpool(localSpoolRecord{
+		MsgID:     msgID,
+		ToUID:     toUID,
+		Op:        op,
+		Body:      body,
+		Seq:       seq,
+		Server:    server,
+		Keys:      keys,
+		Headers:   headers,
+		Reason:    reason,
+		CreatedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		return fmt.Errorf("%s; local spool failed: %w", reason, err)
+	}
+	log.Warningf("message spooled locally after Redis and Kafka failures: msg_id=%s uid=%d", msgID, toUID)
+	return fmt.Errorf("%s; spooled locally", reason)
+}
+
+func writeLocalSpool(record localSpoolRecord) error {
+	root := os.Getenv("GOIM_UNDELIVERED_SPOOL_DIR")
+	if root == "" {
+		root = filepath.Join(os.TempDir(), "goim-undelivered")
+	}
+	dir := filepath.Join(root, time.Now().Format("20060102"))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	name := fmt.Sprintf("%s-%d.json", record.MsgID, time.Now().UnixNano())
+	tmp := filepath.Join(dir, name+".tmp")
+	dst := filepath.Join(dir, name)
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		return err
+	}
+	metrics.SpoolWriteTotal.Inc()
+	return nil
 }
 
 // ============================================================================

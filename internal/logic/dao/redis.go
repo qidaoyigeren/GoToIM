@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 
@@ -28,6 +29,15 @@ const (
 	_prefixRetryCnt      = "retry_cnt:%s:%d:%d"   // topic:partition:offset -> retry count
 	_prefixDeviceACKs    = "msg_acks:%s"          // msg_id -> device ACK records (hash)
 )
+
+var trackMessageScript = redis.NewScript(1, `
+if redis.call("EXISTS", KEYS[1]) == 1 then
+	return 0
+end
+redis.call("HSET", KEYS[1], unpack(ARGV, 2))
+redis.call("EXPIRE", KEYS[1], ARGV[1])
+return 1
+`)
 
 func keyMidServer(mid int64) string {
 	return fmt.Sprintf(_prefixMidServer, mid)
@@ -528,6 +538,34 @@ func (d *Dao) SetMessageStatus(c context.Context, msgID string, fields map[strin
 	return
 }
 
+// TrackMessageAtomic stores a complete message status hash only when the
+// message key does not already exist. The existence check, HSET, and EXPIRE
+// run in one Redis script so readers never observe a partially initialized
+// message.
+func (d *Dao) TrackMessageAtomic(c context.Context, msgID string, fields map[string]interface{}) (added bool, err error) {
+	if len(fields) == 0 {
+		return false, nil
+	}
+	conn := d.redis.Get()
+	defer conn.Close()
+
+	args := []interface{}{keyMsgStatus(msgID), 7 * 24 * 3600}
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		args = append(args, k, fields[k])
+	}
+	n, err := redis.Int(trackMessageScript.Do(conn, args...))
+	if err != nil {
+		log.Errorf("trackMessageScript msg:%s error(%v)", msgID, err)
+		return false, err
+	}
+	return n == 1, nil
+}
+
 // SetMessageStatusNX sets a single field on a message status hash only if it does not already exist (HSETNX).
 // Returns true if the field was set, false if it already existed.
 func (d *Dao) SetMessageStatusNX(c context.Context, msgID, field string, value interface{}) (added bool, err error) {
@@ -547,6 +585,37 @@ func (d *Dao) GetMessageStatus(c context.Context, msgID string) (res map[string]
 		log.Errorf("conn.Do(HGETALL msg:%s) error(%v)", msgID, err)
 	}
 	return
+}
+
+// BatchGetMessageStatus fetches multiple message status hashes using a Redis
+// pipeline. The result slice keeps the same order as msgIDs.
+func (d *Dao) BatchGetMessageStatus(c context.Context, msgIDs []string) ([]map[string]string, error) {
+	if len(msgIDs) == 0 {
+		return nil, nil
+	}
+	conn := d.redis.Get()
+	defer conn.Close()
+
+	for _, msgID := range msgIDs {
+		if err := conn.Send("HGETALL", keyMsgStatus(msgID)); err != nil {
+			log.Errorf("conn.Send(HGETALL msg:%s) error(%v)", msgID, err)
+			return nil, err
+		}
+	}
+	if err := conn.Flush(); err != nil {
+		return nil, err
+	}
+
+	res := make([]map[string]string, 0, len(msgIDs))
+	for _, msgID := range msgIDs {
+		data, err := redis.StringMap(conn.Receive())
+		if err != nil {
+			log.Errorf("conn.Receive(HGETALL msg:%s) error(%v)", msgID, err)
+			return nil, err
+		}
+		res = append(res, data)
+	}
+	return res, nil
 }
 
 // UpdateMessageStatus updates the status field of a message.
@@ -694,15 +763,7 @@ func (d *Dao) Incr(ctx context.Context, topic string, partition int32, offset in
 	conn := d.redis.Get()
 	defer conn.Close()
 	key := fmt.Sprintf(_prefixRetryCnt, topic, partition, offset)
-	n, err := redis.Int64(conn.Do("INCR", key))
-	if err != nil {
-		return 0, err
-	}
-	// Set or refresh expiry on each increment
-	if _, err := conn.Do("EXPIRE", key, 3600); err != nil {
-		log.Warningf("retry counter expire failed for key=%s: %v", key, err)
-	}
-	return n, nil
+	return redis.Int64(retryCounterIncrScript.Do(conn, key, 3600))
 }
 
 // ============ Device-Level ACK Operations ============

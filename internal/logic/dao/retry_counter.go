@@ -8,6 +8,12 @@ import (
 	"github.com/gomodule/redigo/redis"
 )
 
+var retryCounterIncrScript = redis.NewScript(1, `
+local n = redis.call("INCR", KEYS[1])
+redis.call("EXPIRE", KEYS[1], ARGV[1])
+return n
+`)
+
 // Ensure RedisRetryCounter implements mq.RetryCounter at compile time.
 var _ mq.RetryCounter = (*RedisRetryCounter)(nil)
 
@@ -28,12 +34,5 @@ func (r *RedisRetryCounter) Incr(ctx context.Context, topic string, partition in
 	conn := r.pool.Get()
 	defer conn.Close()
 	key := fmt.Sprintf(_prefixRetryCnt, topic, partition, offset)
-	n, err := redis.Int64(conn.Do("INCR", key))
-	if err != nil {
-		return 0, err
-	}
-	if _, err := conn.Do("EXPIRE", key, 3600); err != nil {
-		return n, err
-	}
-	return n, nil
+	return redis.Int64(retryCounterIncrScript.Do(conn, key, 3600))
 }
