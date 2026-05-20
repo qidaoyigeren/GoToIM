@@ -6,6 +6,7 @@ import OrderDetailPage from '@/pages/OrderDetailPage'
 import NotificationsPage from '@/pages/NotificationsPage'
 import SessionsPage from '@/pages/SessionsPage'
 import RealtimeWorkbenchPage from '@/pages/RealtimeWorkbenchPage'
+import OrderLiveChatPage from '@/pages/OrderLiveChatPage'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/orders" element={<OrdersPage />} />
         <Route path="/orders/:id" element={<OrderDetailPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
+        <Route path="/chat" element={<OrderLiveChatPage />} />
         <Route path="/sessions" element={<SessionsPage />} />
         <Route path="/realtime" element={<RealtimeWorkbenchPage />} />
       </Route>

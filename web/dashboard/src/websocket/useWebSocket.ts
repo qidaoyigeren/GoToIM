@@ -1,15 +1,20 @@
 import { useEffect, useRef } from 'react'
-import config, { isDemoMode } from '@/config'
+import { isDemoMode } from '@/config'
 import { GoimWSClient } from './client'
 import { MockWSClient } from './mock'
 import { sendAck } from '@/api/notify'
+import { updateChatMessageStatus } from '@/api/chat'
 import { useConnectionStore } from '@/stores/connectionStore'
 import { useRealtimeStore } from '@/stores/realtimeStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useOnlineStore } from '@/stores/onlineStore'
+import { useChatStore } from '@/stores/chatStore'
+import { useIdentityStore } from '@/stores/identityStore'
+import type { ChatPushPayload } from '@/types/chat'
 
 export function useWebSocket() {
   const initialized = useRef(false)
+  const userId = useIdentityStore((s) => s.userId)
   const setConnectionState = useConnectionStore((s) => s.setState)
   const setLatency = useConnectionStore((s) => s.setLatency)
   const heartbeat = useConnectionStore((s) => s.heartbeat)
@@ -17,13 +22,14 @@ export function useWebSocket() {
   const addEvent = useRealtimeStore((s) => s.addEvent)
   const addNotification = useNotificationStore((s) => s.addNotification)
   const setSessions = useOnlineStore((s) => s.setSessions)
+  const receiveChatPush = useChatStore((s) => s.receivePush)
 
   useEffect(() => {
     if (initialized.current) return
     initialized.current = true
 
     const useMock = isDemoMode()
-    const client = useMock ? new MockWSClient() : new GoimWSClient()
+    const client = useMock ? new MockWSClient() : new GoimWSClient(undefined, String(userId))
 
     client.setStatusHandler((state) => {
       setConnectionState(state)
@@ -31,9 +37,9 @@ export function useWebSocket() {
       if (state === 'connected') {
         setSessions([
           {
-            sid: `ws_${config.defaultUserId}_dashboard`,
-            uid: Number(config.defaultUserId),
-            key: `uid:${config.defaultUserId}`,
+            sid: `ws_${userId}_dashboard`,
+            uid: userId,
+            key: `uid:${userId}`,
             device_id: 'web-dashboard',
             platform: 'web',
             server: 'comet:3109',
@@ -68,7 +74,7 @@ export function useWebSocket() {
           })
           addNotification({
             notify_id: notifyId,
-            user_id: config.defaultUserId,
+            user_id: String(userId),
             type: (data.type as 'order_status' | 'flash_sale' | 'logistics' | 'system') || 'order_status',
             title: data.title as string,
             content: data.content as string,
@@ -78,15 +84,23 @@ export function useWebSocket() {
           })
           break
         }
+        case 'chat': {
+          const payload = event.data as unknown as ChatPushPayload
+          receiveChatPush(payload)
+          if (payload.message_id) {
+            updateChatMessageStatus(payload.message_id, 'read').catch(() => {})
+          }
+          break
+        }
         case 'heartbeat': {
           const latencyMs = (event.data.latency_ms as number) || 0
           setLatency(latencyMs)
           heartbeat()
           setSessions([
             {
-              sid: `ws_${config.defaultUserId}_dashboard`,
-              uid: Number(config.defaultUserId),
-              key: `uid:${config.defaultUserId}`,
+              sid: `ws_${userId}_dashboard`,
+              uid: userId,
+              key: `uid:${userId}`,
               device_id: 'web-dashboard',
               platform: 'web',
               server: 'comet:3109',
@@ -126,5 +140,5 @@ export function useWebSocket() {
     }
   // The client owns a single socket per mounted dashboard shell; reconnect logic is internal.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [userId])
 }

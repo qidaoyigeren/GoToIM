@@ -54,6 +54,7 @@ func New(cfg *conf.Config) *Server {
 	}
 
 	orderSvc := service.NewOrderNotifyServiceWithStore(pushClient, notifyStore)
+	chatSvc := service.NewChatService(notifyStore, pushClient)
 	flashSaleSvc := service.NewFlashSaleService(pushClient, orderSvc.GetStatsCollector())
 	flashSaleSvc.SetOrderService(orderSvc)
 	outboxWorker := service.NewOutboxWorker(orderSvc, service.OutboxWorkerConfig{
@@ -66,6 +67,7 @@ func New(cfg *conf.Config) *Server {
 	outboxWorker.Start()
 
 	h := handler.New(orderSvc, flashSaleSvc)
+	h.SetChatService(chatSvc)
 
 	statsStop, statsDone := startStatsRefresher(orderSvc, 3*time.Second)
 
@@ -140,6 +142,11 @@ func (s *Server) initRouter() {
 	api.PATCH("/recovery/replay-requests/:id/cancel", s.handler.HandleCancelReplayRequest)
 	api.POST("/recovery/replay-requests/:id/execute", s.handler.HandleExecuteReplayRequest)
 	api.POST("/ack", s.handler.HandleACK)
+	api.POST("/chat/conversations", s.handler.HandleCreateChatConversation)
+	api.GET("/chat/conversations", s.handler.HandleListChatConversations)
+	api.GET("/chat/conversations/:id/messages", s.handler.HandleListChatMessages)
+	api.POST("/chat/conversations/:id/messages", s.handler.HandleSendChatMessage)
+	api.PATCH("/chat/messages/:id/status", s.handler.HandleUpdateChatMessageStatus)
 
 	// Phase 3: Campaign lifecycle
 	api.GET("/campaigns/:id", s.handler.HandleGetCampaign)

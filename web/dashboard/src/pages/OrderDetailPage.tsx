@@ -11,7 +11,7 @@ import PushTraceCard from '@/components/order-detail/PushTraceCard'
 import SimulateStatusChange from '@/components/order-detail/SimulateStatusChange'
 import { SkeletonCard } from '@/components/ui/Skeleton'
 import ErrorState from '@/components/ui/ErrorState'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, MessageSquareText } from 'lucide-react'
 import type { Notification } from '@/types/notification'
 
 const EMPTY_NOTIFICATIONS: Notification[] = []
@@ -96,6 +96,17 @@ export default function OrderDetailPage() {
         </div>
         <div className="space-y-6">
           <StatusTimeline currentStatus={order.status} statusTimestamps={statusTimestamps} />
+          <button
+            type="button"
+            onClick={() => navigate(`/chat?order_id=${encodeURIComponent(order.order_id)}`)}
+            className="flex w-full items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-sm font-medium text-emerald-800 transition-colors hover:bg-emerald-100"
+          >
+            <span>
+              <span className="block">Open customer service chat</span>
+              <span className="mt-0.5 block text-xs font-normal text-emerald-700">Direct IM conversation for this order</span>
+            </span>
+            <MessageSquareText size={18} />
+          </button>
           <SimulateStatusChange orderId={order.order_id} currentStatus={order.status} />
         </div>
       </div>

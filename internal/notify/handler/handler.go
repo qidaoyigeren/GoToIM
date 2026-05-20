@@ -9,6 +9,7 @@ import (
 type Handler struct {
 	orderSvc     *service.OrderNotifyService
 	flashSaleSvc *service.FlashSaleService
+	chatSvc      *service.ChatService
 	simulator    Simulator
 	activeRunID  string
 }
@@ -26,6 +27,11 @@ func New(orderSvc *service.OrderNotifyService, flashSaleSvc *service.FlashSaleSe
 		orderSvc:     orderSvc,
 		flashSaleSvc: flashSaleSvc,
 	}
+}
+
+// SetChatService attaches the direct IM chat business service.
+func (h *Handler) SetChatService(chatSvc *service.ChatService) {
+	h.chatSvc = chatSvc
 }
 
 // SetSimulator attaches a simulation engine to the handler.

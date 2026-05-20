@@ -309,6 +309,37 @@ func (s *SQLStore) schemaStatements() []string {
 				executed_at VARCHAR(40),
 				INDEX idx_notification_replay_requests_status (status, created_at)
 			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS chat_conversations (
+				conversation_id VARCHAR(64) PRIMARY KEY,
+				order_id VARCHAR(64) NOT NULL,
+				customer_uid BIGINT NOT NULL,
+				merchant_uid BIGINT NOT NULL,
+				room_id VARCHAR(128) NOT NULL,
+				last_message_id VARCHAR(64),
+				last_message_at VARCHAR(40),
+				created_at VARCHAR(40) NOT NULL,
+				updated_at VARCHAR(40) NOT NULL,
+				UNIQUE KEY idx_chat_conversations_order_pair (order_id, customer_uid, merchant_uid),
+				INDEX idx_chat_conversations_customer (customer_uid, updated_at),
+				INDEX idx_chat_conversations_merchant (merchant_uid, updated_at)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS chat_messages (
+				message_id VARCHAR(64) PRIMARY KEY,
+				conversation_id VARCHAR(64) NOT NULL,
+				order_id VARCHAR(64) NOT NULL,
+				sender_uid BIGINT NOT NULL,
+				receiver_uid BIGINT NOT NULL,
+				sender_role VARCHAR(32) NOT NULL,
+				body TEXT NOT NULL,
+				status VARCHAR(32) NOT NULL,
+				delivery_path VARCHAR(64),
+				created_at VARCHAR(40) NOT NULL,
+				delivered_at VARCHAR(40),
+				read_at VARCHAR(40),
+				INDEX idx_chat_messages_conversation_created (conversation_id, created_at),
+				INDEX idx_chat_messages_receiver_status (receiver_uid, status, created_at),
+				CONSTRAINT fk_chat_messages_conversation FOREIGN KEY(conversation_id) REFERENCES chat_conversations(conversation_id)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS idempotency_keys (
 				` + "`key`" + ` VARCHAR(255) NOT NULL,
 				scope VARCHAR(64) NOT NULL,

@@ -86,7 +86,32 @@ export function buildAuthBody(mid: string, key: string, roomId: string, platform
   }))
 }
 
-export function parsePushBody(body: Uint8Array): { type: string; title: string; content: string; notify_id: string; order_id: string; timestamp: number } | null {
+export function buildAckBody(msgId: string, seq: number): Uint8Array {
+  const msgIDBytes = new TextEncoder().encode(msgId)
+  const buf = new ArrayBuffer(2 + msgIDBytes.byteLength + 8 + 1)
+  const view = new DataView(buf)
+  view.setUint16(0, msgIDBytes.byteLength, false)
+  new Uint8Array(buf, 2, msgIDBytes.byteLength).set(msgIDBytes)
+  view.setBigInt64(2 + msgIDBytes.byteLength, BigInt(seq), false)
+  view.setUint8(2 + msgIDBytes.byteLength + 8, 0)
+  return new Uint8Array(buf)
+}
+
+export function parsePushBody(body: Uint8Array): Record<string, unknown> | null {
+  const direct = parseJSONBody(body)
+  if (direct) return direct
+
+  const msgBody = parseMsgBody(body)
+  if (!msgBody) return null
+  const parsed = parseJSONBody(msgBody.content)
+  if (!parsed) return null
+  if (!parsed.msg_id) parsed.msg_id = msgBody.msgId
+  if (!parsed.timestamp) parsed.timestamp = msgBody.timestamp
+  if (!parsed.seq) parsed.seq = msgBody.seq
+  return parsed
+}
+
+function parseJSONBody(body: Uint8Array): Record<string, unknown> | null {
   try {
     const dec = new TextDecoder()
     const json = dec.decode(body)
@@ -94,4 +119,21 @@ export function parsePushBody(body: Uint8Array): { type: string; title: string; 
   } catch {
     return null
   }
+}
+
+function parseMsgBody(body: Uint8Array): { msgId: string; timestamp: number; seq: number; content: Uint8Array } | null {
+  if (body.byteLength < 34) return null
+  const view = new DataView(body.buffer, body.byteOffset, body.byteLength)
+  const msgIDLen = view.getUint16(0, false)
+  const headerLen = 2 + msgIDLen + 32
+  if (body.byteLength < headerLen) return null
+  const msgId = new TextDecoder().decode(body.slice(2, 2 + msgIDLen))
+  let offset = 2 + msgIDLen
+  offset += 8 // from_uid
+  offset += 8 // to_uid
+  const timestamp = Number(view.getBigInt64(offset, false))
+  offset += 8
+  const seq = Number(view.getBigInt64(offset, false))
+  offset += 8
+  return { msgId, timestamp, seq, content: body.slice(offset) }
 }

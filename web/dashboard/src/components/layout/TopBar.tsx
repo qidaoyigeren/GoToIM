@@ -4,13 +4,17 @@ import { useOnlineStore } from '@/stores/onlineStore'
 import { usePlatformStats } from '@/hooks/usePlatformStats'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import { isDemoMode, toggleDemoMode } from '@/config'
-import { Monitor, Server } from 'lucide-react'
+import { useIdentityStore } from '@/stores/identityStore'
+import { Monitor, Server, UserRound } from 'lucide-react'
 
 export default function TopBar() {
   usePlatformStats()
   useOnlineStatus()
   const state = useConnectionStore((s) => s.state)
   const stats = useOnlineStore((s) => s.stats)
+  const role = useIdentityStore((s) => s.role)
+  const userId = useIdentityStore((s) => s.userId)
+  const setRole = useIdentityStore((s) => s.setRole)
 
   const effectiveDemoMode = isDemoMode()
 
@@ -44,6 +48,30 @@ export default function TopBar() {
       </div>
 
       <div className="flex items-center gap-3">
+        <div className="flex items-center rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+          <button
+            type="button"
+            onClick={() => setRole('customer')}
+            title="Use customer identity UID 10001"
+            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+              role === 'customer' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            <UserRound size={12} />
+            Customer
+          </button>
+          <button
+            type="button"
+            onClick={() => setRole('merchant')}
+            title="Use merchant support identity UID 90001"
+            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+              role === 'merchant' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            Merchant
+          </button>
+        </div>
+        <span className="font-mono text-xs text-gray-400">UID {userId}</span>
         <button
           onClick={handleToggle}
           title={effectiveDemoMode ? '当前：Mock 数据模式，点击切换为真实后端' : '当前：真实后端，点击切换为 Mock 数据'}

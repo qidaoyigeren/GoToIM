@@ -2,12 +2,12 @@ import config from '@/config'
 import {
   OP_AUTH, OP_AUTH_REPLY, OP_HEARTBEAT, OP_HEARTBEAT_REPLY,
   OP_PUSH_MSG_ACK, OP_SYNC_REPLY, OP_RAW, OP_KICK_CONNECTION,
-  buildProto, parseProto, buildAuthBody, parsePushBody,
+  buildProto, parseProto, buildAuthBody, buildAckBody, parsePushBody,
 } from './protocol'
 import type { ConnectionState } from '@/stores/connectionStore'
 
 export type WSMessageHandler = (event: {
-  type: 'push' | 'ack' | 'sync' | 'heartbeat' | 'kick'
+  type: 'push' | 'chat' | 'ack' | 'sync' | 'heartbeat' | 'kick'
   data: Record<string, unknown>
 }) => void
 
@@ -110,19 +110,27 @@ export class GoimWSClient {
   private handlePushMessage(body: Uint8Array) {
     const parsed = parsePushBody(body)
     if (parsed) {
+      if (parsed.type === 'chat_message') {
+        this.onMessage?.({
+          type: 'chat',
+          data: parsed,
+        })
+        const chatMsgId = typeof parsed.message_id === 'string' ? parsed.message_id : ''
+        if (chatMsgId) this.sendAck(chatMsgId, 0)
+        return
+      }
       this.onMessage?.({
         type: 'push',
-        data: parsed as unknown as Record<string, unknown>,
+        data: parsed,
       })
       // Send ACK back
-      this.sendAck(parsed.notify_id, 0)
+      const notifyId = typeof parsed.notify_id === 'string' ? parsed.notify_id : ''
+      if (notifyId) this.sendAck(notifyId, 0)
     }
   }
 
   private sendAck(msgId: string, seq: number) {
-    const enc = new TextEncoder()
-    const ackData = JSON.stringify({ msg_id: msgId, seq })
-    this.send(OP_PUSH_MSG_ACK, enc.encode(ackData))
+    this.send(OP_PUSH_MSG_ACK, buildAckBody(msgId, seq))
   }
 
   private startHeartbeat() {
@@ -182,7 +190,7 @@ export class GoimWSClient {
             try {
               const parsed = parsePushBody(proto.body)
               if (parsed) {
-                this.onMessage?.({ type: 'push', data: parsed as unknown as Record<string, unknown> })
+                this.onMessage?.({ type: parsed.type === 'chat_message' ? 'chat' : 'push', data: parsed })
               }
             } catch { /* ignore parse errors */ }
           }
