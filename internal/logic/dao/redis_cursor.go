@@ -64,7 +64,7 @@ func (d *Dao) GetOfflineMessagesByDeviceCursor(c context.Context, uid int64, dev
 	if err != nil {
 		return nil, err
 	}
-	return d.GetOfflineQueue(c, uid, float64(lastSeq), limit)
+	return d.GetUserMessagesAfterSeq(c, uid, lastSeq, limit)
 }
 
 // AdvanceDeviceCursor moves the device cursor forward to the given seq.

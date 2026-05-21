@@ -40,12 +40,13 @@ type Logic struct {
 	regions      map[string]string // province -> region
 	locationMap  map[string]string // IP prefix -> province
 	// services
-	sessionMgr  *service.SessionManager
-	syncSvc     *service.SyncService
-	cometPusher *CometPusher
-	router      *router.DispatchEngine // Phase 2: Message Router
-	spoolReplay *router.SpoolReplayWorker
-	idGen       *snowflake.Snowflake
+	sessionMgr   *service.SessionManager
+	onlineRouter *service.OnlineRouter
+	syncSvc      *service.SyncService
+	cometPusher  *CometPusher
+	router       *router.DispatchEngine // Phase 2: Message Router
+	spoolReplay  *router.SpoolReplayWorker
+	idGen        *snowflake.Snowflake
 }
 
 // New init
@@ -76,18 +77,24 @@ func New(c *conf.Config) (l *Logic) {
 	}
 	// Initialize services
 	sessionTTL := time.Duration(c.Redis.Expire)
+	l.onlineRouter = service.NewOnlineRouter()
 	l.sessionMgr = service.NewSessionManager(l.dao, sessionTTL)
+	l.sessionMgr.SetOnlineRouter(l.onlineRouter)
 	l.cometPusher = NewCometPusher()
 	l.sessionMgr.SetKicker(l.cometPusher)
 
 	// Phase 2: Message Router replaces PushService/AckService for push routing
 	l.router = router.NewDispatchEngine(l.dao, l.dao, l.sessionMgr, l.cometPusher)
+	l.router.SetOnlineRouter(l.onlineRouter)
 	if l.idGen != nil {
 		l.router.SetIDGenerator(l.idGen)
 	}
 	l.router.SetRateLimiter(router.NewRateLimiter(5000, 10000))
 	if l.dao.MQProducer() != nil {
 		l.router.SetMQProducer(l.dao.MQProducer())
+	}
+	if c.Kafka != nil {
+		l.router.SetPushTopics(c.Kafka.OnlinePushTopic, c.Kafka.OfflinePushTopic)
 	}
 	l.router.SetBroadcastFallback(l.cometPusher)
 

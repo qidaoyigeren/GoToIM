@@ -24,6 +24,17 @@ const (
 	HeaderBizID = "goim_biz_id"
 	// HeaderExpireAtUnixMS stores the absolute expiry time as Unix milliseconds.
 	HeaderExpireAtUnixMS = "goim_expire_at_unix_ms"
+	// HeaderDeliveryMode stores the delivery mode: reliable / transient / persist-only.
+	HeaderDeliveryMode = "goim_delivery_mode"
+)
+
+// MsgDeliveryMode describes how a message should move through storage and push.
+type MsgDeliveryMode int
+
+const (
+	DeliveryReliable MsgDeliveryMode = iota
+	DeliveryTransient
+	DeliveryPersistOnly
 )
 
 // Message represents a single message envelope in the message queue.
@@ -64,12 +75,15 @@ const MaxRetries = 3
 // AckEvent is published to Kafka when a client ACKs a message.
 // Notify Server consumes these events to synchronize its ACK state.
 type AckEvent struct {
-	MsgID     string `json:"msg_id"`
-	UserID    string `json:"user_id"`
-	DeviceID  string `json:"device_id"`
-	SessionID string `json:"session_id"`
-	AckTime   int64  `json:"ack_time"`
-	TraceID   string `json:"trace_id,omitempty"`
+	MsgID      string  `json:"msg_id"`
+	UserID     string  `json:"user_id"`
+	DeviceID   string  `json:"device_id"`
+	SessionID  string  `json:"session_id"`
+	AckTime    int64   `json:"ack_time"`
+	Status     string  `json:"status,omitempty"`
+	TargetNode string  `json:"target_node,omitempty"`
+	LatencyMs  float64 `json:"latency_ms,omitempty"`
+	TraceID    string  `json:"trace_id,omitempty"`
 	// NotifyID maps to the business notification when available.
 	// When empty, Notify Server maps via msg_id lookup.
 	NotifyID string `json:"notify_id,omitempty"`
@@ -86,17 +100,18 @@ type AckEvent struct {
 // Backward compatibility: old clients that don't produce BizEnvelope
 // still work — the Router falls back to raw body interpretation.
 type BizEnvelope struct {
-	MsgID        string `json:"msg_id,omitempty"`
-	BizID        string `json:"biz_id,omitempty"`        // e.g. order_id, campaign_id
-	BusinessType string `json:"business_type,omitempty"` // order / marketing / system
-	EventType    string `json:"event_type,omitempty"`    // created / paid / shipped
-	UserID       string `json:"user_id,omitempty"`
-	Priority     string `json:"priority,omitempty"`    // critical / high / normal / low
-	TTLSeconds   int32  `json:"ttl_seconds,omitempty"` // 0 = no expiry
-	DedupeKey    string `json:"dedupe_key,omitempty"`
-	TraceID      string `json:"trace_id,omitempty"`
-	Payload      []byte `json:"payload,omitempty"` // original business payload
-	CreatedAtMS  int64  `json:"created_at_unix_ms,omitempty"`
+	MsgID        string          `json:"msg_id,omitempty"`
+	BizID        string          `json:"biz_id,omitempty"`        // e.g. order_id, campaign_id
+	BusinessType string          `json:"business_type,omitempty"` // order / marketing / system
+	EventType    string          `json:"event_type,omitempty"`    // created / paid / shipped
+	UserID       string          `json:"user_id,omitempty"`
+	Priority     string          `json:"priority,omitempty"`    // critical / high / normal / low
+	TTLSeconds   int32           `json:"ttl_seconds,omitempty"` // 0 = no expiry
+	DedupeKey    string          `json:"dedupe_key,omitempty"`
+	TraceID      string          `json:"trace_id,omitempty"`
+	DeliveryMode MsgDeliveryMode `json:"delivery_mode,omitempty"`
+	Payload      []byte          `json:"payload,omitempty"` // original business payload
+	CreatedAtMS  int64           `json:"created_at_unix_ms,omitempty"`
 }
 
 // DLQMessage is written to the DLQ topic when a message expires or exhausts retries.

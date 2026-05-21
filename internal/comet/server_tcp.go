@@ -189,11 +189,12 @@ func (s *Server) ServeTCP(conn *net.TCPConn, rp, wp *bytes.Pool, tr *xtime.Timer
 		lastHb  = time.Now()
 		rb      = rp.Get()                                                 // 从读对象池获取一个 []byte 缓冲区
 		wb      = wp.Get()                                                 // 从写对象池获取一个 []byte 缓冲区
-		ch      = NewChannel(s.c.Protocol.CliProto, s.c.Protocol.SvrProto) // 创建 Channel，分配客户端/服务端协议环形缓冲区
+		ch      = GetChannel(s.c.Protocol.CliProto, s.c.Protocol.SvrProto) // 创建 Channel，分配客户端/服务端协议环形缓冲区
 		rr      = &ch.Reader                                               // Channel 的带缓冲 Reader，包装了 TCP 连接
 		wr      = &ch.Writer                                               // Channel 的带缓冲 Writer，包装了 TCP 连接
 	)
 	// 初始化令牌桶限流器：RateLimit 是每秒允许的请求数，RateBurst 是突发容量
+	defer PutChannel(ch)
 	if s.c.Protocol.RateLimit > 0 {
 		burst := s.c.Protocol.RateBurst
 		if burst <= 0 {
@@ -358,6 +359,7 @@ func (s *Server) ServeTCP(conn *net.TCPConn, rp, wp *bytes.Pool, tr *xtime.Timer
 	rp.Put(rb)   // 读缓冲区归还对象池，供后续连接复用
 	conn.Close() // 关闭 TCP 连接，dispatchTCP 写协程检测到后也会退出
 	ch.Close()   // 关闭 Channel，清理内部资源
+	<-ch.Done()
 	// 通知 Logic 层该连接已断开，Logic 会从 Redis 中删除连接路由信息
 	// 后续推送到该用户时不会再尝试投递到此 Comet 节点
 	if err = s.Disconnect(ctx, ch.Mid, ch.Key); err != nil {
@@ -396,6 +398,7 @@ func (s *Server) dispatchTCP(conn *net.TCPConn, wr *bufio.Writer, wp *bytes.Pool
 		online int32
 		white  = whitelist.Contains(ch.Mid)
 	)
+	defer ch.markDone()
 	if conf.Conf.Debug {
 		log.Infof("key: %s start dispatch tcp goroutine", ch.Key)
 	}

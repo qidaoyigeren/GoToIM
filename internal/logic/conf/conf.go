@@ -137,12 +137,14 @@ type Redis struct {
 
 // Kafka .
 type Kafka struct {
-	Topic     string // legacy single topic (fallback)
-	Brokers   []string
-	PushTopic string // topic for point-to-point push messages
-	RoomTopic string // topic for room broadcast messages
-	AllTopic  string // topic for global broadcast messages
-	ACKTopic  string // topic for ACK callbacks
+	Topic            string // legacy single topic (fallback)
+	Brokers          []string
+	PushTopic        string // topic for point-to-point push messages
+	OnlinePushTopic  string // topic for online point-to-point push messages
+	OfflinePushTopic string // topic for offline point-to-point push messages
+	RoomTopic        string // topic for room broadcast messages
+	AllTopic         string // topic for global broadcast messages
+	ACKTopic         string // topic for ACK callbacks
 }
 
 // MQ is the abstract message queue configuration.

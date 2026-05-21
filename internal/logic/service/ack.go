@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/Terry-Mao/goim/internal/logic/dao"
@@ -25,8 +26,9 @@ const (
 
 // AckService handles message acknowledgment and delivery tracking.
 type AckService struct {
-	dao     dao.MessageDAO
-	pushDAO dao.PushDAO
+	dao      dao.MessageDAO
+	pushDAO  dao.PushDAO
+	seqAlloc *SeqAllocator
 }
 
 type atomicMessageTracker interface {
@@ -35,7 +37,7 @@ type atomicMessageTracker interface {
 
 // NewAckService creates a new AckService.
 func NewAckService(d dao.MessageDAO, pd dao.PushDAO) *AckService {
-	return &AckService{dao: d, pushDAO: pd}
+	return &AckService{dao: d, pushDAO: pd, seqAlloc: NewSeqAllocator(d)}
 }
 
 // HandleAck processes an ACK from a client.
@@ -65,7 +67,7 @@ func (s *AckService) HandleAckWithDevice(ctx context.Context, uid int64, msgID, 
 
 	// Publish ACK event to Kafka for async consumers
 	if s.pushDAO != nil {
-		if err := s.pushDAO.PublishACK(ctx, msgID, uid, MsgStatusAcked, deviceID, sessionID); err != nil {
+		if err := s.pushDAO.PublishACK(ctx, msgID, uid, MsgStatusAcked, "", deviceID, sessionID); err != nil {
 			log.Warningf("publish ack event: uid=%d msg_id=%s err=%v", uid, msgID, err)
 		}
 	}
@@ -106,6 +108,10 @@ func (s *AckService) TrackMessage(ctx context.Context, msgID string, fromUID, to
 	}
 	ctx = tracectx.WithTraceID(ctx, traceID)
 	now := time.Now().UnixMilli()
+	seq, err := s.seqAlloc.Allocate(ctx, toUID)
+	if err != nil {
+		return fmt.Errorf("allocate seq: %w", err)
+	}
 	fields := map[string]interface{}{
 		"status":     MsgStatusPending,
 		"from_uid":   fromUID,
@@ -116,6 +122,9 @@ func (s *AckService) TrackMessage(ctx context.Context, msgID string, fromUID, to
 		"created_at": now,
 		"updated_at": now,
 	}
+	if seq > 0 {
+		fields["seq"] = seq
+	}
 	if traceID != "" {
 		fields["trace_id"] = traceID
 	}
@@ -125,7 +134,13 @@ func (s *AckService) TrackMessage(ctx context.Context, msgID string, fromUID, to
 			return fmt.Errorf("track msg atomically: %w", err)
 		}
 		if !added {
+			s.ensureUserMessageIndex(ctx, toUID, msgID)
 			return nil
+		}
+		if seq > 0 {
+			if err := s.dao.AddUserMessage(ctx, toUID, msgID, seq); err != nil {
+				return fmt.Errorf("add user message: %w", err)
+			}
 		}
 		return nil
 	}
@@ -133,12 +148,36 @@ func (s *AckService) TrackMessage(ctx context.Context, msgID string, fromUID, to
 	// Fallback for tests and legacy DAO implementations.
 	existing, _ := s.dao.GetMessageStatus(ctx, msgID)
 	if len(existing) > 0 {
+		s.ensureUserMessageIndex(ctx, toUID, msgID)
 		return nil
 	}
 	if err := s.dao.SetMessageStatus(ctx, msgID, fields); err != nil {
 		return fmt.Errorf("set msg status: %w", err)
 	}
+	if seq > 0 {
+		if err := s.dao.AddUserMessage(ctx, toUID, msgID, seq); err != nil {
+			return fmt.Errorf("add user message: %w", err)
+		}
+	}
 	return nil
+}
+
+func (s *AckService) ensureUserMessageIndex(ctx context.Context, uid int64, msgID string) {
+	if uid <= 0 {
+		return
+	}
+	data, err := s.dao.GetMessageStatus(ctx, msgID)
+	if err != nil {
+		log.Warningf("ensure user message index get status failed: uid=%d msg_id=%s err=%v", uid, msgID, err)
+		return
+	}
+	seq, _ := strconv.ParseInt(data["seq"], 10, 64)
+	if seq <= 0 {
+		return
+	}
+	if err := s.dao.AddUserMessage(ctx, uid, msgID, seq); err != nil {
+		log.Warningf("ensure user message index failed: uid=%d msg_id=%s seq=%d err=%v", uid, msgID, seq, err)
+	}
 }
 
 // MarkDelivered marks a message as delivered.

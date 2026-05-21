@@ -24,10 +24,12 @@ const (
 	_prefixDeviceSession = "device_session:%d:%s" // uid:device_id -> sid
 	_prefixMsgStatus     = "msg:%s"               // msg_id -> message status
 	_prefixUserSeq       = "user_seq:%d"          // uid -> monotonic seq
+	_prefixUserMsgs      = "user_msgs:%d"         // uid -> ZSET of msg_id by authoritative seq
 	_prefixOfflineQueue  = "offline:%d"           // uid -> ZSET of msg_id:seq
 	_prefixKeySession    = "key_sid:%s"           // connection key -> sid (reverse index for O(1) heartbeat)
 	_prefixRetryCnt      = "retry_cnt:%s:%d:%d"   // topic:partition:offset -> retry count
 	_prefixDeviceACKs    = "msg_acks:%s"          // msg_id -> device ACK records (hash)
+	_userMsgsTTL         = 30 * 24 * 3600
 )
 
 var trackMessageScript = redis.NewScript(1, `
@@ -69,6 +71,10 @@ func keyMsgStatus(msgID string) string {
 
 func keyUserSeq(uid int64) string {
 	return fmt.Sprintf(_prefixUserSeq, uid)
+}
+
+func keyUserMsgs(uid int64) string {
+	return fmt.Sprintf(_prefixUserMsgs, uid)
 }
 
 func keyOfflineQueue(uid int64) string {
@@ -632,10 +638,78 @@ func (d *Dao) UpdateMessageStatus(c context.Context, msgID, status string) (err 
 
 // IncrUserSeq increments and returns the user's message sequence number.
 func (d *Dao) IncrUserSeq(c context.Context, uid int64) (seq int64, err error) {
+	return d.IncrUserSeqBy(c, uid, 1)
+}
+
+// IncrUserSeqBy increments and returns the user's latest authoritative seq.
+func (d *Dao) IncrUserSeqBy(c context.Context, uid int64, delta int64) (seq int64, err error) {
+	if delta <= 0 {
+		delta = 1
+	}
 	conn := d.redis.Get()
 	defer conn.Close()
-	if seq, err = redis.Int64(conn.Do("INCR", keyUserSeq(uid))); err != nil {
-		log.Errorf("conn.Do(INCR %s) error(%v)", keyUserSeq(uid), err)
+	if seq, err = redis.Int64(conn.Do("INCRBY", keyUserSeq(uid), delta)); err != nil {
+		log.Errorf("conn.Do(INCRBY %s %d) error(%v)", keyUserSeq(uid), delta, err)
+	}
+	return
+}
+
+// GetUserMaxSeq returns the current authoritative max seq for a user.
+func (d *Dao) GetUserMaxSeq(c context.Context, uid int64) (seq int64, err error) {
+	conn := d.redis.Get()
+	defer conn.Close()
+	if seq, err = redis.Int64(conn.Do("GET", keyUserSeq(uid))); err != nil {
+		if err == redis.ErrNil {
+			return 0, nil
+		}
+		log.Errorf("conn.Do(GET %s) error(%v)", keyUserSeq(uid), err)
+	}
+	return
+}
+
+// AddUserMessage stores the authoritative seq on the message hash and indexes
+// the message in user_msgs:{uid}. This index is the primary sync anchor.
+func (d *Dao) AddUserMessage(c context.Context, uid int64, msgID string, seq int64) (err error) {
+	conn := d.redis.Get()
+	defer conn.Close()
+	if err = conn.Send("HSET", keyMsgStatus(msgID), "seq", seq); err != nil {
+		log.Errorf("conn.Send(HSET msg:%s seq) error(%v)", msgID, err)
+		return
+	}
+	if err = conn.Send("ZADD", keyUserMsgs(uid), seq, msgID); err != nil {
+		log.Errorf("conn.Send(ZADD user_msgs:%d %s) error(%v)", uid, msgID, err)
+		return
+	}
+	if err = conn.Send("EXPIRE", keyUserMsgs(uid), _userMsgsTTL); err != nil {
+		log.Errorf("conn.Send(EXPIRE user_msgs:%d) error(%v)", uid, err)
+		return
+	}
+	if err = conn.Flush(); err != nil {
+		return
+	}
+	for i := 0; i < 3; i++ {
+		if _, err = conn.Receive(); err != nil {
+			return
+		}
+	}
+	return nil
+}
+
+// GetUserMessagesAfterSeq returns msgIDs whose authoritative seq is greater
+// than lastSeq, ordered by seq.
+func (d *Dao) GetUserMessagesAfterSeq(c context.Context, uid int64, lastSeq int64, limit int) (msgIDs []string, err error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	conn := d.redis.Get()
+	defer conn.Close()
+	if msgIDs, err = redis.Strings(conn.Do("ZRANGEBYSCORE", keyUserMsgs(uid),
+		fmt.Sprintf("(%d", lastSeq), "+inf", "LIMIT", 0, limit)); err != nil {
+		if err == redis.ErrNil {
+			err = nil
+		} else {
+			log.Errorf("conn.Do(ZRANGEBYSCORE user_msgs:%d) error(%v)", uid, err)
+		}
 	}
 	return
 }

@@ -77,10 +77,11 @@ type Session struct {
 //     SessionManager 专注于 session 数据的 CRUD，而"踢连接"是和 Comet 的交互。
 //     通过 SetKicker 注入，实现了关注点分离：没有 kicker 时 session 照样读写正常。
 type SessionManager struct {
-	dao    dao.SessionDAO // Redis 持久化层接口
-	local  sync.Map       // uid(int64) → []*Session（本地读缓存）
-	ttl    time.Duration  // session 的 TTL 时长（Redis EXPIRE 时间）
-	kicker CometKicker    // Comet 连接踢出器（可选注入，用于同设备互踢通知）
+	dao          dao.SessionDAO // Redis 持久化层接口
+	local        sync.Map       // uid(int64) → []*Session（本地读缓存）
+	ttl          time.Duration  // session 的 TTL 时长（Redis EXPIRE 时间）
+	kicker       CometKicker    // Comet 连接踢出器（可选注入，用于同设备互踢通知）
+	onlineRouter *OnlineRouter
 }
 
 // NewSessionManager 创建一个 SessionManager 实例。
@@ -103,6 +104,10 @@ func NewSessionManager(d dao.SessionDAO, ttl time.Duration) *SessionManager {
 //  2. manager.SetKicker(cometPusher) — 注入踢连接能力
 func (m *SessionManager) SetKicker(k CometKicker) {
 	m.kicker = k
+}
+
+func (m *SessionManager) SetOnlineRouter(r *OnlineRouter) {
+	m.onlineRouter = r
 }
 
 // Create 创建一个新 session。
@@ -137,6 +142,9 @@ func (m *SessionManager) Create(ctx context.Context, sess *Session) error {
 
 	// 步骤3: 删除本地缓存，使下次 GetSessions 重新从 Redis 拉取
 	m.local.Delete(sess.UID)
+	if m.onlineRouter != nil {
+		m.onlineRouter.Set(sess.UID, sess.Key, sess.Server)
+	}
 	return nil
 }
 
@@ -299,6 +307,7 @@ func (m *SessionManager) Kick(ctx context.Context, sid string, uid int64, device
 	}
 	// 删除后立即清本地缓存
 	m.local.Delete(uid)
+	m.refreshOnlineRouterAfterDelete(ctx, uid)
 
 	// 步骤3: 通知 Comet 关闭实际的 TCP/WebSocket 连接
 	// 只有 kicker 已注入 且 拿到了有效的 server 和 key 才执行通知
@@ -308,6 +317,24 @@ func (m *SessionManager) Kick(ctx context.Context, sid string, uid int64, device
 		}
 	}
 	return nil
+}
+
+func (m *SessionManager) refreshOnlineRouterAfterDelete(ctx context.Context, uid int64) {
+	if m.onlineRouter == nil || uid <= 0 {
+		return
+	}
+	sessions, err := m.GetSessions(ctx, uid)
+	if err != nil || len(sessions) == 0 {
+		m.onlineRouter.Delete(uid)
+		return
+	}
+	for _, sess := range sessions {
+		if sess != nil && sess.Key != "" && sess.Server != "" {
+			m.onlineRouter.Set(uid, sess.Key, sess.Server)
+			return
+		}
+	}
+	m.onlineRouter.Delete(uid)
 }
 
 // Disconnect 处理客户端主动断开连接。

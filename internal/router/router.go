@@ -31,20 +31,23 @@ type DirectBroadcaster interface {
 //   - Online users: direct gRPC to Comet (fast path)
 //   - Offline/failed: MQ reliable path
 type DispatchEngine struct {
-	producer    mq.Producer
-	broadcaster DirectBroadcaster // optional: direct broadcast fallback when Kafka is down
-	dao         dao.PushDAO
-	msgDAO      dao.MessageDAO
-	sessMgr     *service.SessionManager
-	ackHandler  *ACKHandler
-	pusher      CometPusher
-	idGen       IDGenerator
-	limiter     *RateLimiter         // optional: per-user + global rate limiter
-	limiterV2   *MultiDimRateLimiter // optional: multi-dimensional rate limiter (Phase 2)
-	attemptRec  *AttemptRecorder     // optional: delivery attempt logger (Phase 1)
-	stateRec    *StateRecorder       // optional: delivery state machine (Phase 2)
-	directTotal atomic.Int64
-	kafkaTotal  atomic.Int64
+	producer     mq.Producer
+	onlineTopic  string
+	offlineTopic string
+	broadcaster  DirectBroadcaster // optional: direct broadcast fallback when Kafka is down
+	dao          dao.PushDAO
+	msgDAO       dao.MessageDAO
+	sessMgr      *service.SessionManager
+	onlineRouter *service.OnlineRouter
+	ackHandler   *ACKHandler
+	pusher       CometPusher
+	idGen        IDGenerator
+	limiter      *RateLimiter         // optional: per-user + global rate limiter
+	limiterV2    *MultiDimRateLimiter // optional: multi-dimensional rate limiter (Phase 2)
+	attemptRec   *AttemptRecorder     // optional: delivery attempt logger (Phase 1)
+	stateRec     *StateRecorder       // optional: delivery state machine (Phase 2)
+	directTotal  atomic.Int64
+	kafkaTotal   atomic.Int64
 }
 
 // DeliveryStats is a snapshot of delivery path counters.
@@ -85,6 +88,16 @@ func (e *DispatchEngine) SetIDGenerator(gen IDGenerator) {
 // SetMQProducer sets the MQ producer for the reliable delivery path.
 func (e *DispatchEngine) SetMQProducer(p mq.Producer) {
 	e.producer = p
+}
+
+// SetPushTopics configures the online/offline split topics for reliable user pushes.
+func (e *DispatchEngine) SetPushTopics(onlineTopic, offlineTopic string) {
+	e.onlineTopic = onlineTopic
+	e.offlineTopic = offlineTopic
+}
+
+func (e *DispatchEngine) SetOnlineRouter(r *service.OnlineRouter) {
+	e.onlineRouter = r
 }
 
 // SetBroadcastFallback sets the direct broadcast fallback for when Kafka is unavailable.

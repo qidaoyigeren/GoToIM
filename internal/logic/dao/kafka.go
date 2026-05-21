@@ -108,15 +108,15 @@ func (d *Dao) BroadcastMsg(c context.Context, op, speed int32, msg []byte) (err 
 
 // PublishACK publishes an ACK event to the ACK topic for async consumers (e.g., Notify Server ACK sync).
 // The event includes device-level info for bridging IM and business ACK data sources.
-func (d *Dao) PublishACK(c context.Context, msgID string, uid int64, status, deviceID, sessionID string) error {
+func (d *Dao) PublishACK(c context.Context, msgID string, uid int64, status, targetNode, deviceID, sessionID string) error {
 	topic := d.c.Kafka.ACKTopic
 	if topic == "" {
 		return nil // ACK topic not configured, skip
 	}
 	traceID := tracectx.TraceID(c)
 	// Build AckEvent JSON for cross-system ACK bridging (Phase 1)
-	ackEvent := fmt.Sprintf(`{"msg_id":"%s","user_id":"%d","device_id":"%s","session_id":"%s","ack_time":%d,"status":"%s","trace_id":"%s"}`,
-		msgID, uid, deviceID, sessionID, time.Now().UnixMilli(), status, traceID)
+	ackEvent := fmt.Sprintf(`{"msg_id":"%s","user_id":"%d","device_id":"%s","session_id":"%s","ack_time":%d,"status":"%s","target_node":"%s","latency_ms":0,"trace_id":"%s"}`,
+		msgID, uid, deviceID, sessionID, time.Now().UnixMilli(), status, targetNode, traceID)
 	ackMsg := &pb.PushMsg{
 		Type:      pb.PushMsg_PUSH,
 		Operation: 19, // OpPushMsgAck
@@ -198,9 +198,9 @@ func (d *Dao) BroadcastViaMQ(ctx context.Context, op, speed int32, msg []byte) e
 }
 
 // PublishACKViaMQ publishes an ACK event through the MQ abstraction.
-func (d *Dao) PublishACKViaMQ(ctx context.Context, msgID string, uid int64, status, deviceID, sessionID string) error {
+func (d *Dao) PublishACKViaMQ(ctx context.Context, msgID string, uid int64, status, targetNode, deviceID, sessionID string) error {
 	if d.mqProducer == nil {
-		return d.PublishACK(ctx, msgID, uid, status, deviceID, sessionID)
+		return d.PublishACK(ctx, msgID, uid, status, targetNode, deviceID, sessionID)
 	}
-	return d.mqProducer.EnqueueACK(ctx, msgID, uid, status)
+	return d.mqProducer.EnqueueACK(ctx, msgID, uid, status, targetNode)
 }

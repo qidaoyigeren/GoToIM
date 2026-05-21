@@ -111,6 +111,15 @@ func buildHeadersFromMsg(msg *mq.Message) []sarama.RecordHeader {
 func (p *Producer) EnqueueToUser(ctx context.Context, uid int64, msg *mq.Message) error {
 	priority := msg.Headers[mq.HeaderPriority]
 	topic := p.pushTopicForPriority(priority)
+	return p.EnqueueToTopic(ctx, topic, uid, msg)
+}
+
+// EnqueueToTopic sends a user message to an explicit Kafka topic while keeping
+// the uid-based partition key semantics used by EnqueueToUser.
+func (p *Producer) EnqueueToTopic(ctx context.Context, topic string, uid int64, msg *mq.Message) error {
+	if topic == "" {
+		topic = p.topicFor(p.pushTopic, p.pushTopic)
+	}
 	key := msg.Key
 	if key == "" {
 		key = strconv.FormatInt(uid, 10)
@@ -171,7 +180,7 @@ func (p *Producer) EnqueueBroadcast(ctx context.Context, msg *mq.Message, speed 
 }
 
 // EnqueueACK 将消息送达确认事件发布到 ACK Topic。
-func (p *Producer) EnqueueACK(ctx context.Context, msgID string, uid int64, status string) error {
+func (p *Producer) EnqueueACK(ctx context.Context, msgID string, uid int64, status, targetNode string) error {
 	if p.ackTopic == "" {
 		return nil
 	}
@@ -180,7 +189,7 @@ func (p *Producer) EnqueueACK(ctx context.Context, msgID string, uid int64, stat
 		Type:      pb.PushMsg_PUSH,
 		Operation: 19,
 		Keys:      []string{fmt.Sprintf("uid:%d", uid)},
-		Msg:       []byte(fmt.Sprintf(`{"msg_id":"%s","uid":%d,"status":"%s","trace_id":"%s"}`, msgID, uid, status, traceID)),
+		Msg:       []byte(fmt.Sprintf(`{"msg_id":"%s","user_id":"%d","uid":%d,"status":"%s","target_node":"%s","ack_time":%d,"trace_id":"%s"}`, msgID, uid, uid, status, targetNode, time.Now().UnixMilli(), traceID)),
 	}
 	b, err := proto.Marshal(ackMsg)
 	if err != nil {

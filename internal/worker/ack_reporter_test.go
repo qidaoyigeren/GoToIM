@@ -26,6 +26,9 @@ type ackRecord struct {
 func (m *mockProducer) EnqueueToUser(ctx context.Context, uid int64, msg *mq.Message) error {
 	return nil
 }
+func (m *mockProducer) EnqueueToTopic(ctx context.Context, topic string, uid int64, msg *mq.Message) error {
+	return nil
+}
 func (m *mockProducer) EnqueueToUsers(ctx context.Context, uids []int64, msg *mq.Message) error {
 	return nil
 }
@@ -35,7 +38,7 @@ func (m *mockProducer) EnqueueToRoom(ctx context.Context, roomID string, msg *mq
 func (m *mockProducer) EnqueueBroadcast(ctx context.Context, msg *mq.Message, speed int32) error {
 	return nil
 }
-func (m *mockProducer) EnqueueACK(ctx context.Context, msgID string, uid int64, status string) error {
+func (m *mockProducer) EnqueueACK(ctx context.Context, msgID string, uid int64, status, targetNode string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.acks = append(m.acks, ackRecord{msgID: msgID, uid: uid, status: status, traceID: tracectx.TraceID(ctx)})

@@ -9,6 +9,7 @@
 //   - high / critical 被限流时走降级（Kafka fallback）而非直接拒绝
 //   - normal / low 被限流时直接返回 ErrRateLimited
 //   - 所有配置通过 RouteByUser 入口读取 BizEnvelope 后逐层检查
+//   - user 维度采用 64-shard 分片锁，与 V1 RateLimiter 一致
 
 package router
 
@@ -56,13 +57,24 @@ func DefaultMultiDimConfig() MultiDimConfig {
 	}
 }
 
+const v2ShardCount = 64
+
+type v2UserShard struct {
+	mu      sync.Mutex
+	buckets map[int64]*tokenBucket
+}
+
 // MultiDimRateLimiter enforces rate limits across multiple dimensions.
+// User dimension uses 64-shard locking (matching V1 RateLimiter pattern).
+// Business-type / event-type / priority use independent mutexes (low cardinality).
 type MultiDimRateLimiter struct {
-	mu       sync.Mutex
 	cfg      MultiDimConfig
-	users    map[int64]*tokenBucket
+	shards   [v2ShardCount]v2UserShard
+	bizMu    sync.Mutex
 	bizTypes map[string]*tokenBucket
+	evtMu    sync.Mutex
 	evtTypes map[string]*tokenBucket
+	prioMu   sync.Mutex
 	prios    map[string]*tokenBucket
 }
 
@@ -77,20 +89,29 @@ func NewMultiDimRateLimiter(cfg MultiDimConfig) *MultiDimRateLimiter {
 	if cfg.Priority == nil {
 		cfg.Priority = make(map[string]DimConfig)
 	}
-	return &MultiDimRateLimiter{
+	m := &MultiDimRateLimiter{
 		cfg:      cfg,
-		users:    make(map[int64]*tokenBucket),
 		bizTypes: make(map[string]*tokenBucket),
 		evtTypes: make(map[string]*tokenBucket),
 		prios:    make(map[string]*tokenBucket),
 	}
+	for i := range m.shards {
+		m.shards[i].buckets = make(map[int64]*tokenBucket)
+	}
+	return m
 }
 
 // AllowUser checks whether the user has remaining capacity.
 func (m *MultiDimRateLimiter) AllowUser(uid int64) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.allowOrCreate(&m.users, uid, m.cfg.User)
+	s := &m.shards[v2ShardIndex(uid)]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tb, ok := s.buckets[uid]
+	if !ok {
+		tb = newBucket(m.cfg.User)
+		s.buckets[uid] = tb
+	}
+	return tb.allow()
 }
 
 // AllowBusinessType checks whether the business type has remaining capacity.
@@ -100,11 +121,16 @@ func (m *MultiDimRateLimiter) AllowBusinessType(bizType string) bool {
 	}
 	cfg, ok := m.cfg.BusinessType[bizType]
 	if !ok {
-		return true // no specific config, allow
+		return true
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.allowOrCreateStr(&m.bizTypes, bizType, cfg)
+	m.bizMu.Lock()
+	defer m.bizMu.Unlock()
+	tb, ok := m.bizTypes[bizType]
+	if !ok {
+		tb = newBucket(cfg)
+		m.bizTypes[bizType] = tb
+	}
+	return tb.allow()
 }
 
 // AllowEventType checks whether the event type has remaining capacity.
@@ -116,9 +142,14 @@ func (m *MultiDimRateLimiter) AllowEventType(evtType string) bool {
 	if !ok {
 		return true
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.allowOrCreateStr(&m.evtTypes, evtType, cfg)
+	m.evtMu.Lock()
+	defer m.evtMu.Unlock()
+	tb, ok := m.evtTypes[evtType]
+	if !ok {
+		tb = newBucket(cfg)
+		m.evtTypes[evtType] = tb
+	}
+	return tb.allow()
 }
 
 // AllowPriority checks whether the priority level has remaining capacity.
@@ -130,33 +161,19 @@ func (m *MultiDimRateLimiter) AllowPriority(priority string) bool {
 	if !ok {
 		cfg = m.cfg.Priority["normal"]
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.allowOrCreateStr(&m.prios, priority, cfg)
+	m.prioMu.Lock()
+	defer m.prioMu.Unlock()
+	tb, ok := m.prios[priority]
+	if !ok {
+		tb = newBucket(cfg)
+		m.prios[priority] = tb
+	}
+	return tb.allow()
 }
 
 // IsDegradable returns true if a priority can be downgraded (Kafka fallback) instead of rejected.
 func IsDegradable(priority string) bool {
 	return priority == "critical" || priority == "high"
-}
-
-// allowOrCreate is a generic typed token-bucket checker.
-func (m *MultiDimRateLimiter) allowOrCreate(buckets *map[int64]*tokenBucket, key int64, cfg DimConfig) bool {
-	tb := (*buckets)[key]
-	if tb == nil {
-		tb = &tokenBucket{rate: cfg.Rate, burst: cfg.Burst, tokens: cfg.Burst, lastTime: time.Now().UnixNano()}
-		(*buckets)[key] = tb
-	}
-	return tb.allow()
-}
-
-func (m *MultiDimRateLimiter) allowOrCreateStr(buckets *map[string]*tokenBucket, key string, cfg DimConfig) bool {
-	tb := (*buckets)[key]
-	if tb == nil {
-		tb = &tokenBucket{rate: cfg.Rate, burst: cfg.Burst, tokens: cfg.Burst, lastTime: time.Now().UnixNano()}
-		(*buckets)[key] = tb
-	}
-	return tb.allow()
 }
 
 // RateLimitResult describes which dimension blocked a request.
@@ -167,6 +184,7 @@ type RateLimitResult struct {
 }
 
 // CheckAll runs all dimension checks. Returns the first blocking result.
+// Uses independent locks per dimension; no deadlock because locks are never nested.
 func (m *MultiDimRateLimiter) CheckAll(uid int64, bizType, evtType, priority string) RateLimitResult {
 	if !m.AllowUser(uid) {
 		return RateLimitResult{Allowed: false, Dimension: "user", Reason: "user rate limit exceeded"}
@@ -181,4 +199,15 @@ func (m *MultiDimRateLimiter) CheckAll(uid int64, bizType, evtType, priority str
 		return RateLimitResult{Allowed: false, Dimension: "priority", Reason: priority + " rate limit exceeded"}
 	}
 	return RateLimitResult{Allowed: true}
+}
+
+func v2ShardIndex(uid int64) int64 {
+	if uid < 0 {
+		uid = -uid
+	}
+	return uid % v2ShardCount
+}
+
+func newBucket(cfg DimConfig) *tokenBucket {
+	return &tokenBucket{rate: cfg.Rate, burst: cfg.Burst, tokens: cfg.Burst, lastTime: time.Now().UnixNano()}
 }

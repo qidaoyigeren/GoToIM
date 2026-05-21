@@ -17,6 +17,7 @@ import (
 type mockProducer struct {
 	enqueued     []*mq.Message
 	lastUID      int64
+	lastTopic    string
 	delayedMsgs  []*mq.Message
 	delayedUID   int64
 	delayedDelay int64
@@ -33,6 +34,11 @@ func (m *mockProducer) EnqueueToUser(ctx context.Context, uid int64, msg *mq.Mes
 	m.lastUID = uid
 	m.enqueued = append(m.enqueued, msg)
 	return nil
+}
+
+func (m *mockProducer) EnqueueToTopic(ctx context.Context, topic string, uid int64, msg *mq.Message) error {
+	m.lastTopic = topic
+	return m.EnqueueToUser(ctx, uid, msg)
 }
 
 func (m *mockProducer) EnqueueToUsers(ctx context.Context, uids []int64, msg *mq.Message) error {
@@ -53,7 +59,7 @@ func (m *mockProducer) EnqueueBroadcast(ctx context.Context, msg *mq.Message, sp
 	return nil
 }
 
-func (m *mockProducer) EnqueueACK(ctx context.Context, msgID string, uid int64, status string) error {
+func (m *mockProducer) EnqueueACK(ctx context.Context, msgID string, uid int64, status, targetNode string) error {
 	return nil
 }
 
@@ -147,16 +153,18 @@ func (m *mockSessionDAO) ExpireSession(ctx context.Context, sid string, uid int6
 
 // mockMessageDAO implements dao.MessageDAO for testing.
 type mockMessageDAO struct {
-	statuses map[string]map[string]string
-	offline  map[string][]string
-	seqs     map[int64]int64
+	statuses     map[string]map[string]string
+	offline      map[string][]string
+	userMessages map[int64][]string
+	seqs         map[int64]int64
 }
 
 func newMockMessageDAO() *mockMessageDAO {
 	return &mockMessageDAO{
-		statuses: make(map[string]map[string]string),
-		offline:  make(map[string][]string),
-		seqs:     make(map[int64]int64),
+		statuses:     make(map[string]map[string]string),
+		offline:      make(map[string][]string),
+		userMessages: make(map[int64][]string),
+		seqs:         make(map[int64]int64),
 	}
 }
 
@@ -190,8 +198,36 @@ func (m *mockMessageDAO) UpdateMessageStatus(ctx context.Context, msgID, status 
 }
 
 func (m *mockMessageDAO) IncrUserSeq(ctx context.Context, uid int64) (int64, error) {
-	m.seqs[uid]++
+	return m.IncrUserSeqBy(ctx, uid, 1)
+}
+
+func (m *mockMessageDAO) IncrUserSeqBy(ctx context.Context, uid int64, delta int64) (int64, error) {
+	if delta <= 0 {
+		delta = 1
+	}
+	m.seqs[uid] += delta
 	return m.seqs[uid], nil
+}
+
+func (m *mockMessageDAO) GetUserMaxSeq(ctx context.Context, uid int64) (int64, error) {
+	return m.seqs[uid], nil
+}
+
+func (m *mockMessageDAO) AddUserMessage(ctx context.Context, uid int64, msgID string, seq int64) error {
+	if m.statuses[msgID] == nil {
+		m.statuses[msgID] = make(map[string]string)
+	}
+	m.statuses[msgID]["seq"] = fmt.Sprintf("%d", seq)
+	m.userMessages[uid] = append(m.userMessages[uid], msgID)
+	return nil
+}
+
+func (m *mockMessageDAO) GetUserMessagesAfterSeq(ctx context.Context, uid int64, lastSeq int64, limit int) ([]string, error) {
+	msgs := m.userMessages[uid]
+	if len(msgs) > limit {
+		msgs = msgs[:limit]
+	}
+	return msgs, nil
 }
 
 func (m *mockMessageDAO) AddToOfflineQueue(ctx context.Context, uid int64, msgID string, seq float64) error {
@@ -265,7 +301,7 @@ func (m *mockPushDAO) BroadcastRoomMsg(ctx context.Context, op int32, room strin
 func (m *mockPushDAO) BroadcastMsg(ctx context.Context, op, speed int32, msg []byte) error {
 	return nil
 }
-func (m *mockPushDAO) PublishACK(ctx context.Context, msgID string, uid int64, status, deviceID, sessionID string) error {
+func (m *mockPushDAO) PublishACK(ctx context.Context, msgID string, uid int64, status, targetNode, deviceID, sessionID string) error {
 	return nil
 }
 
@@ -382,6 +418,24 @@ func TestRouteByUserFallsBackToMQ(t *testing.T) {
 	assert.Len(t, prod.enqueued, 1)
 	assert.Equal(t, "5002", prod.enqueued[0].Key)
 	assert.Equal(t, DeliveryStats{Kafka: 1}, engine.Stats())
+}
+
+func TestReliableEnqueueSelectsOnlineOfflineTopic(t *testing.T) {
+	prod := &mockProducer{}
+	msgDAO := newMockMessageDAO()
+	engine := NewDispatchEngine(&mockPushDAO{}, msgDAO, nil, &mockCometPusher{})
+	engine.SetMQProducer(prod)
+	engine.SetPushTopics("push-online", "push-offline")
+
+	err := engine.reliableEnqueue(context.Background(), "msg-offline", 6001, 9, []byte("offline"), 1, nil)
+	assert.Nil(t, err)
+	assert.Equal(t, "push-offline", prod.lastTopic)
+
+	err = engine.reliableEnqueue(context.Background(), "msg-online", 6001, 9, []byte("online"), 2, []*service.Session{
+		{Key: "key1", Server: "comet-1"},
+	})
+	assert.Nil(t, err)
+	assert.Equal(t, "push-online", prod.lastTopic)
 }
 
 func TestRouteByUserDirectPushPartialFailure(t *testing.T) {

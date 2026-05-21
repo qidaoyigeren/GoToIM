@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"time"
 
 	"github.com/IBM/sarama"
+	pb "github.com/Terry-Mao/goim/api/logic"
 	log "github.com/Terry-Mao/goim/pkg/log"
+	"google.golang.org/protobuf/proto"
 )
 
 // AckBridgeConsumer subscribes to the Kafka ACK topic and synchronizes
@@ -121,15 +124,18 @@ func (h *ackBridgeHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim 
 // the ACK into the Notify Server's notification table.
 func (h *ackBridgeHandler) processMessage(msg *sarama.ConsumerMessage) {
 	var event struct {
-		MsgID     string `json:"msg_id"`
-		UserID    string `json:"user_id"`
-		DeviceID  string `json:"device_id"`
-		SessionID string `json:"session_id"`
-		AckTime   int64  `json:"ack_time"`
-		Status    string `json:"status"`
-		TraceID   string `json:"trace_id"`
+		MsgID      string  `json:"msg_id"`
+		UserID     string  `json:"user_id"`
+		DeviceID   string  `json:"device_id"`
+		SessionID  string  `json:"session_id"`
+		AckTime    int64   `json:"ack_time"`
+		Status     string  `json:"status"`
+		TargetNode string  `json:"target_node"`
+		LatencyMs  float64 `json:"latency_ms"`
+		TraceID    string  `json:"trace_id"`
+		NotifyID   string  `json:"notify_id"`
 	}
-	if err := json.Unmarshal(msg.Value, &event); err != nil {
+	if err := decodeAckBridgeEvent(msg.Value, &event); err != nil {
 		log.Warningf("ack bridge: decode event failed offset=%d: %v", msg.Offset, err)
 		return
 	}
@@ -141,13 +147,30 @@ func (h *ackBridgeHandler) processMessage(msg *sarama.ConsumerMessage) {
 	// For now, we map via msg_id lookup in notification_acks table.
 	// If the notification cannot be found, this is likely an IM chat message
 	// (not a business notification), which is safe to skip.
-	notifyID, err := h.svc.FindNotifyIDByMsgID(event.MsgID)
-	if err != nil {
-		log.Warningf("ack bridge: msg_id lookup failed msg_id=%s: %v", event.MsgID, err)
-		return
+	notifyID := event.NotifyID
+	if notifyID == "" {
+		var err error
+		notifyID, err = h.svc.FindNotifyIDByMsgID(event.MsgID)
+		if err != nil {
+			log.Warningf("ack bridge: msg_id lookup failed msg_id=%s: %v", event.MsgID, err)
+			return
+		}
 	}
 	if notifyID == "" {
 		// IM-only message, no notification to update — this is expected
+		return
+	}
+
+	switch event.Status {
+	case "server_received":
+		_ = h.svc.store.UpdateNotificationStatus(notifyID, "delivering", time.Now())
+		return
+	case "pushed":
+		_ = h.svc.store.UpdateNotificationStatus(notifyID, "delivered", time.Now())
+		return
+	case "", "acked":
+	default:
+		log.V(1).Infof("ack bridge: ignored status=%s msg_id=%s", event.Status, event.MsgID)
 		return
 	}
 
@@ -166,4 +189,15 @@ func (h *ackBridgeHandler) processMessage(msg *sarama.ConsumerMessage) {
 	if recorded {
 		log.V(1).Infof("ack bridge: synced notify_id=%s msg_id=%s device=%s", notifyID, event.MsgID, event.DeviceID)
 	}
+}
+
+func decodeAckBridgeEvent(data []byte, dst any) error {
+	if err := json.Unmarshal(data, dst); err == nil {
+		return nil
+	}
+	pushMsg := new(pb.PushMsg)
+	if err := proto.Unmarshal(data, pushMsg); err != nil {
+		return err
+	}
+	return json.Unmarshal(pushMsg.Msg, dst)
 }

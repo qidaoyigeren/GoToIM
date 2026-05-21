@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -19,16 +20,18 @@ import (
 // dispatches them to Comet servers via gRPC. It replaces the
 // legacy internal/job/ Kafka consumer with the MQ abstraction.
 type DeliveryWorker struct {
-	cfg          Config
-	consumer     mq.Consumer
-	comets       *CometClientPool
-	reporter     *ACKReporter
-	rooms        map[string]*RoomAggregator
-	roomsMu      sync.RWMutex
-	ctx          context.Context
-	cancel       context.CancelFunc
-	dlq          mq.DLQProducer  // optional: dead-letter queue for undeliverable messages
-	retryCounter mq.RetryCounter // optional: tracks retry counts per message
+	cfg           Config
+	consumer      mq.Consumer
+	comets        *CometClientPool
+	reporter      *ACKReporter
+	rooms         map[string]*RoomAggregator
+	roomsMu       sync.RWMutex
+	ctx           context.Context
+	cancel        context.CancelFunc
+	dlq           mq.DLQProducer  // optional: dead-letter queue for undeliverable messages
+	retryCounter  mq.RetryCounter // optional: tracks retry counts per message
+	retryProducer mq.Producer     // optional: moves exhausted online messages to offline topic
+	retryToTopic  string          // optional: topic used by retryProducer after max retries
 }
 
 // Config holds DeliveryWorker configuration.
@@ -44,6 +47,8 @@ type Config struct {
 	WALDir        string          // directory for room WAL files (empty = disabled)
 	DLQ           mq.DLQProducer  // optional: dead-letter queue
 	RetryCounter  mq.RetryCounter // optional: retry count tracker (Redis-backed)
+	RetryProducer mq.Producer     // optional: producer used to move exhausted messages to another topic
+	RetryToTopic  string          // optional: target topic for exhausted retries
 }
 
 // New creates a new DeliveryWorker.
@@ -55,15 +60,17 @@ func New(cfg Config) (*DeliveryWorker, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	w := &DeliveryWorker{
-		cfg:          cfg,
-		consumer:     consumer,
-		comets:       NewCometClientPool(),
-		reporter:     &ACKReporter{},
-		rooms:        make(map[string]*RoomAggregator),
-		ctx:          ctx,
-		cancel:       cancel,
-		dlq:          cfg.DLQ,
-		retryCounter: cfg.RetryCounter,
+		cfg:           cfg,
+		consumer:      consumer,
+		comets:        NewCometClientPool(),
+		reporter:      &ACKReporter{},
+		rooms:         make(map[string]*RoomAggregator),
+		ctx:           ctx,
+		cancel:        cancel,
+		dlq:           cfg.DLQ,
+		retryCounter:  cfg.RetryCounter,
+		retryProducer: cfg.RetryProducer,
+		retryToTopic:  cfg.RetryToTopic,
 	}
 	if cfg.DLQ != nil {
 		consumer.SetDLQ(cfg.DLQ)
@@ -111,6 +118,7 @@ func (w *DeliveryWorker) UpdateComets(addrs map[string]string) {
 // processMessage handles a single message from the MQ.
 func (w *DeliveryWorker) processMessage(ctx context.Context, msg *mq.Message) error {
 	ctx = tracectx.WithTraceID(ctx, tracectx.FromHeaders(msg.Headers))
+	transient := msg.Headers[mq.HeaderDeliveryMode] == "1"
 	pushMsg := new(pb.PushMsg)
 	if err := proto.Unmarshal(msg.Value, pushMsg); err != nil {
 		log.Errorf("proto.Unmarshal error(%v)", err)
@@ -119,14 +127,23 @@ func (w *DeliveryWorker) processMessage(ctx context.Context, msg *mq.Message) er
 
 	switch pushMsg.Type {
 	case pb.PushMsg_PUSH:
-		return w.checkRetry(ctx, msg, w.pushKeys(pushMsg.Operation, pushMsg.Server, pushMsg.Keys, pushMsg.Msg))
+		return w.handlePushResult(ctx, msg, w.pushKeys(pushMsg.Operation, pushMsg.Server, pushMsg.Keys, pushMsg.Msg), transient)
 	case pb.PushMsg_ROOM:
-		return w.checkRetry(ctx, msg, w.getRoom(pushMsg.Room).Push(pushMsg.Operation, pushMsg.Msg))
+		return w.handlePushResult(ctx, msg, w.getRoom(pushMsg.Room).Push(pushMsg.Operation, pushMsg.Msg), transient)
 	case pb.PushMsg_BROADCAST:
-		return w.checkRetry(ctx, msg, w.broadcast(pushMsg.Operation, pushMsg.Msg, pushMsg.Speed))
+		return w.handlePushResult(ctx, msg, w.broadcast(pushMsg.Operation, pushMsg.Msg, pushMsg.Speed), transient)
 	default:
 		return nil
 	}
+}
+
+func (w *DeliveryWorker) handlePushResult(ctx context.Context, msg *mq.Message, pushErr error, transient bool) error {
+	if transient && pushErr != nil {
+		log.Warningf("transient message dropped after push failure: topic=%s partition=%d offset=%d err=%v",
+			msg.Topic, msg.Partition, msg.Offset, pushErr)
+		return nil
+	}
+	return w.checkRetry(ctx, msg, pushErr)
 }
 
 // checkRetry increments the retry counter and returns a DeadLetterError if
@@ -146,6 +163,17 @@ func (w *DeliveryWorker) checkRetry(ctx context.Context, msg *mq.Message, pushEr
 		return pushErr
 	}
 	if cnt >= mq.MaxRetries {
+		if w.retryProducer != nil && w.retryToTopic != "" {
+			uid, _ := strconv.ParseInt(msg.Key, 10, 64)
+			if err := w.retryProducer.EnqueueToTopic(ctx, w.retryToTopic, uid, msg); err != nil {
+				log.Errorf("move exhausted message to topic failed: from=%s to=%s partition=%d offset=%d err=%v",
+					msg.Topic, w.retryToTopic, msg.Partition, msg.Offset, err)
+				return pushErr
+			}
+			log.Warningf("message exceeded max retries (%d), moved to topic=%s: from=%s partition=%d offset=%d",
+				cnt, w.retryToTopic, msg.Topic, msg.Partition, msg.Offset)
+			return nil
+		}
 		log.Warningf("message exceeded max retries (%d): topic=%s partition=%d offset=%d",
 			cnt, msg.Topic, msg.Partition, msg.Offset)
 		return &mq.DeadLetterError{

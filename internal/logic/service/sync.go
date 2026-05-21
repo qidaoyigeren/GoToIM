@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strconv"
 
 	"github.com/Terry-Mao/goim/api/protocol"
 	"github.com/Terry-Mao/goim/internal/logic/dao"
@@ -62,9 +63,13 @@ func (s *SyncService) GetOfflineMessagesByDevice(ctx context.Context, uid int64,
 }
 
 func (s *SyncService) syncOffline(ctx context.Context, uid int64, deviceID string, lastSeq int64) error {
-	msgIDs, err := s.dao.GetOfflineQueue(ctx, uid, float64(lastSeq), 100)
+	serverMaxSeq, err := s.dao.GetUserMaxSeq(ctx, uid)
 	if err != nil {
-		return fmt.Errorf("get offline queue: %w", err)
+		return fmt.Errorf("get user max seq: %w", err)
+	}
+	msgIDs, err := s.dao.GetUserMessagesAfterSeq(ctx, uid, lastSeq, 100)
+	if err != nil {
+		return fmt.Errorf("get user messages: %w", err)
 	}
 	if len(msgIDs) == 0 {
 		return nil
@@ -87,9 +92,10 @@ func (s *SyncService) syncOffline(ctx context.Context, uid int64, deviceID strin
 	}
 
 	syncBytes, err := protocol.MarshalSyncReply(&protocol.SyncReplyBody{
-		CurrentSeq: seq,
-		HasMore:    false,
-		Messages:   messages,
+		CurrentSeq:   seq,
+		ServerMaxSeq: serverMaxSeq,
+		HasMore:      seq < serverMaxSeq,
+		Messages:     messages,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal sync reply: %w", err)
@@ -108,15 +114,18 @@ func (s *SyncService) syncOffline(ctx context.Context, uid int64, deviceID strin
 
 func (s *SyncService) buildSyncReply(ctx context.Context, uid int64, deviceID string, msgIDs []string, limit int32) (*protocol.SyncReplyBody, error) {
 	lastSeq, _ := s.dao.GetDeviceCursor(ctx, uid, deviceID)
+	serverMaxSeq, _ := s.dao.GetUserMaxSeq(ctx, uid)
 	reply := &protocol.SyncReplyBody{
-		CurrentSeq: lastSeq,
-		HasMore:    len(msgIDs) >= int(limit),
+		CurrentSeq:   lastSeq,
+		ServerMaxSeq: serverMaxSeq,
+		HasMore:      len(msgIDs) >= int(limit),
 	}
 	statuses, err := s.batchGetMessageStatus(ctx, msgIDs)
 	if err != nil {
 		return nil, err
 	}
 	reply.Messages, reply.CurrentSeq = s.buildMessagesFromStatuses(ctx, uid, lastSeq, msgIDs, statuses)
+	reply.HasMore = reply.CurrentSeq < reply.ServerMaxSeq && len(msgIDs) >= int(limit)
 	return reply, nil
 }
 
@@ -125,19 +134,22 @@ func (s *SyncService) GetOfflineMessages(ctx context.Context, uid int64, lastSeq
 	if limit <= 0 || limit > 200 {
 		limit = 100
 	}
-	msgIDs, err := s.dao.GetOfflineQueue(ctx, uid, float64(lastSeq), int(limit))
+	msgIDs, err := s.dao.GetUserMessagesAfterSeq(ctx, uid, lastSeq, int(limit))
 	if err != nil {
-		return nil, fmt.Errorf("get offline queue: %w", err)
+		return nil, fmt.Errorf("get user messages: %w", err)
 	}
+	serverMaxSeq, _ := s.dao.GetUserMaxSeq(ctx, uid)
 	reply := &protocol.SyncReplyBody{
-		CurrentSeq: lastSeq,
-		HasMore:    len(msgIDs) >= int(limit),
+		CurrentSeq:   lastSeq,
+		ServerMaxSeq: serverMaxSeq,
+		HasMore:      len(msgIDs) >= int(limit),
 	}
 	statuses, err := s.batchGetMessageStatus(ctx, msgIDs)
 	if err != nil {
 		return nil, err
 	}
 	reply.Messages, reply.CurrentSeq = s.buildMessagesFromStatuses(ctx, uid, lastSeq, msgIDs, statuses)
+	reply.HasMore = reply.CurrentSeq < reply.ServerMaxSeq && len(msgIDs) >= int(limit)
 	return reply, nil
 }
 
@@ -170,12 +182,18 @@ func (s *SyncService) buildMessagesFromStatuses(ctx context.Context, uid int64, 
 		if len(msgData) == 0 {
 			continue
 		}
+		msgSeq, _ := strconv.ParseInt(msgData["seq"], 10, 64)
+		if msgSeq <= 0 {
+			continue
+		}
+		if msgSeq > seq {
+			seq = msgSeq
+		}
 		if msgData["status"] == MsgStatusAcked {
 			_ = s.dao.RemoveFromOfflineQueue(ctx, uid, msgID)
 			continue
 		}
-		seq++
-		messages = append(messages, msgBodyFromStatus(msgID, seq, msgData))
+		messages = append(messages, msgBodyFromStatus(msgID, msgSeq, msgData))
 	}
 	return messages, seq
 }

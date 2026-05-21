@@ -21,6 +21,10 @@ type recvMockMessageDAO struct {
 		msgID string
 		seq   float64
 	}
+	userMessages map[int64][]struct {
+		msgID string
+		seq   int64
+	}
 	userSeq map[int64]int64
 }
 
@@ -31,6 +35,10 @@ func newRecvMockMessageDAO() *recvMockMessageDAO {
 			msgID string
 			seq   float64
 		}),
+		userMessages: make(map[int64][]struct {
+			msgID string
+			seq   int64
+		}),
 		userSeq: make(map[int64]int64),
 	}
 }
@@ -38,9 +46,13 @@ func newRecvMockMessageDAO() *recvMockMessageDAO {
 func (m *recvMockMessageDAO) SetMessageStatus(_ context.Context, msgID string, fields map[string]interface{}) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	existing := m.msgStatus[msgID]
 	s := make(map[string]string)
 	for k, v := range fields {
 		s[k] = fmt.Sprintf("%v", v)
+	}
+	if _, ok := s["seq"]; !ok && existing != nil && existing["seq"] != "" {
+		s["seq"] = existing["seq"]
 	}
 	m.msgStatus[msgID] = s
 	return nil
@@ -82,10 +94,52 @@ func (m *recvMockMessageDAO) UpdateMessageStatus(_ context.Context, msgID, statu
 }
 
 func (m *recvMockMessageDAO) IncrUserSeq(_ context.Context, uid int64) (int64, error) {
+	return m.IncrUserSeqBy(context.Background(), uid, 1)
+}
+
+func (m *recvMockMessageDAO) IncrUserSeqBy(_ context.Context, uid int64, delta int64) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.userSeq[uid]++
+	if delta <= 0 {
+		delta = 1
+	}
+	m.userSeq[uid] += delta
 	return m.userSeq[uid], nil
+}
+
+func (m *recvMockMessageDAO) GetUserMaxSeq(_ context.Context, uid int64) (int64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.userSeq[uid], nil
+}
+
+func (m *recvMockMessageDAO) AddUserMessage(_ context.Context, uid int64, msgID string, seq int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.msgStatus[msgID] == nil {
+		m.msgStatus[msgID] = make(map[string]string)
+	}
+	m.msgStatus[msgID]["seq"] = fmt.Sprintf("%d", seq)
+	m.userMessages[uid] = append(m.userMessages[uid], struct {
+		msgID string
+		seq   int64
+	}{msgID, seq})
+	return nil
+}
+
+func (m *recvMockMessageDAO) GetUserMessagesAfterSeq(_ context.Context, uid int64, lastSeq int64, limit int) ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result []string
+	for _, e := range m.userMessages[uid] {
+		if e.seq > lastSeq {
+			result = append(result, e.msgID)
+			if len(result) >= limit {
+				break
+			}
+		}
+	}
+	return result, nil
 }
 
 func (m *recvMockMessageDAO) AddToOfflineQueue(_ context.Context, uid int64, msgID string, seq float64) error {
@@ -95,6 +149,14 @@ func (m *recvMockMessageDAO) AddToOfflineQueue(_ context.Context, uid int64, msg
 		msgID string
 		seq   float64
 	}{msgID, seq})
+	m.userMessages[uid] = append(m.userMessages[uid], struct {
+		msgID string
+		seq   int64
+	}{msgID, int64(seq)})
+	if m.msgStatus[msgID] == nil {
+		m.msgStatus[msgID] = make(map[string]string)
+	}
+	m.msgStatus[msgID]["seq"] = fmt.Sprintf("%.0f", seq)
 	return nil
 }
 
@@ -207,7 +269,7 @@ func (m *recvMockPushDAO) BroadcastMsg(_ context.Context, op, speed int32, msg [
 	return nil
 }
 
-func (m *recvMockPushDAO) PublishACK(_ context.Context, msgID string, uid int64, status, deviceID, sessionID string) error {
+func (m *recvMockPushDAO) PublishACK(_ context.Context, msgID string, uid int64, status, targetNode, deviceID, sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.ackCalls = append(m.ackCalls, struct {

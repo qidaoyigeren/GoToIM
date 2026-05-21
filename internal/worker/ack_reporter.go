@@ -37,7 +37,7 @@ func (r *ACKReporter) Report(ctx context.Context, result DeliveryResult) {
 		status = "failed"
 	}
 	ctx = tracectx.WithTraceID(ctx, result.TraceID)
-	if err := r.producer.EnqueueACK(ctx, result.MsgID, result.UID, status); err != nil {
+	if err := r.producer.EnqueueACK(ctx, result.MsgID, result.UID, status, ""); err != nil {
 		log.Warningf("ack report failed: msg_id=%s uid=%d err=%v", result.MsgID, result.UID, err)
 	}
 }

@@ -17,10 +17,20 @@ type PriorityQueue struct {
 // highCap is the capacity for high-priority messages,
 // normalCap is the capacity for normal messages.
 func NewPriorityQueue(highCap, normalCap int) *PriorityQueue {
-	return &PriorityQueue{
-		high:   make(chan *protocol.Proto, highCap),
-		normal: make(chan *protocol.Proto, normalCap),
+	pq := new(PriorityQueue)
+	pq.Reset(highCap, normalCap)
+	return pq
+}
+
+func (pq *PriorityQueue) Reset(highCap, normalCap int) {
+	if highCap <= 0 {
+		highCap = 1
 	}
+	if normalCap <= 0 {
+		normalCap = 1
+	}
+	pq.high = make(chan *protocol.Proto, highCap)
+	pq.normal = make(chan *protocol.Proto, normalCap)
 }
 
 // isHighPriority returns true if the operation should be treated as high priority.

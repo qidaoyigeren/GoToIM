@@ -104,7 +104,8 @@ type mockMessageDAO struct {
 	mu           sync.RWMutex
 	msgStatus    map[string]map[string]string // msg_id -> fields
 	offlineQueue map[int64][]offlineEntry     // uid -> entries
-	userSeq      map[int64]int64              // uid -> seq
+	userMessages map[int64][]offlineEntry
+	userSeq      map[int64]int64 // uid -> seq
 }
 
 type offlineEntry struct {
@@ -116,6 +117,7 @@ func newMockMessageDAO() *mockMessageDAO {
 	return &mockMessageDAO{
 		msgStatus:    make(map[string]map[string]string),
 		offlineQueue: make(map[int64][]offlineEntry),
+		userMessages: make(map[int64][]offlineEntry),
 		userSeq:      make(map[int64]int64),
 	}
 }
@@ -123,9 +125,13 @@ func newMockMessageDAO() *mockMessageDAO {
 func (m *mockMessageDAO) SetMessageStatus(_ context.Context, msgID string, fields map[string]interface{}) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	existing := m.msgStatus[msgID]
 	s := make(map[string]string)
 	for k, v := range fields {
 		s[k] = fmt.Sprintf("%v", v)
+	}
+	if _, ok := s["seq"]; !ok && existing != nil && existing["seq"] != "" {
+		s["seq"] = existing["seq"]
 	}
 	m.msgStatus[msgID] = s
 	return nil
@@ -167,16 +173,67 @@ func (m *mockMessageDAO) UpdateMessageStatus(_ context.Context, msgID, status st
 }
 
 func (m *mockMessageDAO) IncrUserSeq(_ context.Context, uid int64) (int64, error) {
+	return m.IncrUserSeqBy(context.Background(), uid, 1)
+}
+
+func (m *mockMessageDAO) IncrUserSeqBy(_ context.Context, uid int64, delta int64) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.userSeq[uid]++
+	if delta <= 0 {
+		delta = 1
+	}
+	m.userSeq[uid] += delta
 	return m.userSeq[uid], nil
+}
+
+func (m *mockMessageDAO) GetUserMaxSeq(_ context.Context, uid int64) (int64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.userSeq[uid], nil
+}
+
+func (m *mockMessageDAO) AddUserMessage(_ context.Context, uid int64, msgID string, seq int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.msgStatus[msgID]; ok {
+		s["seq"] = fmt.Sprintf("%d", seq)
+	}
+	entries := m.userMessages[uid]
+	for i, e := range entries {
+		if e.msgID == msgID {
+			entries[i].seq = float64(seq)
+			m.userMessages[uid] = entries
+			return nil
+		}
+	}
+	m.userMessages[uid] = append(entries, offlineEntry{msgID: msgID, seq: float64(seq)})
+	return nil
+}
+
+func (m *mockMessageDAO) GetUserMessagesAfterSeq(_ context.Context, uid int64, lastSeq int64, limit int) ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result []string
+	for _, e := range m.userMessages[uid] {
+		if e.seq > float64(lastSeq) {
+			result = append(result, e.msgID)
+			if len(result) >= limit {
+				break
+			}
+		}
+	}
+	return result, nil
 }
 
 func (m *mockMessageDAO) AddToOfflineQueue(_ context.Context, uid int64, msgID string, seq float64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.offlineQueue[uid] = append(m.offlineQueue[uid], offlineEntry{msgID: msgID, seq: seq})
+	m.userMessages[uid] = append(m.userMessages[uid], offlineEntry{msgID: msgID, seq: seq})
+	if m.msgStatus[msgID] == nil {
+		m.msgStatus[msgID] = make(map[string]string)
+	}
+	m.msgStatus[msgID]["seq"] = fmt.Sprintf("%.0f", seq)
 	return nil
 }
 
@@ -309,7 +366,7 @@ func (m *mockPushDAO) BroadcastMsg(_ context.Context, op, speed int32, msg []byt
 	return nil
 }
 
-func (m *mockPushDAO) PublishACK(_ context.Context, msgID string, uid int64, status, deviceID, sessionID string) error {
+func (m *mockPushDAO) PublishACK(_ context.Context, msgID string, uid int64, status, targetNode, deviceID, sessionID string) error {
 	return nil // no-op in mock
 }
 

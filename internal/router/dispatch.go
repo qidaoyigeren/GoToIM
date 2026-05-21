@@ -95,6 +95,40 @@ import (
 //	nil     - 消息已成功投递（直连成功 或 已进入 Kafka）
 //	error   - 可靠通道也投递失败（此时消息可能已丢失，需业务层重试）
 func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID int64, op int32, body []byte, seq int64) error {
+	return e.RouteByUserWithMode(ctx, msgID, toUID, op, body, seq, mq.DeliveryReliable)
+}
+
+func (e *DispatchEngine) RouteByUserWithMode(ctx context.Context, msgID string, toUID int64, op int32, body []byte, seq int64, mode mq.MsgDeliveryMode) error {
+	if mode == mq.DeliveryTransient {
+		if e.limiter != nil && !e.limiter.AllowUser(toUID, 100, 200) {
+			metrics.RateLimitedTotal.Inc()
+			return fmt.Errorf("rate limited: uid=%d", toUID)
+		}
+		// limiterV2: 多维度限流；Transient 模式无 Kafka 兜底，被限流直接拒绝
+		if e.limiterV2 != nil {
+			env := parseBizEnvelope(body, msgID)
+			if rl := e.limiterV2.CheckAll(toUID, env.BusinessType, env.EventType, env.Priority); !rl.Allowed {
+				metrics.RateLimitedTotal.Inc()
+				return fmt.Errorf("rate limited (v2 %s): uid=%d", rl.Dimension, toUID)
+			}
+		}
+		if e.sessMgr == nil {
+			return nil
+		}
+		if e.onlineRouter != nil {
+			if sess, ok := e.onlineRouter.Get(toUID); ok {
+				_, _ = directPush(ctx, e.pusher, []*service.Session{sess}, op, body)
+				return nil
+			}
+		}
+		online, sessions := e.sessMgr.IsOnline(ctx, toUID)
+		if !online {
+			return nil
+		}
+		_, _ = directPush(ctx, e.pusher, sessions, op, body)
+		return nil
+	}
+
 	// ── 步骤 0：msgID 自动生成 ──────────────────────────────────────────
 	// 如果调用方未提供 msgID，则通过 Snowflake 算法（idGen）生成一个全局唯一的
 	// 字符串 ID。Snowflake 保证分布式环境下的唯一性，无需中心化协调。
@@ -119,20 +153,61 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 		log.V(1).Infof("msg already tracked: msg_id=%s err=%v", msgID, err)
 		return nil
 	}
+	if mode == mq.DeliveryPersistOnly {
+		return nil
+	}
+	e.publishACK(ctx, msgID, toUID, "server_received", "")
 
 	// ── 步骤 1.2：记录 routed 状态（Phase 2 状态机）
 	e.recordState(ctx, msgID, "accepted", "routed", "dispatch started", "")
 
 	// ── 步骤 1.5：限流检查 ──────────────────────────────────────────────
+	// V1: per-user token bucket
 	if e.limiter != nil {
 		if !e.limiter.AllowUser(toUID, 100, 200) { // rate=100/s, burst=200
 			metrics.RateLimitedTotal.Inc()
 			return fmt.Errorf("rate limited: uid=%d", toUID)
 		}
 	}
+	// V2: 多维度限流（user / business_type / event_type / priority）
+	// high/critical 被限流时降级到 Kafka 可靠通道，不直接拒绝
+	if e.limiterV2 != nil {
+		env := parseBizEnvelope(body, msgID)
+		if rl := e.limiterV2.CheckAll(toUID, env.BusinessType, env.EventType, env.Priority); !rl.Allowed {
+			metrics.RateLimitedTotal.Inc()
+			if IsDegradable(env.Priority) {
+				log.Infof("limiterV2 degraded to kafka: uid=%d dim=%s priority=%s", toUID, rl.Dimension, env.Priority)
+				e.recordState(ctx, msgID, "routed", "fallback_queued", "rate_limited_degraded:"+rl.Dimension, "")
+				return e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, nil)
+			}
+			return fmt.Errorf("rate limited (v2 %s): uid=%d", rl.Dimension, toUID)
+		}
+	}
 
 	// 记录开始时间，用于后续耗时统计（Prometheus metrics）
 	start := time.Now()
+
+	if e.onlineRouter != nil {
+		if sess, ok := e.onlineRouter.Get(toUID); ok {
+			cachedSessions := []*service.Session{sess}
+			failedSessions, pushErr := directPush(ctx, e.pusher, cachedSessions, op, body)
+			if pushErr == nil && len(failedSessions) == 0 {
+				if err := e.markDelivered(ctx, msgID); err != nil {
+					return err
+				}
+				e.publishACK(ctx, msgID, toUID, "pushed", sess.Server)
+				e.directTotal.Add(1)
+				metrics.PushTotal.WithLabelValues("direct", "success").Inc()
+				metrics.PushLatency.WithLabelValues("direct").Observe(time.Since(start).Seconds())
+				e.recordAttempt(ctx, msgID, "grpc_direct_cache", "success", time.Since(start).Milliseconds(), "", sess.Server)
+				e.recordState(ctx, msgID, "routed", "direct_sent", "cached route pushed", "")
+				return nil
+			}
+			if pushErr != nil {
+				log.Warningf("cached direct push failed, falling back to session manager: uid=%d msg_id=%s err=%v", toUID, msgID, pushErr)
+			}
+		}
+	}
 
 	// ── 步骤 2：检查用户在线状态 ────────────────────────────────────────
 	// 从 SessionManager（基于 Redis 的会话管理）查询该用户当前是否有活跃连接。
@@ -152,6 +227,7 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 			if err := e.markDelivered(ctx, msgID); err != nil {
 				return err
 			}
+			e.publishACK(ctx, msgID, toUID, "pushed", firstServer(sessions))
 			e.directTotal.Add(1)
 			metrics.PushTotal.WithLabelValues("direct", "success").Inc()
 			metrics.PushLatency.WithLabelValues("direct").Observe(time.Since(start).Seconds())
@@ -168,6 +244,7 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 			if err := e.markDelivered(ctx, msgID); err != nil {
 				return err
 			}
+			e.publishACK(ctx, msgID, toUID, "pushed", firstServer(sessions))
 			e.recordAttempt(ctx, msgID, "grpc_direct", "success", time.Since(start).Milliseconds(), "partial", firstServer(sessions))
 			e.recordState(ctx, msgID, "routed", "direct_sent", "partial success", "")
 			err := e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, failedSessions)
@@ -394,11 +471,36 @@ func (e *DispatchEngine) RouteByUserResult(ctx context.Context, msgID string, to
 		result.Path = "grpc_direct"
 		return result, nil
 	}
+	e.publishACK(ctx, msgID, toUID, "server_received", "")
 	if e.limiter != nil && !e.limiter.AllowUser(toUID, 100, 200) {
 		metrics.RateLimitedTotal.Inc()
 		result.ErrorCode = "rate_limited"
 		result.ErrorMessage = fmt.Sprintf("rate limited: uid=%d", toUID)
 		return result, ErrRateLimited
+	}
+	// V2: 多维度限流；degradable 优先级降级到 Kafka，非 degradable 直接拒绝
+	if e.limiterV2 != nil {
+		env := parseBizEnvelope(body, msgID)
+		if rl := e.limiterV2.CheckAll(toUID, env.BusinessType, env.EventType, env.Priority); !rl.Allowed {
+			metrics.RateLimitedTotal.Inc()
+			if IsDegradable(env.Priority) {
+				log.Infof("limiterV2 degraded to kafka: uid=%d dim=%s priority=%s", toUID, rl.Dimension, env.Priority)
+				e.recordState(ctx, msgID, "routed", "fallback_queued", "rate_limited_degraded:"+rl.Dimension, "")
+				result.Path = "kafka_fallback"
+				result.ErrorCode = "rate_limited_degraded"
+				result.ErrorMessage = fmt.Sprintf("v2 %s limited, degraded to kafka", rl.Dimension)
+				if err := e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, nil); err != nil {
+					result.ErrorCode = "kafka_fallback_failed"
+					result.ErrorMessage = err.Error()
+					return result, err
+				}
+				e.kafkaTotal.Add(1)
+				return result, nil
+			}
+			result.ErrorCode = "rate_limited_v2"
+			result.ErrorMessage = fmt.Sprintf("rate limited (v2 %s): uid=%d", rl.Dimension, toUID)
+			return result, ErrRateLimited
+		}
 	}
 
 	online, sessions := e.sessMgr.IsOnline(ctx, toUID)
@@ -413,6 +515,7 @@ func (e *DispatchEngine) RouteByUserResult(ctx context.Context, msgID string, to
 				result.ErrorMessage = err.Error()
 				return result, err
 			}
+			e.publishACK(ctx, msgID, toUID, "pushed", firstServer(sessions))
 			e.directTotal.Add(1)
 			metrics.PushTotal.WithLabelValues("direct", "success").Inc()
 			metrics.PushLatency.WithLabelValues("direct").Observe(time.Since(start).Seconds())
@@ -425,6 +528,7 @@ func (e *DispatchEngine) RouteByUserResult(ctx context.Context, msgID string, to
 				result.ErrorMessage = err.Error()
 				return result, err
 			}
+			e.publishACK(ctx, msgID, toUID, "pushed", firstServer(sessions))
 			err := e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, failedSessions)
 			e.directTotal.Add(1)
 			result.Path = "kafka_fallback"
@@ -532,7 +636,17 @@ func (e *DispatchEngine) reliableEnqueue(ctx context.Context, msgID string, toUI
 			Value:   pushMsg,
 			Headers: buildMQHeaders(env),
 		}
-		if err := e.producer.EnqueueToUser(ctx, toUID, msg); err != nil {
+		topic := e.offlineTopic
+		if len(sessions) > 0 {
+			topic = e.onlineTopic
+		}
+		var err error
+		if topic != "" {
+			err = e.producer.EnqueueToTopic(ctx, topic, toUID, msg)
+		} else {
+			err = e.producer.EnqueueToUser(ctx, toUID, msg)
+		}
+		if err != nil {
 			return e.spoolReliableMessage(msgID, toUID, op, body, seq, server, keys, msg.Headers, offlineErr, err)
 		}
 		if offlineErr != nil {
@@ -695,6 +809,15 @@ func (e *DispatchEngine) markDelivered(ctx context.Context, msgID string) error 
 	return fmt.Errorf("mark delivered: %w", lastErr)
 }
 
+func (e *DispatchEngine) publishACK(ctx context.Context, msgID string, uid int64, status, targetNode string) {
+	if e == nil || e.dao == nil {
+		return
+	}
+	if err := e.dao.PublishACK(ctx, msgID, uid, status, targetNode, "", ""); err != nil {
+		log.Warningf("publish ack event failed: uid=%d msg_id=%s status=%s err=%v", uid, msgID, status, err)
+	}
+}
+
 // parseBizEnvelope attempts to unmarshal a BizEnvelope from the message body.
 // Falls back to an empty envelope if the body is not a valid BizEnvelope (old format).
 func parseBizEnvelope(body []byte, msgID string) *mq.BizEnvelope {
@@ -756,6 +879,9 @@ func buildMQHeaders(env *mq.BizEnvelope) map[string]string {
 	}
 	if env.CreatedAtMS > 0 {
 		h[mq.HeaderCreatedAtUnixMS] = strconv.FormatInt(env.CreatedAtMS, 10)
+	}
+	if env.DeliveryMode != mq.DeliveryReliable {
+		h[mq.HeaderDeliveryMode] = strconv.Itoa(int(env.DeliveryMode))
 	}
 	return h
 }

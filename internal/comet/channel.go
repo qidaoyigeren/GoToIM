@@ -24,15 +24,68 @@ type Channel struct {
 	IP       string
 	watchOps map[int32]struct{}
 	mutex    sync.RWMutex
+	done     chan struct{}
+	doneOnce sync.Once
+}
+
+var channelPool = sync.Pool{
+	New: func() any {
+		return new(Channel)
+	},
 }
 
 // NewChannel new a channel.
 func NewChannel(cli, svr int) *Channel {
-	c := new(Channel)
-	c.CliProto.Init(cli)
-	c.signal = NewPriorityQueue(svr, svr*8) // high: svr, normal: svr*8
-	c.watchOps = make(map[int32]struct{})
+	return GetChannel(cli, svr)
+}
+
+func GetChannel(cli, svr int) *Channel {
+	c := channelPool.Get().(*Channel)
+	c.Reset(cli, svr)
 	return c
+}
+
+func PutChannel(c *Channel) {
+	if c == nil {
+		return
+	}
+	c.Room = nil
+	c.Next = nil
+	c.Prev = nil
+	c.Mid = 0
+	c.Key = ""
+	c.IP = ""
+	c.limiter = nil
+	c.Reader.ResetBuffer(nil, nil)
+	c.Writer.ResetBuffer(nil, nil)
+	channelPool.Put(c)
+}
+
+func (c *Channel) Reset(cli, svr int) {
+	c.Room = nil
+	c.CliProto.Reset(cli)
+	if c.signal == nil {
+		c.signal = NewPriorityQueue(svr, svr*8) // high: svr, normal: svr*8
+	} else {
+		c.signal.Reset(svr, svr*8)
+	}
+	c.Next = nil
+	c.Prev = nil
+	c.Mid = 0
+	c.Key = ""
+	c.IP = ""
+	c.limiter = nil
+	c.done = make(chan struct{})
+	c.doneOnce = sync.Once{}
+	c.mutex.Lock()
+	if c.watchOps == nil {
+		c.watchOps = make(map[int32]struct{})
+	} else {
+		for op := range c.watchOps {
+			delete(c.watchOps, op)
+		}
+	}
+	c.mutex.Unlock()
 }
 
 // Watch watch a operation.
@@ -96,4 +149,20 @@ func (c *Channel) AllowMessage() bool {
 // Close close the channel.
 func (c *Channel) Close() {
 	c.signal.high <- protocol.ProtoFinish
+}
+
+func (c *Channel) Done() <-chan struct{} {
+	if c == nil {
+		return nil
+	}
+	return c.done
+}
+
+func (c *Channel) markDone() {
+	if c == nil || c.done == nil {
+		return
+	}
+	c.doneOnce.Do(func() {
+		close(c.done)
+	})
 }

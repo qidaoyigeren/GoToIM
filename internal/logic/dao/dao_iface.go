@@ -20,6 +20,10 @@ type MessageDAO interface {
 	GetMessageStatus(ctx context.Context, msgID string) (map[string]string, error)
 	UpdateMessageStatus(ctx context.Context, msgID, status string) error
 	IncrUserSeq(ctx context.Context, uid int64) (int64, error)
+	IncrUserSeqBy(ctx context.Context, uid int64, delta int64) (int64, error)
+	GetUserMaxSeq(ctx context.Context, uid int64) (int64, error)
+	AddUserMessage(ctx context.Context, uid int64, msgID string, seq int64) error
+	GetUserMessagesAfterSeq(ctx context.Context, uid int64, lastSeq int64, limit int) ([]string, error)
 	AddToOfflineQueue(ctx context.Context, uid int64, msgID string, seq float64) error
 	GetOfflineQueue(ctx context.Context, uid int64, lastSeq float64, limit int) ([]string, error)
 	RemoveFromOfflineQueue(ctx context.Context, uid int64, msgID string) error
@@ -50,5 +54,5 @@ type PushDAO interface {
 	PushMsg(ctx context.Context, op int32, server string, keys []string, msg []byte) error
 	BroadcastRoomMsg(ctx context.Context, op int32, room string, msg []byte) error
 	BroadcastMsg(ctx context.Context, op, speed int32, msg []byte) error
-	PublishACK(ctx context.Context, msgID string, uid int64, status, deviceID, sessionID string) error
+	PublishACK(ctx context.Context, msgID string, uid int64, status, targetNode, deviceID, sessionID string) error
 }

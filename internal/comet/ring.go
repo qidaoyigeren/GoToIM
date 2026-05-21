@@ -23,16 +23,19 @@ type Ring struct {
 // NewRing new a ring buffer.
 func NewRing(num int) *Ring {
 	r := new(Ring)
-	r.init(uint64(num))
+	r.Reset(num)
 	return r
 }
 
 // Init init ring.
 func (r *Ring) Init(num int) {
-	r.init(uint64(num))
+	r.Reset(num)
 }
 
-func (r *Ring) init(num uint64) {
+func normalizeRingSize(num uint64) uint64 {
+	if num == 0 {
+		num = 1
+	}
 	// 2^N
 	if num&(num-1) != 0 {
 		for num&(num-1) != 0 {
@@ -40,9 +43,7 @@ func (r *Ring) init(num uint64) {
 		}
 		num <<= 1
 	}
-	r.data = make([]protocol.Proto, num)
-	r.num = num
-	r.mask = r.num - 1
+	return num
 }
 
 // Get get a proto from ring.
@@ -84,7 +85,17 @@ func (r *Ring) SetAdv() {
 // Must only be called when no concurrent producers or consumers are active
 // on this ring (typically after the owning channel has been removed from all
 // dispatch loops). Calling concurrently with Get/Set is a data race.
-func (r *Ring) Reset() {
+func (r *Ring) Reset(size int) {
 	r.rp = 0
 	r.wp = 0
+	num := normalizeRingSize(uint64(size))
+	if uint64(len(r.data)) != num {
+		r.data = make([]protocol.Proto, num)
+	} else {
+		for i := range r.data {
+			r.data[i] = protocol.Proto{}
+		}
+	}
+	r.num = num
+	r.mask = r.num - 1
 }

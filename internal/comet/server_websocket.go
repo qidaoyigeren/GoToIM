@@ -165,13 +165,14 @@ func (s *Server) ServeWebsocket(conn net.Conn, rp, wp *bytes.Pool, tr *xtime.Tim
 		trd     *xtime.TimerData
 		lastHB  = time.Now()
 		rb      = rp.Get()
-		ch      = NewChannel(s.c.Protocol.CliProto, s.c.Protocol.SvrProto)
+		ch      = GetChannel(s.c.Protocol.CliProto, s.c.Protocol.SvrProto)
 		rr      = &ch.Reader
 		wr      = &ch.Writer
 		ws      *websocket.Conn // websocket
 		req     *websocket.Request
 	)
 	// Initialize rate limiter if configured
+	defer PutChannel(ch)
 	if s.c.Protocol.RateLimit > 0 {
 		burst := s.c.Protocol.RateBurst
 		if burst <= 0 {
@@ -317,6 +318,7 @@ func (s *Server) ServeWebsocket(conn net.Conn, rp, wp *bytes.Pool, tr *xtime.Tim
 	rp.Put(rb)
 	ws.Close()
 	ch.Close()
+	<-ch.Done()
 	if err = s.Disconnect(ctx, ch.Mid, ch.Key); err != nil {
 		log.Errorf("key: %s operator do disconnect error(%v)", ch.Key, err)
 	}
@@ -339,6 +341,7 @@ func (s *Server) dispatchWebsocket(ws *websocket.Conn, wp *bytes.Pool, wb *bytes
 		online int32
 		white  = whitelist.Contains(ch.Mid)
 	)
+	defer ch.markDone()
 	if conf.Conf.Debug {
 		log.Infof("key: %s start dispatch ws goroutine", ch.Key)
 	}

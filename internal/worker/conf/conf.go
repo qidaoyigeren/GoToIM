@@ -90,14 +90,16 @@ type Comet struct {
 
 // Kafka is kafka config.
 type Kafka struct {
-	Topic     string // legacy single topic (fallback)
-	Group     string
-	Brokers   []string
-	PushTopic string // topic for point-to-point push messages
-	RoomTopic string // topic for room broadcast messages
-	AllTopic  string // topic for global broadcast messages
-	ACKTopic  string // topic for ACK callbacks
-	DLQTopic  string // topic for dead-letter queue
+	Topic            string // legacy single topic (fallback)
+	Group            string
+	Brokers          []string
+	PushTopic        string // topic for point-to-point push messages
+	OnlinePushTopic  string // topic for online point-to-point push messages
+	OfflinePushTopic string // topic for offline point-to-point push messages
+	RoomTopic        string // topic for room broadcast messages
+	AllTopic         string // topic for global broadcast messages
+	ACKTopic         string // topic for ACK callbacks
+	DLQTopic         string // topic for dead-letter queue
 }
 
 // Env is env config.

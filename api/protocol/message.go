@@ -424,6 +424,10 @@ type SyncReplyBody struct {
 	// 它告诉客户端「服务器已经推进到这个序号了」。
 	CurrentSeq int64
 
+	// ServerMaxSeq is the authoritative latest per-user sequence number on the
+	// server. It can be greater than CurrentSeq when more messages remain.
+	ServerMaxSeq int64
+
 	// HasMore 是否还有更多未同步的消息。
 	// true 表示本次返回的消息数达到了 Limit 上限，客户端应继续发起
 	// OpSyncReq（以本次 CurrentSeq 作为新的 LastSeq）来拉取剩余消息。
@@ -461,8 +465,9 @@ func MarshalSyncReply(sr *SyncReplyBody) ([]byte, error) {
 
 	// 第二步：计算总缓冲区大小
 	// 固定部分：8(current_seq) + 1(has_more) + 4(msg_count) = 13 字节
+	// 尾部扩展：8(server_max_seq)，旧解析器会忽略这段尾部扩展。
 	// 变长部分：每条消息 4 字节长度前缀 + 实际序列化数据
-	totalSize := 8 + 1 + 4
+	totalSize := 8 + 1 + 4 + 8
 	for _, b := range msgBytes {
 		totalSize += 4 + len(b) // 4 字节长度前缀 + 消息体
 	}
@@ -487,6 +492,11 @@ func MarshalSyncReply(sr *SyncReplyBody) ([]byte, error) {
 		copy(buf[offset:], b)
 		offset += len(b)
 	}
+	serverMaxSeq := sr.ServerMaxSeq
+	if serverMaxSeq == 0 {
+		serverMaxSeq = sr.CurrentSeq
+	}
+	binary.BigEndian.PutUint64(buf[offset:offset+8], uint64(serverMaxSeq))
 
 	return buf, nil
 }
@@ -512,6 +522,7 @@ func UnmarshalSyncReply(data []byte) (*SyncReplyBody, error) {
 		CurrentSeq: int64(binary.BigEndian.Uint64(data[0:8])),
 		HasMore:    data[8] == 1,
 	}
+	sr.ServerMaxSeq = sr.CurrentSeq
 	msgCount := int(binary.BigEndian.Uint32(data[9:13]))
 	offset := 13
 
@@ -536,6 +547,13 @@ func UnmarshalSyncReply(data []byte) (*SyncReplyBody, error) {
 		}
 		sr.Messages = append(sr.Messages, mb)
 		offset += msgLen
+	}
+	if offset+8 <= len(data) {
+		sr.ServerMaxSeq = int64(binary.BigEndian.Uint64(data[offset : offset+8]))
+		offset += 8
+	}
+	if offset != len(data) {
+		return nil, errors.New("data truncated in SyncReply server max seq")
 	}
 
 	return sr, nil

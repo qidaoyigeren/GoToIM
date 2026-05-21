@@ -36,9 +36,11 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/Terry-Mao/goim/internal/logic/dao"
+	"github.com/Terry-Mao/goim/internal/logic/service"
 	"github.com/Terry-Mao/goim/internal/tracectx"
 	log "github.com/Terry-Mao/goim/pkg/log"
 	"github.com/Terry-Mao/goim/pkg/metrics"
@@ -66,6 +68,11 @@ type ACKHandler struct {
 	pushDAO  dao.PushDAO         // 推送事件发布（Kafka），可为 nil（不启用推送回调时）
 	idCache  *IdempotencyChecker // 终态消息内存缓存，服务于 IsDuplicate 快速路径
 	stateRec *StateRecorder      // 状态机记录（Phase 2），可为 nil
+	seqAlloc *service.SeqAllocator
+}
+
+type atomicMessageTracker interface {
+	TrackMessageAtomic(ctx context.Context, msgID string, fields map[string]interface{}) (bool, error)
 }
 
 // NewACKHandler 创建 ACKHandler 实例。
@@ -76,9 +83,10 @@ type ACKHandler struct {
 //	pd - 推送 DAO（可选），传 nil 表示不发布 ACK 事件到 Kafka。
 func NewACKHandler(d dao.MessageDAO, pd dao.PushDAO) *ACKHandler {
 	return &ACKHandler{
-		dao:     d,
-		pushDAO: pd,
-		idCache: NewIdempotencyChecker(d), // 内部共享同一个检查器实例
+		dao:      d,
+		pushDAO:  pd,
+		idCache:  NewIdempotencyChecker(d), // 内部共享同一个检查器实例
+		seqAlloc: service.NewSeqAllocator(d),
 	}
 }
 
@@ -135,7 +143,7 @@ func (a *ACKHandler) HandleACKWithDevice(ctx context.Context, uid int64, msgID, 
 
 	// 步骤 3：发布 ACK 事件到 Kafka（best-effort，pushDAO 为 nil 时跳过）
 	if a.pushDAO != nil {
-		if err := a.pushDAO.PublishACK(ctx, msgID, uid, MsgStatusAcked, deviceID, sessionID); err != nil {
+		if err := a.pushDAO.PublishACK(ctx, msgID, uid, MsgStatusAcked, "", deviceID, sessionID); err != nil {
 			log.Warningf("publish ack event: uid=%d msg_id=%s err=%v", uid, msgID, err)
 		}
 	}
@@ -184,30 +192,79 @@ func (a *ACKHandler) HandleACKWithDevice(ctx context.Context, uid int64, msgID, 
 func (a *ACKHandler) TrackMessage(ctx context.Context, msgID string, fromUID, toUID int64, op int32, body []byte) error {
 	traceID := traceIDFromBodyOrContext(ctx, body)
 	ctx = tracectx.WithTraceID(ctx, traceID)
-	// 原子抢占：只有第一个执行的协程能成功写入 Pending 状态
-	added, err := a.dao.SetMessageStatusNX(ctx, msgID, "status", MsgStatusPending)
+	now := time.Now().UnixMilli()
+	seq, err := a.seqAlloc.Allocate(ctx, toUID)
 	if err != nil {
-		return fmt.Errorf("track message: %w", err)
+		return fmt.Errorf("allocate seq: %w", err)
 	}
-	if !added {
-		// 已被其他协程抢占，调用方应跳过本次投递
-		return fmt.Errorf("message already tracked: %s", msgID)
-	}
-
-	// 抢占成功，写入剩余字段
 	fields := map[string]interface{}{
+		"status":     MsgStatusPending,
 		"from_uid":   fromUID,
 		"to_uid":     toUID,
 		"op":         op,
 		"body":       base64.StdEncoding.EncodeToString(body), // 二进制 → 文本，安全存入 Redis
 		"retry_cnt":  0,
-		"created_at": time.Now().UnixMilli(),
-		"updated_at": time.Now().UnixMilli(),
+		"created_at": now,
+		"updated_at": now,
+	}
+	if seq > 0 {
+		fields["seq"] = seq
 	}
 	if traceID != "" {
 		fields["trace_id"] = traceID
 	}
-	return a.dao.SetMessageStatus(ctx, msgID, fields)
+	if tracker, ok := a.dao.(atomicMessageTracker); ok {
+		added, err := tracker.TrackMessageAtomic(ctx, msgID, fields)
+		if err != nil {
+			return fmt.Errorf("track message: %w", err)
+		}
+		if !added {
+			a.ensureUserMessageIndex(ctx, toUID, msgID)
+			return fmt.Errorf("message already tracked: %s", msgID)
+		}
+		if seq > 0 {
+			if err := a.dao.AddUserMessage(ctx, toUID, msgID, seq); err != nil {
+				return fmt.Errorf("add user message: %w", err)
+			}
+		}
+		return nil
+	}
+
+	added, err := a.dao.SetMessageStatusNX(ctx, msgID, "status", MsgStatusPending)
+	if err != nil {
+		return fmt.Errorf("track message: %w", err)
+	}
+	if !added {
+		a.ensureUserMessageIndex(ctx, toUID, msgID)
+		return fmt.Errorf("message already tracked: %s", msgID)
+	}
+	if err := a.dao.SetMessageStatus(ctx, msgID, fields); err != nil {
+		return err
+	}
+	if seq > 0 {
+		if err := a.dao.AddUserMessage(ctx, toUID, msgID, seq); err != nil {
+			return fmt.Errorf("add user message: %w", err)
+		}
+	}
+	return nil
+}
+
+func (a *ACKHandler) ensureUserMessageIndex(ctx context.Context, uid int64, msgID string) {
+	if uid <= 0 {
+		return
+	}
+	data, err := a.dao.GetMessageStatus(ctx, msgID)
+	if err != nil {
+		log.Warningf("ensure user message index get status failed: uid=%d msg_id=%s err=%v", uid, msgID, err)
+		return
+	}
+	seq, _ := strconv.ParseInt(data["seq"], 10, 64)
+	if seq <= 0 {
+		return
+	}
+	if err := a.dao.AddUserMessage(ctx, uid, msgID, seq); err != nil {
+		log.Warningf("ensure user message index failed: uid=%d msg_id=%s seq=%d err=%v", uid, msgID, seq, err)
+	}
 }
 
 // MarkDelivered 将消息标记为"已送达"。
