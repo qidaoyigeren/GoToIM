@@ -121,8 +121,7 @@ func (w *DeliveryWorker) processMessage(ctx context.Context, msg *mq.Message) er
 	case pb.PushMsg_PUSH:
 		return w.checkRetry(ctx, msg, w.pushKeys(pushMsg.Operation, pushMsg.Server, pushMsg.Keys, pushMsg.Msg))
 	case pb.PushMsg_ROOM:
-		w.getRoom(pushMsg.Room).Push(pushMsg.Operation, pushMsg.Msg)
-		return nil
+		return w.checkRetry(ctx, msg, w.getRoom(pushMsg.Room).Push(pushMsg.Operation, pushMsg.Msg))
 	case pb.PushMsg_BROADCAST:
 		return w.checkRetry(ctx, msg, w.broadcast(pushMsg.Operation, pushMsg.Msg, pushMsg.Speed))
 	default:

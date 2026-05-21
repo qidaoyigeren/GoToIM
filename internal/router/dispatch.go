@@ -98,10 +98,12 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 	// ── 步骤 0：msgID 自动生成 ──────────────────────────────────────────
 	// 如果调用方未提供 msgID，则通过 Snowflake 算法（idGen）生成一个全局唯一的
 	// 字符串 ID。Snowflake 保证分布式环境下的唯一性，无需中心化协调。
-	if msgID == "" && e.idGen != nil {
-		if id, err := e.idGen.GenerateString(); err == nil {
-			msgID = id
+	if msgID == "" {
+		id, err := e.generateMsgID()
+		if err != nil {
+			return err
 		}
+		msgID = id
 	}
 
 	// ── 步骤 0.5：记录 accepted 状态（Phase 2 状态机）
@@ -147,8 +149,8 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 		failedSessions, pushErr := directPush(ctx, e.pusher, sessions, op, body)
 		if pushErr == nil && len(failedSessions) == 0 {
 			// 全部成功 → 标记已送达
-			if err := e.ackHandler.MarkDelivered(ctx, msgID); err != nil {
-				log.Warningf("mark delivered failed: %v", err)
+			if err := e.markDelivered(ctx, msgID); err != nil {
+				return err
 			}
 			e.directTotal.Add(1)
 			metrics.PushTotal.WithLabelValues("direct", "success").Inc()
@@ -163,8 +165,8 @@ func (e *DispatchEngine) RouteByUser(ctx context.Context, msgID string, toUID in
 			metrics.PushTotal.WithLabelValues("direct", "partial_failed").Inc()
 			log.Warningf("partial direct push failed: uid=%d msg_id=%s succeeded=%d failed=%d",
 				toUID, msgID, len(sessions)-len(failedSessions), len(failedSessions))
-			if err := e.ackHandler.MarkDelivered(ctx, msgID); err != nil {
-				log.Warningf("mark delivered failed: %v", err)
+			if err := e.markDelivered(ctx, msgID); err != nil {
+				return err
 			}
 			e.recordAttempt(ctx, msgID, "grpc_direct", "success", time.Since(start).Milliseconds(), "partial", firstServer(sessions))
 			e.recordState(ctx, msgID, "routed", "direct_sent", "partial success", "")
@@ -376,17 +378,27 @@ func (e *DispatchEngine) RouteByUserResult(ctx context.Context, msgID string, to
 		result.LatencyMs = float64(time.Since(start).Microseconds()) / 1000.0
 	}()
 
-	if msgID == "" && e.idGen != nil {
-		if id, err := e.idGen.GenerateString(); err == nil {
-			msgID = id
-			result.MsgID = id
+	if msgID == "" {
+		id, err := e.generateMsgID()
+		if err != nil {
+			result.ErrorCode = "id_generation_failed"
+			result.ErrorMessage = err.Error()
+			return result, err
 		}
+		msgID = id
+		result.MsgID = id
 	}
 	ctx = tracectx.WithTraceID(ctx, traceID)
 	if err := e.ackHandler.TrackMessage(ctx, msgID, 0, toUID, op, body); err != nil {
 		log.V(1).Infof("msg already tracked: msg_id=%s err=%v", msgID, err)
 		result.Path = "grpc_direct"
 		return result, nil
+	}
+	if e.limiter != nil && !e.limiter.AllowUser(toUID, 100, 200) {
+		metrics.RateLimitedTotal.Inc()
+		result.ErrorCode = "rate_limited"
+		result.ErrorMessage = fmt.Sprintf("rate limited: uid=%d", toUID)
+		return result, ErrRateLimited
 	}
 
 	online, sessions := e.sessMgr.IsOnline(ctx, toUID)
@@ -396,8 +408,10 @@ func (e *DispatchEngine) RouteByUserResult(ctx context.Context, msgID string, to
 	if online {
 		failedSessions, pushErr := directPush(ctx, e.pusher, sessions, op, body)
 		if pushErr == nil && len(failedSessions) == 0 {
-			if err := e.ackHandler.MarkDelivered(ctx, msgID); err != nil {
-				log.Warningf("mark delivered failed: %v", err)
+			if err := e.markDelivered(ctx, msgID); err != nil {
+				result.ErrorCode = "mark_delivered_failed"
+				result.ErrorMessage = err.Error()
+				return result, err
 			}
 			e.directTotal.Add(1)
 			metrics.PushTotal.WithLabelValues("direct", "success").Inc()
@@ -406,8 +420,10 @@ func (e *DispatchEngine) RouteByUserResult(ctx context.Context, msgID string, to
 			return result, nil
 		}
 		if pushErr == nil && len(failedSessions) > 0 {
-			if err := e.ackHandler.MarkDelivered(ctx, msgID); err != nil {
-				log.Warningf("mark delivered failed: %v", err)
+			if err := e.markDelivered(ctx, msgID); err != nil {
+				result.ErrorCode = "mark_delivered_failed"
+				result.ErrorMessage = err.Error()
+				return result, err
 			}
 			err := e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, failedSessions)
 			e.directTotal.Add(1)
@@ -519,11 +535,21 @@ func (e *DispatchEngine) reliableEnqueue(ctx context.Context, msgID string, toUI
 		if err := e.producer.EnqueueToUser(ctx, toUID, msg); err != nil {
 			return e.spoolReliableMessage(msgID, toUID, op, body, seq, server, keys, msg.Headers, offlineErr, err)
 		}
+		if offlineErr != nil {
+			if err := e.spoolReliableMessage(msgID, toUID, op, body, seq, server, keys, msg.Headers, offlineErr, nil); err != nil {
+				log.Warningf("redis offline repair spool failed after kafka success: msg_id=%s uid=%d err=%v", msgID, toUID, err)
+			}
+		}
 		return nil
 	}
 	// 降级路径：无 Kafka 时直接调用 DAO 推送
 	if err := e.dao.PushMsg(ctx, op, server, keys, body); err != nil {
 		return e.spoolReliableMessage(msgID, toUID, op, body, seq, server, keys, buildMQHeaders(env), offlineErr, err)
+	}
+	if offlineErr != nil {
+		if err := e.spoolReliableMessage(msgID, toUID, op, body, seq, server, keys, buildMQHeaders(env), offlineErr, nil); err != nil {
+			log.Warningf("redis offline repair spool failed after dao enqueue success: msg_id=%s uid=%d err=%v", msgID, toUID, err)
+		}
 	}
 	return nil
 }
@@ -542,10 +568,16 @@ type localSpoolRecord struct {
 }
 
 func (e *DispatchEngine) spoolReliableMessage(msgID string, toUID int64, op int32, body []byte, seq int64, server string, keys []string, headers map[string]string, offlineErr, enqueueErr error) error {
+	if offlineErr == nil && enqueueErr == nil {
+		return nil
+	}
 	if offlineErr == nil {
 		return enqueueErr
 	}
-	reason := fmt.Sprintf("offline queue failed: %v; enqueue failed: %v", offlineErr, enqueueErr)
+	reason := fmt.Sprintf("offline queue failed: %v", offlineErr)
+	if enqueueErr != nil {
+		reason = fmt.Sprintf("%s; enqueue failed: %v", reason, enqueueErr)
+	}
 	if err := writeLocalSpool(localSpoolRecord{
 		MsgID:     msgID,
 		ToUID:     toUID,
@@ -558,10 +590,16 @@ func (e *DispatchEngine) spoolReliableMessage(msgID string, toUID int64, op int3
 		Reason:    reason,
 		CreatedAt: time.Now().UnixMilli(),
 	}); err != nil {
-		return fmt.Errorf("%s; local spool failed: %w", reason, err)
+		if enqueueErr != nil {
+			return fmt.Errorf("%s; local spool failed: %w", reason, err)
+		}
+		return fmt.Errorf("local spool failed: %w", err)
 	}
-	log.Warningf("message spooled locally after Redis and Kafka failures: msg_id=%s uid=%d", msgID, toUID)
-	return fmt.Errorf("%s; spooled locally", reason)
+	log.Warningf("message spooled locally for reliable path repair: msg_id=%s uid=%d reason=%s", msgID, toUID, reason)
+	if enqueueErr != nil {
+		return fmt.Errorf("%s; spooled locally", reason)
+	}
+	return nil
 }
 
 func writeLocalSpool(record localSpoolRecord) error {
@@ -627,6 +665,34 @@ func errStr(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+func (e *DispatchEngine) generateMsgID() (string, error) {
+	if e.idGen == nil {
+		return "", fmt.Errorf("message id generator is not configured")
+	}
+	id, err := e.idGen.GenerateString()
+	if err != nil {
+		return "", fmt.Errorf("generate message id: %w", err)
+	}
+	if id == "" {
+		return "", fmt.Errorf("generate message id: empty id")
+	}
+	return id, nil
+}
+
+func (e *DispatchEngine) markDelivered(ctx context.Context, msgID string) error {
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		if err := e.ackHandler.MarkDelivered(ctx, msgID); err == nil {
+			return nil
+		} else {
+			lastErr = err
+			time.Sleep(time.Duration(i+1) * 10 * time.Millisecond)
+		}
+	}
+	metrics.PushTotal.WithLabelValues("direct", "mark_delivered_failed").Inc()
+	return fmt.Errorf("mark delivered: %w", lastErr)
 }
 
 // parseBizEnvelope attempts to unmarshal a BizEnvelope from the message body.

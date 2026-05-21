@@ -52,23 +52,23 @@ export default function TopBar() {
           <button
             type="button"
             onClick={() => setRole('customer')}
-            title="Use customer identity UID 10001"
+            title="使用客户身份 UID 10001"
             className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
               role === 'customer' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
             }`}
           >
             <UserRound size={12} />
-            Customer
+            客户
           </button>
           <button
             type="button"
             onClick={() => setRole('merchant')}
-            title="Use merchant support identity UID 90001"
+            title="使用商家客服身份 UID 90001"
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
               role === 'merchant' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
             }`}
           >
-            Merchant
+            商家客服
           </button>
         </div>
         <span className="font-mono text-xs text-gray-400">UID {userId}</span>

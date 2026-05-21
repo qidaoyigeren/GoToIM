@@ -21,9 +21,9 @@ func TestRoomAggregatorPushAndClose(t *testing.T) {
 	}
 
 	// Push some messages - should not panic
-	r.Push(9, []byte("msg1"))
-	r.Push(9, []byte("msg2"))
-	r.Push(9, []byte("msg3"))
+	_ = r.Push(9, []byte("msg1"))
+	_ = r.Push(9, []byte("msg2"))
+	_ = r.Push(9, []byte("msg3"))
 
 	// Close should not panic
 	r.Close()

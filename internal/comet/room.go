@@ -5,6 +5,8 @@ import (
 
 	"github.com/Terry-Mao/goim/api/protocol"
 	"github.com/Terry-Mao/goim/internal/comet/errors"
+	log "github.com/Terry-Mao/goim/pkg/log"
+	"github.com/Terry-Mao/goim/pkg/metrics"
 )
 
 // Room is a room and store channel room info.
@@ -68,12 +70,20 @@ func (r *Room) Del(ch *Channel) bool {
 
 // Push push msg to the room, if chan full discard it.
 func (r *Room) Push(p *protocol.Proto) {
+	dropped := 0
 	r.rLock.RLock()
 	for ch := r.next; ch != nil; ch = ch.Next {
-		_ = ch.Push(p)
+		if err := ch.Push(p); err != nil {
+			dropped++
+			metrics.RoomPushDroppedTotal.Inc()
+			continue
+		}
 		ch.Signal()
 	}
 	r.rLock.RUnlock()
+	if dropped > 0 {
+		log.Warningf("room push dropped: room=%s dropped=%d online=%d op=%d", r.ID, dropped, r.Online, p.Op)
+	}
 }
 
 // Close close the room.

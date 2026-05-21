@@ -2,6 +2,7 @@ package worker
 
 import (
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -35,7 +36,7 @@ func NewRoomAggregator(w *DeliveryWorker, id string, batch int, signal time.Dura
 }
 
 // Push adds a message to the room's batch buffer.
-func (r *RoomAggregator) Push(op int32, msg []byte) {
+func (r *RoomAggregator) Push(op int32, msg []byte) error {
 	p := &protocol.Proto{
 		Ver:  1,
 		Op:   op,
@@ -43,7 +44,9 @@ func (r *RoomAggregator) Push(op int32, msg []byte) {
 	}
 	select {
 	case r.proto <- p:
+		return nil
 	default:
+		return fmt.Errorf("room aggregator buffer full: room=%s", r.id)
 	}
 }
 

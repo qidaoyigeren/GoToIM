@@ -63,10 +63,18 @@ func (s *PushService) DirectPush(ctx context.Context, sessions []*Session, op in
 // PushToUser pushes a message to a specific user using dual-channel architecture.
 func (s *PushService) PushToUser(ctx context.Context, msgID string, toUID int64, op int32, body []byte, seq int64) error {
 	// Auto-generate msgID if empty
-	if msgID == "" && s.idGen != nil {
-		if id, err := s.idGen.GenerateString(); err == nil {
-			msgID = id
+	if msgID == "" {
+		if s.idGen == nil {
+			return fmt.Errorf("message id generator is not configured")
 		}
+		id, err := s.idGen.GenerateString()
+		if err != nil {
+			return fmt.Errorf("generate message id: %w", err)
+		}
+		if id == "" {
+			return fmt.Errorf("generate message id: empty id")
+		}
+		msgID = id
 	}
 
 	// 1. Check if message was already delivered (idempotency)

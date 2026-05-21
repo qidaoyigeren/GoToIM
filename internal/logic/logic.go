@@ -65,8 +65,14 @@ func New(c *conf.Config) (l *Logic) {
 		if idGen, err := snowflake.New(c.Snowflake.MachineID); err == nil {
 			l.idGen = idGen
 		} else {
-			log.Errorf("snowflake init error(%v)", err)
+			panic(err)
 		}
+	} else {
+		idGen, err := snowflake.New(0)
+		if err != nil {
+			panic(err)
+		}
+		l.idGen = idGen
 	}
 	// Initialize services
 	sessionTTL := time.Duration(c.Redis.Expire)
@@ -79,6 +85,7 @@ func New(c *conf.Config) (l *Logic) {
 	if l.idGen != nil {
 		l.router.SetIDGenerator(l.idGen)
 	}
+	l.router.SetRateLimiter(router.NewRateLimiter(5000, 10000))
 	if l.dao.MQProducer() != nil {
 		l.router.SetMQProducer(l.dao.MQProducer())
 	}
@@ -233,9 +240,11 @@ func (l *Logic) GenerateMsgID() string {
 	if l.idGen != nil {
 		if id, err := l.idGen.GenerateString(); err == nil {
 			return id
+		} else {
+			log.Errorf("snowflake generate message id failed: %v", err)
 		}
 	}
-	return strconv.FormatInt(time.Now().UnixNano(), 10)
+	return ""
 }
 
 func (l *Logic) loadOnline() (err error) {

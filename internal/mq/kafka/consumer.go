@@ -105,7 +105,12 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 		if delayedUntil, ok := msg.Headers[mq.HeaderDelayedUntil]; ok {
 			if deliverAt, err := strconv.ParseInt(delayedUntil, 10, 64); err == nil {
 				if time.Now().UnixMilli() < deliverAt {
-					time.Sleep(100 * time.Millisecond)
+					rawCopy := raw
+					msgCopy := *msg
+					delay := time.Until(time.UnixMilli(deliverAt))
+					time.AfterFunc(delay, func() {
+						h.processDueMessage(session, rawCopy, &msgCopy)
+					})
 					continue
 				}
 			}
@@ -151,6 +156,42 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 		// Non-DLQ error: skip offset commit → Kafka redelivers
 	}
 	return nil
+}
+
+func (h *consumerGroupHandler) processDueMessage(session sarama.ConsumerGroupSession, raw *sarama.ConsumerMessage, msg *mq.Message) {
+	select {
+	case <-session.Context().Done():
+		return
+	default:
+	}
+	if expired, reason := checkTTLExpired(msg); expired {
+		log.Warningf("message expired: topic=%s offset=%d reason=%s", raw.Topic, raw.Offset, reason)
+		if h.dlq != nil {
+			dlqMsg := *msg
+			if dlqErr := h.dlq.Send(session.Context(), &dlqMsg, reason); dlqErr != nil {
+				log.Errorf("dlq send for expired msg failed: %v", dlqErr)
+				return
+			}
+		}
+		session.MarkMessage(raw, "")
+		return
+	}
+	msgCtx := tracectx.WithTraceID(session.Context(), tracectx.FromHeaders(msg.Headers))
+	err := h.handler(msgCtx, msg)
+	if err == nil {
+		session.MarkMessage(raw, "")
+		return
+	}
+	log.Errorf("handler error for delayed %s/%d: %v", raw.Topic, raw.Offset, err)
+	if h.dlq != nil && isDeadLetter(err) {
+		reason := err.Error()
+		if dlqErr := h.dlq.Send(session.Context(), msg, reason); dlqErr != nil {
+			log.Errorf("dlq send error for delayed %s/%d: %v", raw.Topic, raw.Offset, dlqErr)
+			return
+		}
+		log.Warningf("delayed message sent to DLQ: topic=%s offset=%d reason=%s", raw.Topic, raw.Offset, reason)
+		session.MarkMessage(raw, "")
+	}
 }
 
 // checkTTLExpired returns true if the message has exceeded its TTL.

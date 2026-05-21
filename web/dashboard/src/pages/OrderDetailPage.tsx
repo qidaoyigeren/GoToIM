@@ -102,8 +102,8 @@ export default function OrderDetailPage() {
             className="flex w-full items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-sm font-medium text-emerald-800 transition-colors hover:bg-emerald-100"
           >
             <span>
-              <span className="block">Open customer service chat</span>
-              <span className="mt-0.5 block text-xs font-normal text-emerald-700">Direct IM conversation for this order</span>
+              <span className="block">打开订单在线客服</span>
+              <span className="mt-0.5 block text-xs font-normal text-emerald-700">本订单的直连 IM 会话</span>
             </span>
             <MessageSquareText size={18} />
           </button>

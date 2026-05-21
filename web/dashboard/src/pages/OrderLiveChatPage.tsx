@@ -18,10 +18,10 @@ const MERCHANT_UID = 90001
 const DEFAULT_ORDER_ID = 'ORD-LIVE-CHAT-001'
 
 const quickActions = [
-  { role: 'customer', text: 'Where is my package?' },
-  { role: 'customer', text: 'Please confirm delivery address' },
-  { role: 'merchant', text: 'Your order has shipped. Tracking will update shortly.' },
-  { role: 'merchant', text: 'I can help verify the delivery address now.' },
+  { role: 'customer', text: '我的包裹到哪里了？' },
+  { role: 'customer', text: '请帮我确认一下收货地址' },
+  { role: 'merchant', text: '您的订单已发货，物流很快会更新。' },
+  { role: 'merchant', text: '我现在可以帮您核对收货地址。' },
 ] as const
 
 export default function OrderLiveChatPage() {
@@ -107,32 +107,32 @@ export default function OrderLiveChatPage() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600">Direct GoIM Scenario</p>
-          <h1 className="mt-1 text-2xl font-bold text-gray-950">Order Live Chat</h1>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600">GoIM 直连场景</p>
+          <h1 className="mt-1 text-2xl font-bold text-gray-950">订单在线客服</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-            Customer and merchant exchange order-scoped messages through Logic, Router, Comet, ACK, and offline tracking. This path is direct IM delivery, not notification outbox delivery.
+            客户与商家围绕订单实时沟通，消息直接经过 Logic、Router、Comet、ACK 和离线追踪链路，不进入通知 outbox 投递流水线。
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2 rounded-lg border border-gray-200 bg-white p-2 shadow-sm sm:grid-cols-4">
-          <Signal label="Connection" value={connState} tone={connState === 'connected' ? 'green' : 'amber'} />
-          <Signal label="Current UID" value={String(userId)} tone="blue" />
-          <Signal label="Peer UID" value={String(peerId)} tone="slate" />
-          <Signal label="Unread" value={String(unreadCount)} tone={unreadCount > 0 ? 'amber' : 'slate'} />
+          <Signal label="连接状态" value={connectionLabel(connState)} tone={connState === 'connected' ? 'green' : 'amber'} />
+          <Signal label="当前 UID" value={String(userId)} tone="blue" />
+          <Signal label="对方 UID" value={String(peerId)} tone="slate" />
+          <Signal label="未读数" value={String(unreadCount)} tone={unreadCount > 0 ? 'amber' : 'slate'} />
         </div>
       </div>
 
       <section className="grid grid-cols-1 gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm xl:grid-cols-[300px_minmax(0,1fr)]">
         <aside className="space-y-4 border-gray-100 xl:border-r xl:pr-4">
           <div>
-            <label className="text-xs font-medium uppercase text-gray-400">Demo role</label>
+            <label className="text-xs font-medium uppercase text-gray-400">演示身份</label>
             <div className="mt-2 grid grid-cols-2 gap-2">
-              <RoleButton active={role === 'customer'} onClick={() => setRole('customer')} label="Customer" detail="UID 10001" />
-              <RoleButton active={role === 'merchant'} onClick={() => setRole('merchant')} label="Merchant" detail="UID 90001" />
+              <RoleButton active={role === 'customer'} onClick={() => setRole('customer')} label="客户" detail="UID 10001" />
+              <RoleButton active={role === 'merchant'} onClick={() => setRole('merchant')} label="商家客服" detail="UID 90001" />
             </div>
           </div>
 
           <div>
-            <label className="text-xs font-medium uppercase text-gray-400">Order entry</label>
+            <label className="text-xs font-medium uppercase text-gray-400">订单入口</label>
             <div className="mt-2 flex gap-2">
               <input
                 value={orderId}
@@ -144,15 +144,15 @@ export default function OrderLiveChatPage() {
                 onClick={openOrder}
                 className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
               >
-                Open
+                打开
               </button>
             </div>
           </div>
 
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">Conversations</h2>
-              {loading && <span className="text-xs text-gray-400">Loading</span>}
+              <h2 className="text-sm font-semibold text-gray-900">订单会话</h2>
+              {loading && <span className="text-xs text-gray-400">加载中</span>}
             </div>
             <div className="space-y-2">
               {conversations.map((conv) => (
@@ -172,10 +172,10 @@ export default function OrderLiveChatPage() {
             <div>
               <div className="flex items-center gap-2">
                 <MessageSquareText size={18} className="text-emerald-600" />
-                <h2 className="text-base font-semibold text-gray-950">{activeConversation?.room_id ?? 'No room selected'}</h2>
+                <h2 className="text-base font-semibold text-gray-950">{activeConversation?.room_id ?? '未选择房间'}</h2>
               </div>
               <p className="mt-1 text-xs text-gray-500">
-                Order {activeConversation?.order_id ?? orderId} · Direct IM room · Last message {lastMessageAt ? new Date(lastMessageAt).toLocaleString() : 'none'}
+                订单 {activeConversation?.order_id ?? orderId} · 直连 IM 房间 · 最后一条消息 {lastMessageAt ? new Date(lastMessageAt).toLocaleString() : '暂无'}
               </p>
             </div>
             <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
@@ -187,7 +187,7 @@ export default function OrderLiveChatPage() {
           <div className="flex-1 space-y-3 overflow-y-auto py-4">
             {messages.length === 0 ? (
               <div className="flex h-full min-h-[360px] items-center justify-center text-sm text-gray-400">
-                Start the order conversation with a customer-service question.
+                从一个订单咨询问题开始这次客服会话。
               </div>
             ) : (
               messages.map((msg) => <MessageBubble key={msg.message_id} message={msg} own={msg.sender_uid === userId} />)
@@ -219,14 +219,14 @@ export default function OrderLiveChatPage() {
                     void send()
                   }
                 }}
-                placeholder={role === 'customer' ? 'Ask about this order...' : 'Reply with support context...'}
+                placeholder={role === 'customer' ? '咨询这个订单...' : '回复客户问题...'}
                 className="min-h-[72px] flex-1 resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
               />
               <button
                 type="button"
                 disabled={sending || !draft.trim()}
                 onClick={() => void send()}
-                title="Send direct IM message"
+                title="发送直连 IM 消息"
                 className="inline-flex h-[72px] w-12 items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
               >
                 <SendHorizontal size={18} />
@@ -271,7 +271,7 @@ function ConversationRow({ conversation, active, onClick }: { conversation: Chat
       </div>
       <div className="mt-1 text-xs text-gray-500">{conversation.room_id}</div>
       <div className="mt-2 text-xs text-gray-400">
-        {conversation.last_message_at ? new Date(conversation.last_message_at).toLocaleString() : 'No messages yet'}
+        {conversation.last_message_at ? new Date(conversation.last_message_at).toLocaleString() : '暂无消息'}
       </div>
     </button>
   )
@@ -283,13 +283,13 @@ function MessageBubble({ message, own }: { message: ChatMessage; own: boolean })
       <div className={`max-w-[74%] rounded-lg border px-4 py-3 ${own ? 'border-blue-100 bg-blue-50' : 'border-gray-200 bg-white'}`}>
         <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
           <span className={`font-semibold ${own ? 'text-blue-700' : 'text-gray-800'}`}>
-            {message.sender_role === 'customer' ? 'Customer' : 'Merchant'} · UID {message.sender_uid}
+            {message.sender_role === 'customer' ? '客户' : '商家客服'} · UID {message.sender_uid}
           </span>
           <span className="text-gray-400">{new Date(message.created_at).toLocaleTimeString()}</span>
           <StatusChip status={message.status} />
         </div>
         <p className="whitespace-pre-wrap break-words text-sm leading-6 text-gray-800">{message.body}</p>
-        {message.delivery_path && <p className="mt-2 text-[11px] text-gray-400">Path: {message.delivery_path}</p>}
+        {message.delivery_path && <p className="mt-2 text-[11px] text-gray-400">链路：{message.delivery_path}</p>}
       </div>
     </div>
   )
@@ -307,9 +307,28 @@ function StatusChip({ status }: { status: ChatMessage['status'] }) {
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${tone}`}>
       <Icon size={11} />
-      {status}
+      {statusLabel(status)}
     </span>
   )
+}
+
+function statusLabel(status: ChatMessage['status']) {
+  return {
+    pending: '待投递',
+    sent: '已发送',
+    delivered: '已送达',
+    read: '已读',
+    failed: '失败',
+  }[status]
+}
+
+function connectionLabel(state: string) {
+  return {
+    connected: '已连接',
+    connecting: '连接中',
+    reconnecting: '重连中',
+    disconnected: '未连接',
+  }[state] ?? state
 }
 
 function Signal({ label, value, tone }: { label: string; value: string; tone: 'green' | 'amber' | 'blue' | 'slate' }) {

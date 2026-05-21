@@ -47,6 +47,14 @@ var (
 		Help:      "Total rate-limited messages",
 	})
 
+	// RoomPushDroppedTotal counts room messages dropped because a connection queue is full.
+	RoomPushDroppedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "comet",
+		Name:      "room_push_dropped_total",
+		Help:      "Total room push messages dropped by full connection queues",
+	})
+
 	// RetryTotal counts retry attempts.
 	RetryTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "goim",

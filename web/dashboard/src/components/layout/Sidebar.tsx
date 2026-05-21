@@ -10,12 +10,12 @@ import {
 } from 'lucide-react'
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Overview' },
-  { to: '/orders', icon: Package, label: 'Orders' },
-  { to: '/notifications', icon: Bell, label: 'Notifications' },
-  { to: '/chat', icon: MessagesSquare, label: 'Order Live Chat' },
-  { to: '/sessions', icon: Radio, label: 'Online Sessions' },
-  { to: '/realtime', icon: Activity, label: 'Realtime Workbench' },
+  { to: '/', icon: LayoutDashboard, label: '总览' },
+  { to: '/orders', icon: Package, label: '订单' },
+  { to: '/notifications', icon: Bell, label: '通知' },
+  { to: '/chat', icon: MessagesSquare, label: '订单在线客服' },
+  { to: '/sessions', icon: Radio, label: '在线会话' },
+  { to: '/realtime', icon: Activity, label: '实时工作台' },
 ]
 
 export default function Sidebar() {
@@ -50,9 +50,9 @@ export default function Sidebar() {
 
       <div className="border-t border-gray-100 px-4 py-3">
         <div className="text-xs text-gray-400">
-          Direct IM + Notification
+          直连 IM + 通知投递
           <br />
-          Business Scenarios
+          业务场景演示
         </div>
       </div>
     </aside>
