@@ -7,6 +7,8 @@ import OrderStatusFunnel from '@/components/dashboard/OrderStatusFunnel'
 import PushThroughputChart from '@/components/dashboard/PushThroughputChart'
 import EventStream from '@/components/dashboard/EventStream'
 import AlertCards from '@/components/dashboard/AlertCards'
+import Skeleton, { SkeletonCard } from '@/components/ui/Skeleton'
+import { CARD_LG } from '@/components/ui/cardStyles'
 import { useOrders } from '@/hooks/useOrders'
 import { useNotifications } from '@/hooks/useNotifications'
 import { useOrderStore } from '@/stores/orderStore'
@@ -19,11 +21,12 @@ import type { Order } from '@/types/order'
 const EMPTY_ORDERS: Order[] = []
 
 export default function DashboardPage() {
-  useOrders()
-  useNotifications()
+  const ordersQuery = useOrders()
+  const notificationsQuery = useNotifications()
   const orders = useOrderStore((s) => s.orders) ?? EMPTY_ORDERS
   const stats = useRealtimeStore((s) => s.stats)
   const onlineStats = useOnlineStore((s) => s.stats)
+  const isInitialLoading = ordersQuery.isLoading || notificationsQuery.isLoading
 
   const impact = useMemo(() => {
     const totalGmv = orders.reduce((sum, order) => sum + (order.total || 0), 0)
@@ -62,23 +65,29 @@ export default function DashboardPage() {
         <ImpactCard icon={ShieldCheck} title="可实时触达用户" value={impact.reachableUsers.toLocaleString()} detail={`${impact.riskyOrders} 个异常订单需关注`} />
       </div>
 
-      <StatsCards />
-      <SLACards />
+      {isInitialLoading ? (
+        <DashboardSkeleton />
+      ) : (
+        <>
+          <StatsCards />
+          <SLACards />
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <OrderStatusFunnel />
-            <PushThroughputChart />
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="xl:col-span-2 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <OrderStatusFunnel />
+                <PushThroughputChart />
+              </div>
+            </div>
+            <div className="space-y-6">
+              <AlertCards />
+              <DLQRecoveryPanel />
+            </div>
           </div>
-        </div>
-        <div className="space-y-6">
-          <AlertCards />
-          <DLQRecoveryPanel />
-        </div>
-      </div>
 
-      <EventStream />
+          <EventStream />
+        </>
+      )}
     </div>
   )
 }
@@ -95,7 +104,7 @@ function ImpactCard({
   detail: string
 }) {
   return (
-    <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+    <section className={CARD_LG}>
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-xs font-medium text-gray-500">{title}</p>
@@ -107,5 +116,26 @@ function ImpactCard({
       </div>
       <p className="mt-3 text-xs text-gray-500">{detail}</p>
     </section>
+  )
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <SkeletonCard key={index} />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <div className="xl:col-span-2">
+          <Skeleton className="h-[320px] rounded-xl border border-gray-100 bg-white shadow-sm" />
+        </div>
+        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          <Skeleton className="mb-4 h-4 w-28" />
+          <Skeleton lines={5} />
+        </div>
+      </div>
+    </div>
   )
 }

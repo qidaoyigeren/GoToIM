@@ -1,4 +1,4 @@
-import config, { isDemoMode } from '@/config'
+import config from '@/config'
 
 type RequestOptions = {
   method?: string
@@ -49,19 +49,3 @@ class ApiClient {
 
 export const notifyClient = new ApiClient(config.notifyBaseUrl)
 export const logicClient = new ApiClient(config.logicBaseUrl)
-
-export async function fetchPlatformStats() {
-  if (isDemoMode()) {
-    const { mockPlatformStats } = await import('./mock')
-    return mockPlatformStats()
-  }
-  return notifyClient.request<{ code: number; data: import('@/types/message').PlatformStats }>('/platform/stats')
-}
-
-export async function fetchOnlineTotal() {
-  if (isDemoMode()) {
-    const { mockOnlineStats } = await import('./mock')
-    return mockOnlineStats()
-  }
-  return logicClient.request<{ code: number; data: import('@/types/online').OnlineStats }>('/online/total')
-}

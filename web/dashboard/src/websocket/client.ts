@@ -1,4 +1,4 @@
-import config from '@/config'
+import config, { isDemoMode } from '@/config'
 import {
   OP_AUTH, OP_AUTH_REPLY, OP_HEARTBEAT, OP_HEARTBEAT_REPLY,
   OP_PUSH_MSG_ACK, OP_SYNC_REPLY, OP_RAW, OP_KICK_CONNECTION,
@@ -53,7 +53,9 @@ export class GoimWSClient {
     this.ws.binaryType = 'arraybuffer'
 
     this.ws.onopen = () => {
-      console.log('[GoimWS] socket open, sending auth for user', this.userId)
+      if (isDemoMode()) {
+        console.log('[GoimWS] socket open, sending auth for user', this.userId)
+      }
       this.reconnectAttempts = 0
       this.sendAuth()
     }
@@ -64,7 +66,9 @@ export class GoimWSClient {
     }
 
     this.ws.onclose = (e) => {
-      console.log('[GoimWS] socket closed, code:', e.code, 'intentional:', this.intentionalClose)
+      if (isDemoMode()) {
+        console.log('[GoimWS] socket closed, code:', e.code, 'intentional:', this.intentionalClose)
+      }
       this.stopHeartbeat()
       if (!this.intentionalClose) {
         this.onStatusChange?.('reconnecting')
@@ -75,10 +79,12 @@ export class GoimWSClient {
     }
 
     this.ws.onerror = () => {
-      console.warn(
-        `[GoimWS] WebSocket connection to ${this.url} failed. ` +
-        'If the backend comet server is not running, enable demo mode in the dashboard settings.'
-      )
+      if (isDemoMode()) {
+        console.warn(
+          `[GoimWS] WebSocket connection to ${this.url} failed. ` +
+          'If the backend comet server is not running, enable demo mode in the dashboard settings.'
+        )
+      }
     }
   }
 
@@ -102,7 +108,9 @@ export class GoimWSClient {
 
   private handleAuthReply(body: Uint8Array) {
     void body
-    console.log('[GoimWS] auth success, starting heartbeat')
+    if (isDemoMode()) {
+      console.log('[GoimWS] auth success, starting heartbeat')
+    }
     this.onStatusChange?.('connected')
     this.startHeartbeat()
   }

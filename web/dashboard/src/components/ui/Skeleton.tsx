@@ -1,3 +1,5 @@
+import { CARD_LG } from './cardStyles'
+
 type Props = {
   className?: string
   lines?: number
@@ -23,7 +25,7 @@ export default function Skeleton({ className = '', lines = 1 }: Props) {
 
 export function SkeletonCard() {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-3">
+    <div className={`${CARD_LG} space-y-3`}>
       <Skeleton className="h-3 w-20" />
       <Skeleton className="h-8 w-28" />
       <Skeleton className="h-3 w-16" />

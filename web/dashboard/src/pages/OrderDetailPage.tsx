@@ -10,6 +10,7 @@ import MessageRecord from '@/components/order-detail/MessageRecord'
 import PushTraceCard from '@/components/order-detail/PushTraceCard'
 import SimulateStatusChange from '@/components/order-detail/SimulateStatusChange'
 import { SkeletonCard } from '@/components/ui/Skeleton'
+import { CARD_LG } from '@/components/ui/cardStyles'
 import ErrorState from '@/components/ui/ErrorState'
 import { ArrowLeft, MessageSquareText } from 'lucide-react'
 import type { Notification } from '@/types/notification'
@@ -112,8 +113,8 @@ export default function OrderDetailPage() {
       </div>
 
       {timelineNotifications.length > 0 && (
-        <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-          <h3 className="mb-3 text-sm font-semibold text-gray-700">Message records</h3>
+        <section className={CARD_LG}>
+          <h3 className="mb-3 text-sm font-semibold text-gray-700">消息记录</h3>
           <div className="space-y-2">
             {timelineNotifications.map((n) => (
               <button
@@ -136,8 +137,8 @@ export default function OrderDetailPage() {
 
 function BusinessTimeline({ timeline }: { timeline: OrderTimeline }) {
   return (
-    <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-      <h3 className="text-sm font-semibold text-gray-800">Business timeline</h3>
+    <section className={CARD_LG}>
+      <h3 className="text-sm font-semibold text-gray-800">业务时间线</h3>
       <div className="mt-4 space-y-3">
         {(timeline.timeline ?? []).map((event) => (
           <div key={`${event.type}-${event.id}`} className="flex gap-3">

@@ -48,7 +48,7 @@ export default function TopBar() {
       </div>
 
       <div className="flex items-center gap-3">
-        <div className="flex items-center rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+        <div className="flex items-center rounded-xl border border-gray-100 bg-gray-50 p-0.5">
           <button
             type="button"
             onClick={() => setRole('customer')}

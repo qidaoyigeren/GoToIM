@@ -11,6 +11,7 @@ import {
 import { useChatStore } from '@/stores/chatStore'
 import { useConnectionStore } from '@/stores/connectionStore'
 import { useIdentityStore } from '@/stores/identityStore'
+import { CARD_SM } from '@/components/ui/cardStyles'
 import type { ChatConversation, ChatMessage } from '@/types/chat'
 
 const CUSTOMER_UID = 10001
@@ -113,7 +114,7 @@ export default function OrderLiveChatPage() {
             客户与商家围绕订单实时沟通，消息直接经过 Logic、Router、Comet、ACK 和离线追踪链路，不进入通知 outbox 投递流水线。
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-2 rounded-lg border border-gray-200 bg-white p-2 shadow-sm sm:grid-cols-4">
+        <div className={`${CARD_SM} grid grid-cols-2 gap-2 sm:grid-cols-4`}>
           <Signal label="连接状态" value={connectionLabel(connState)} tone={connState === 'connected' ? 'green' : 'amber'} />
           <Signal label="当前 UID" value={String(userId)} tone="blue" />
           <Signal label="对方 UID" value={String(peerId)} tone="slate" />
@@ -121,7 +122,7 @@ export default function OrderLiveChatPage() {
         </div>
       </div>
 
-      <section className="grid grid-cols-1 gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm xl:grid-cols-[300px_minmax(0,1fr)]">
+      <section className={`${CARD_SM} grid grid-cols-1 gap-4 xl:grid-cols-[300px_minmax(0,1fr)]`}>
         <aside className="space-y-4 border-gray-100 xl:border-r xl:pr-4">
           <div>
             <label className="text-xs font-medium uppercase text-gray-400">演示身份</label>
@@ -137,7 +138,7 @@ export default function OrderLiveChatPage() {
               <input
                 value={orderId}
                 onChange={(e) => setOrderId(e.target.value)}
-                className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                className="min-w-0 flex-1 rounded-xl border border-gray-100 px-3 py-2 text-sm outline-none focus:border-blue-400"
               />
               <button
                 type="button"
@@ -220,7 +221,7 @@ export default function OrderLiveChatPage() {
                   }
                 }}
                 placeholder={role === 'customer' ? '咨询这个订单...' : '回复客户问题...'}
-                className="min-h-[72px] flex-1 resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                className="min-h-[72px] flex-1 resize-none rounded-xl border border-gray-100 px-3 py-2 text-sm outline-none focus:border-blue-400"
               />
               <button
                 type="button"

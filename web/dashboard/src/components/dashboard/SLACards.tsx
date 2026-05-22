@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, Gauge, RotateCcw, Timer } from 'lucide-react'
 import { getBusinessSLA } from '@/api/notify'
+import { CARD_SM } from '@/components/ui/cardStyles'
 
 export default function SLACards() {
   const { data } = useQuery({
@@ -49,7 +50,7 @@ function SLAStat({
     gray: 'bg-gray-50 text-gray-700',
   }
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+    <div className={CARD_SM}>
       <div className={`flex h-9 w-9 items-center justify-center rounded-md ${colors[tone]}`}>
         <Icon size={17} />
       </div>
@@ -66,7 +67,7 @@ function percent(value?: number) {
 
 function Drilldown({ title, rows }: { title: string; rows: Array<{ key: string; value: string }> }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+    <div className={CARD_SM}>
       <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
       <div className="mt-3 space-y-2">
         {rows.slice(0, 5).map((row) => (

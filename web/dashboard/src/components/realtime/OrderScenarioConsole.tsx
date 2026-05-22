@@ -235,7 +235,7 @@ export default function OrderScenarioConsole() {
                   value={userId}
                   onChange={(event) => setUserId(event.target.value)}
                   disabled={selected === 'peak' || isRunning}
-                  className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 disabled:bg-gray-50 disabled:text-gray-400"
+                  className="mt-1 w-full rounded-xl border border-gray-100 bg-white px-3 py-2 text-sm text-gray-900 disabled:bg-gray-50 disabled:text-gray-400"
                 />
               </label>
               <button

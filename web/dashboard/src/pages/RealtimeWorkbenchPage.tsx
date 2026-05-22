@@ -4,6 +4,7 @@ import OrderScenarioConsole from '@/components/realtime/OrderScenarioConsole'
 import { useConnectionStore } from '@/stores/connectionStore'
 import { useOnlineStore } from '@/stores/onlineStore'
 import { useRealtimeStore } from '@/stores/realtimeStore'
+import { CARD_LG, CARD_SM } from '@/components/ui/cardStyles'
 import { Activity, Radio, Server, ShieldCheck, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -23,7 +24,7 @@ export default function RealtimeWorkbenchPage() {
             面向电商履约、大促峰值和高价值客户触达，验证业务事件从 Notify API、Logic Router、Comet Push 到客户端 ACK 的完整链路。
           </p>
         </div>
-        <div className="grid grid-cols-3 gap-2 rounded-lg border border-gray-200 bg-white p-2 shadow-sm">
+        <div className={`${CARD_SM} grid grid-cols-3 gap-2`}>
           <MiniSignal label="链路目标" value="订单状态一致" />
           <MiniSignal label="可靠路径" value="直推 + 回退" />
           <MiniSignal label="用户体验" value="秒级可感知" />
@@ -44,7 +45,7 @@ export default function RealtimeWorkbenchPage() {
           <MessageFlowViz />
           <EventStream />
         </div>
-        <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <section className={CARD_LG}>
           <div className="flex items-center gap-2">
             <ShieldCheck size={17} className="text-emerald-600" />
             <h2 className="text-sm font-semibold text-gray-900">业务保障目标</h2>
@@ -83,7 +84,7 @@ function Metric({
   value: string
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm">
+    <div className={`${CARD_SM} flex items-center gap-3`}>
       <Icon size={16} className="text-primary-600" />
       <div>
         <p className="text-[10px] uppercase text-gray-400">{label}</p>

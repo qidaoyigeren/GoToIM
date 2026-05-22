@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, History, RotateCcw, Search } from 'lucide-react'
 import { bulkReplayDLQ, bulkResolveDLQ, listDLQ, replayDLQ, resolveDLQ } from '@/api/notify'
+import { CARD_BASE } from '@/components/ui/cardStyles'
 import type { DLQFilters, NotificationDLQ } from '@/types/notification'
 
 const EMPTY_DLQ_ITEMS: NotificationDLQ[] = []
@@ -51,13 +52,13 @@ export default function DLQRecoveryPanel() {
   const openCount = useMemo(() => items.filter((item) => !item.resolved_at).length, [items])
 
   return (
-    <section className="rounded-lg border border-gray-200 bg-white shadow-sm">
+    <section className={CARD_BASE}>
       <div className="border-b border-gray-100 px-5 py-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
               <AlertTriangle size={16} />
-              DLQ recovery operations
+              DLQ 恢复操作
             </div>
             <p className="mt-1 text-xs text-gray-500">{openCount} unresolved items in the current filter</p>
           </div>

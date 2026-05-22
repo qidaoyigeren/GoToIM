@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle2, Clock3, RotateCcw, Route, ShieldCheck } from 'lucide-react'
+import { CARD_BASE, CARD_LG } from '@/components/ui/cardStyles'
 import type { NotificationTrace } from '@/types/notification'
 
 type Props = {
@@ -8,7 +9,7 @@ type Props = {
 export default function PushTraceCard({ trace }: Props) {
   if (!trace) {
     return (
-      <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+      <section className={CARD_LG}>
         <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
           <Route size={16} />
           Notification trace
@@ -27,7 +28,7 @@ export default function PushTraceCard({ trace }: Props) {
   const status = trace.notification?.status || 'pending'
 
   return (
-    <section className="rounded-lg border border-gray-200 bg-white shadow-sm">
+    <section className={CARD_BASE}>
       <div className="border-b border-gray-100 px-5 py-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
