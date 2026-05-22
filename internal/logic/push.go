@@ -2,15 +2,26 @@ package logic
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/Terry-Mao/goim/api/protocol"
+	routerpb "github.com/Terry-Mao/goim/api/router"
 	"github.com/Terry-Mao/goim/internal/logic/model"
-	"github.com/Terry-Mao/goim/internal/router"
 
 	log "github.com/Terry-Mao/goim/pkg/log"
 )
+
+// DeliveryResult explains the concrete path selected for one push request.
+type DeliveryResult struct {
+	MsgID        string  `json:"msg_id"`
+	Path         string  `json:"path"`
+	TargetNode   string  `json:"target_node,omitempty"`
+	ErrorCode    string  `json:"error_code,omitempty"`
+	ErrorMessage string  `json:"error_message,omitempty"`
+	LatencyMs    float64 `json:"latency_ms"`
+}
 
 // PushKeys push a message by connection keys.
 // Resolves key -> server via session, pushes to the specific key (not all
@@ -55,7 +66,7 @@ func (l *Logic) PushKeys(c context.Context, op int32, keys []string, msg []byte)
 }
 
 // PushMids push a message by user IDs.
-// Routes through DispatchEngine for msg_id generation, delivery tracking,
+// Routes through the standalone Router service for delivery tracking,
 // and offline queue support.
 // The raw body is wrapped as MsgBody so the client can parse msg_id and ACK.
 // Returns server-generated msgIDs for delivery tracking.
@@ -68,12 +79,21 @@ func (l *Logic) PushMids(c context.Context, op int32, mids []int64, msg []byte) 
 }
 
 // PushMidsDetailed push a message by user IDs and returns per-user delivery path details.
-func (l *Logic) PushMidsDetailed(c context.Context, op int32, mids []int64, msg []byte) (results []router.DeliveryResult, err error) {
+func (l *Logic) PushMidsDetailed(c context.Context, op int32, mids []int64, msg []byte) (results []DeliveryResult, err error) {
 	var firstErr error
 	for _, mid := range mids {
 		msgID := l.GenerateMsgID()
 		body := wrapAsMsgBody(msgID, mid, msg)
-		result, e := l.router.RouteByUserResult(c, msgID, mid, op, body, 0)
+		reply, e := l.routerClient.RouteByUser(c, &routerpb.RouteByUserReq{
+			MsgId: msgID,
+			ToUid: mid,
+			Op:    op,
+			Body:  body,
+		})
+		result := deliveryResultFromReply(reply, msgID)
+		if e == nil && result.ErrorCode != "" {
+			e = fmt.Errorf("router route by user failed: %s: %s", result.ErrorCode, result.ErrorMessage)
+		}
 		if result.MsgID == "" {
 			result.MsgID = msgID
 		}
@@ -111,7 +131,8 @@ func (l *Logic) PushRoom(c context.Context, op int32, typ, room string, msg []by
 	roomKey := model.EncodeRoomKey(typ, room)
 	msgID = l.GenerateMsgID()
 	body := wrapAsMsgBody(msgID, 0, msg)
-	return msgID, l.router.RouteByRoom(c, op, roomKey, body)
+	_, err = l.routerClient.RouteByRoom(c, &routerpb.RouteByRoomReq{Op: op, RoomKey: roomKey, Body: body})
+	return msgID, err
 }
 
 // PushAll push a message to all.
@@ -120,5 +141,24 @@ func (l *Logic) PushRoom(c context.Context, op int32, typ, room string, msg []by
 func (l *Logic) PushAll(c context.Context, op, speed int32, msg []byte) (msgID string, err error) {
 	msgID = l.GenerateMsgID()
 	body := wrapAsMsgBody(msgID, 0, msg)
-	return msgID, l.router.RouteBroadcast(c, op, speed, body)
+	_, err = l.routerClient.RouteBroadcast(c, &routerpb.RouteBroadcastReq{Op: op, Speed: speed, Body: body})
+	return msgID, err
+}
+
+func deliveryResultFromReply(reply *routerpb.RouteByUserReply, fallbackMsgID string) DeliveryResult {
+	if reply == nil {
+		return DeliveryResult{MsgID: fallbackMsgID, Path: "failed", ErrorCode: "empty_router_reply"}
+	}
+	msgID := reply.MsgId
+	if msgID == "" {
+		msgID = fallbackMsgID
+	}
+	return DeliveryResult{
+		MsgID:        msgID,
+		Path:         reply.Path,
+		TargetNode:   reply.TargetNode,
+		ErrorCode:    reply.ErrorCode,
+		ErrorMessage: reply.ErrorMessage,
+		LatencyMs:    reply.LatencyMs,
+	}
 }

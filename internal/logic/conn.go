@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Terry-Mao/goim/api/protocol"
+	routerpb "github.com/Terry-Mao/goim/api/router"
 	"github.com/Terry-Mao/goim/internal/logic/model"
 	"github.com/Terry-Mao/goim/internal/logic/service"
 	log "github.com/Terry-Mao/goim/pkg/log"
@@ -230,7 +231,12 @@ func (l *Logic) Receive(c context.Context, mid int64, p *protocol.Proto) (err er
 			return err
 		}
 		// 调用 Router 的 HandleACKWithDevice：设备级 ACK 追踪（向后兼容旧客户端）
-		if err := l.router.HandleACKWithDevice(c, mid, ack.MsgID, ack.DeviceID, ack.SessionID); err != nil {
+		if _, err := l.routerClient.HandleACKWithDevice(c, &routerpb.HandleACKWithDeviceReq{
+			Uid:       mid,
+			MsgId:     ack.MsgID,
+			DeviceId:  ack.DeviceID,
+			SessionId: ack.SessionID,
+		}); err != nil {
 			log.Errorf("handle ack error(%v) mid:%d msg_id:%s", err, mid, ack.MsgID)
 			return err
 		}

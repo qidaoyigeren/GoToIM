@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"github.com/Terry-Mao/goim/api/protocol"
+	routerpb "github.com/Terry-Mao/goim/api/router"
 	"github.com/Terry-Mao/goim/internal/logic/service"
-	"github.com/Terry-Mao/goim/internal/router"
+	"google.golang.org/grpc"
 )
 
 // ============ minimal mocks for Receive tests ============
@@ -359,6 +360,46 @@ func (m *recvMockCometPusher) PushMsg(_ context.Context, server string, keys []s
 	return nil
 }
 
+type recvRouterClient struct {
+	ack *service.AckService
+}
+
+func (r *recvRouterClient) RouteByUser(ctx context.Context, req *routerpb.RouteByUserReq, opts ...grpc.CallOption) (*routerpb.RouteByUserReply, error) {
+	return &routerpb.RouteByUserReply{MsgId: req.MsgId, Path: "direct"}, nil
+}
+
+func (r *recvRouterClient) RouteByRoom(ctx context.Context, req *routerpb.RouteByRoomReq, opts ...grpc.CallOption) (*routerpb.RouteByRoomReply, error) {
+	return &routerpb.RouteByRoomReply{}, nil
+}
+
+func (r *recvRouterClient) RouteBroadcast(ctx context.Context, req *routerpb.RouteBroadcastReq, opts ...grpc.CallOption) (*routerpb.RouteBroadcastReply, error) {
+	return &routerpb.RouteBroadcastReply{}, nil
+}
+
+func (r *recvRouterClient) HandleACK(ctx context.Context, req *routerpb.HandleACKReq, opts ...grpc.CallOption) (*routerpb.HandleACKReply, error) {
+	return &routerpb.HandleACKReply{}, r.ack.HandleAck(ctx, req.Uid, req.MsgId)
+}
+
+func (r *recvRouterClient) HandleACKWithDevice(ctx context.Context, req *routerpb.HandleACKWithDeviceReq, opts ...grpc.CallOption) (*routerpb.HandleACKWithDeviceReply, error) {
+	return &routerpb.HandleACKWithDeviceReply{}, r.ack.HandleAckWithDevice(ctx, req.Uid, req.MsgId, req.DeviceId, req.SessionId)
+}
+
+func (r *recvRouterClient) GetMessageStatus(ctx context.Context, req *routerpb.GetMessageStatusReq, opts ...grpc.CallOption) (*routerpb.GetMessageStatusReply, error) {
+	status, err := r.ack.GetMessageStatus(ctx, req.MsgId)
+	if err != nil {
+		return &routerpb.GetMessageStatusReply{}, err
+	}
+	return &routerpb.GetMessageStatusReply{Status: status}, nil
+}
+
+func (r *recvRouterClient) GetStats(ctx context.Context, req *routerpb.GetStatsReq, opts ...grpc.CallOption) (*routerpb.GetStatsReply, error) {
+	return &routerpb.GetStatsReply{}, nil
+}
+
+func (r *recvRouterClient) DirectPush(ctx context.Context, req *routerpb.DirectPushReq, opts ...grpc.CallOption) (*routerpb.DirectPushReply, error) {
+	return &routerpb.DirectPushReply{}, nil
+}
+
 // newTestLogicForP0 creates a minimal Logic for P0 testing without requiring discovery/Redis/Kafka.
 func newTestLogicForP0() (*Logic, *recvMockMessageDAO, *recvMockPushDAO, *recvMockSessionDAO, *recvMockCometPusher) {
 	msgDAO := newRecvMockMessageDAO()
@@ -372,7 +413,7 @@ func newTestLogicForP0() (*Logic, *recvMockMessageDAO, *recvMockPushDAO, *recvMo
 	l := &Logic{}
 	l.syncSvc = syncSvc
 	l.sessionMgr = sessMgr
-	l.router = router.NewDispatchEngine(pushDAO, msgDAO, sessMgr, pusher)
+	l.routerClient = &recvRouterClient{ack: service.NewAckService(msgDAO, pushDAO)}
 	return l, msgDAO, pushDAO, sessDAO, pusher
 }
 

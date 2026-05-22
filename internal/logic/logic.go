@@ -2,16 +2,17 @@ package logic
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/Terry-Mao/goim/api/protocol"
+	routerpb "github.com/Terry-Mao/goim/api/router"
 	"github.com/Terry-Mao/goim/internal/logic/conf"
 	"github.com/Terry-Mao/goim/internal/logic/dao"
 	"github.com/Terry-Mao/goim/internal/logic/model"
 	"github.com/Terry-Mao/goim/internal/logic/service"
-	"github.com/Terry-Mao/goim/internal/router"
 	log "github.com/Terry-Mao/goim/pkg/log"
 	"github.com/Terry-Mao/goim/pkg/snowflake"
 	"github.com/bilibili/discovery/naming"
@@ -44,8 +45,8 @@ type Logic struct {
 	onlineRouter *service.OnlineRouter
 	syncSvc      *service.SyncService
 	cometPusher  *CometPusher
-	router       *router.DispatchEngine // Phase 2: Message Router
-	spoolReplay  *router.SpoolReplayWorker
+	routerClient routerpb.RouterClient
+	routerPool   *RouterClientPool
 	idGen        *snowflake.Snowflake
 }
 
@@ -82,32 +83,13 @@ func New(c *conf.Config) (l *Logic) {
 	l.sessionMgr.SetOnlineRouter(l.onlineRouter)
 	l.cometPusher = NewCometPusher()
 	l.sessionMgr.SetKicker(l.cometPusher)
-
-	// Phase 2: Message Router replaces PushService/AckService for push routing
-	l.router = router.NewDispatchEngine(l.dao, l.dao, l.sessionMgr, l.cometPusher)
-	l.router.SetOnlineRouter(l.onlineRouter)
-	if l.idGen != nil {
-		l.router.SetIDGenerator(l.idGen)
-	}
-	l.router.SetRateLimiter(router.NewRateLimiter(5000, 10000))
-	if l.dao.MQProducer() != nil {
-		l.router.SetMQProducer(l.dao.MQProducer())
-	}
-	if c.Kafka != nil {
-		l.router.SetPushTopics(c.Kafka.OnlinePushTopic, c.Kafka.OfflinePushTopic)
-	}
-	l.router.SetBroadcastFallback(l.cometPusher)
-
-	l.syncSvc = service.NewSyncService(l.dao, l.sessionMgr, l.router)
-
-	// SpoolReplayWorker: replays messages from local durable spool (last-resort fallback)
-	if l.dao.MQProducer() != nil {
-		l.spoolReplay = router.NewSpoolReplayWorker(l.dao, l.dao.MQProducer(), router.SpoolReplayConfig{})
-		l.spoolReplay.Start()
-	}
+	l.routerPool = NewRouterClientPool()
+	l.routerClient = l.routerPool
+	l.syncSvc = service.NewSyncService(l.dao, l.sessionMgr, service.NewRouterDirectPusher(l.routerClient))
 
 	l.initRegions()
 	l.initNodes()
+	l.initRouterNodes()
 	_ = l.loadOnline()
 	go l.onlineproc()
 	return l
@@ -121,8 +103,8 @@ func (l *Logic) Ping(c context.Context) (err error) {
 // Close close resources.
 func (l *Logic) Close() {
 	l.cancel()
-	if l.spoolReplay != nil {
-		l.spoolReplay.Stop()
+	if l.routerPool != nil {
+		l.routerPool.Close()
 	}
 	l.cometPusher.Close()
 	l.dao.Close()
@@ -164,6 +146,34 @@ func (l *Logic) initNodes() {
 				}
 				_ = ev
 				l.newNodes(res)
+			}
+		}
+	}()
+}
+
+func (l *Logic) initRouterNodes() {
+	res := l.dis.Build("goim.router")
+	event := res.Watch()
+	select {
+	case _, ok := <-event:
+		if ok {
+			l.newRouterNodes(res)
+		} else {
+			log.Error("router discovery watch failed")
+		}
+	case <-time.After(10 * time.Second):
+		log.Error("router discovery start timeout")
+	}
+	go func() {
+		for {
+			select {
+			case <-l.ctx.Done():
+				return
+			case _, ok := <-event:
+				if !ok {
+					return
+				}
+				l.newRouterNodes(res)
 			}
 		}
 	}()
@@ -212,6 +222,21 @@ func (l *Logic) newNodes(res naming.Resolver) {
 	}
 }
 
+func (l *Logic) newRouterNodes(res naming.Resolver) {
+	if l.routerPool == nil {
+		return
+	}
+	if zoneIns, ok := res.Fetch(); ok {
+		var allIns []*naming.Instance
+		for _, zins := range zoneIns.Instances {
+			for _, ins := range zins {
+				allIns = append(allIns, ins)
+			}
+		}
+		l.routerPool.UpdateNodes(allIns)
+	}
+}
+
 func (l *Logic) onlineproc() {
 	ticker := time.NewTicker(_onlineTick)
 	defer ticker.Stop()
@@ -229,12 +254,26 @@ func (l *Logic) onlineproc() {
 
 // PushToUser pushes a message to a specific user via the Message Router (Phase 2).
 func (l *Logic) PushToUser(c context.Context, msgID string, toUID int64, op int32, body []byte, seq int64) error {
-	return l.router.RouteByUser(c, msgID, toUID, op, body, seq)
+	reply, err := l.routerClient.RouteByUser(c, &routerpb.RouteByUserReq{
+		MsgId: msgID,
+		ToUid: toUID,
+		Op:    op,
+		Body:  body,
+		Seq:   seq,
+	})
+	if err != nil {
+		return err
+	}
+	if reply != nil && reply.ErrorCode != "" {
+		return fmt.Errorf("router route by user failed: %s: %s", reply.ErrorCode, reply.ErrorMessage)
+	}
+	return nil
 }
 
 // AckMessage handles a message ACK from a client.
 func (l *Logic) AckMessage(c context.Context, mid int64, msgID string) error {
-	return l.router.HandleACK(c, mid, msgID)
+	_, err := l.routerClient.HandleACK(c, &routerpb.HandleACKReq{Uid: mid, MsgId: msgID})
+	return err
 }
 
 // GetOfflineMessages returns offline messages for a user since lastSeq.

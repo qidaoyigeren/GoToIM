@@ -4,7 +4,9 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"time"
 
+	routerpb "github.com/Terry-Mao/goim/api/router"
 	"github.com/Terry-Mao/goim/internal/logic/model"
 )
 
@@ -74,12 +76,20 @@ func (l *Logic) OnlineTotal(c context.Context) (int64, int64) {
 // and offline queue totals from Redis.
 func (l *Logic) OnlineSummary(c context.Context) OnlineSummary {
 	ips, conns := l.OnlineTotal(c)
-	delivery := l.router.Stats()
+	var direct, kafka int64
+	if l.routerClient != nil {
+		statsCtx, cancel := context.WithTimeout(c, 200*time.Millisecond)
+		defer cancel()
+		if stats, err := l.routerClient.GetStats(statsCtx, &routerpb.GetStatsReq{}); err == nil && stats != nil {
+			direct = stats.Direct
+			kafka = stats.Kafka
+		}
+	}
 	return OnlineSummary{
 		IPCount:       ips,
 		ConnCount:     conns,
 		UserCount:     conns,
-		DirectPushed:  delivery.Direct,
-		KafkaFallback: delivery.Kafka,
+		DirectPushed:  direct,
+		KafkaFallback: kafka,
 	}
 }

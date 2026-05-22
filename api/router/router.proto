@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package goim.router;
+
+option go_package = "github.com/Terry-Mao/goim/api/router;router";
+
+// Router handles message route decisions and ACK state.
+service Router {
+    // RouteByUser delivers a point-to-point user message and returns the selected path.
+    rpc RouteByUser(RouteByUserReq) returns (RouteByUserReply);
+    // RouteByRoom delivers a room message.
+    rpc RouteByRoom(RouteByRoomReq) returns (RouteByRoomReply);
+    // RouteBroadcast delivers a global broadcast.
+    rpc RouteBroadcast(RouteBroadcastReq) returns (RouteBroadcastReply);
+    // HandleACK processes a client ACK.
+    rpc HandleACK(HandleACKReq) returns (HandleACKReply);
+    // HandleACKWithDevice processes a client ACK with device/session metadata.
+    rpc HandleACKWithDevice(HandleACKWithDeviceReq) returns (HandleACKWithDeviceReply);
+    // GetMessageStatus returns the current message status.
+    rpc GetMessageStatus(GetMessageStatusReq) returns (GetMessageStatusReply);
+    // GetStats returns Router delivery path counters.
+    rpc GetStats(GetStatsReq) returns (GetStatsReply);
+    // DirectPush pushes a message to specific sessions, used by offline sync.
+    rpc DirectPush(DirectPushReq) returns (DirectPushReply);
+}
+
+message RouteByUserReq {
+    string msg_id = 1;
+    int64 to_uid = 2;
+    int32 op = 3;
+    bytes body = 4;
+    int64 seq = 5;
+}
+
+message RouteByUserReply {
+    string msg_id = 1;
+    string path = 2;
+    string target_node = 3;
+    string error_code = 4;
+    string error_message = 5;
+    double latency_ms = 6;
+}
+
+message RouteByRoomReq {
+    int32 op = 1;
+    string room_key = 2;
+    bytes body = 3;
+}
+
+message RouteByRoomReply {}
+
+message RouteBroadcastReq {
+    int32 op = 1;
+    int32 speed = 2;
+    bytes body = 3;
+}
+
+message RouteBroadcastReply {}
+
+message HandleACKReq {
+    int64 uid = 1;
+    string msg_id = 2;
+}
+
+message HandleACKReply {}
+
+message HandleACKWithDeviceReq {
+    int64 uid = 1;
+    string msg_id = 2;
+    string device_id = 3;
+    string session_id = 4;
+}
+
+message HandleACKWithDeviceReply {}
+
+message GetMessageStatusReq {
+    string msg_id = 1;
+}
+
+message GetMessageStatusReply {
+    string status = 1;
+}
+
+message GetStatsReq {}
+
+message GetStatsReply {
+    int64 direct = 1;
+    int64 kafka = 2;
+}
+
+message DirectPushReq {
+    repeated PushSession sessions = 1;
+    int32 op = 2;
+    bytes body = 3;
+}
+
+message PushSession {
+    string server = 1;
+    string key = 2;
+}
+
+message DirectPushReply {
+    repeated PushSession failed_sessions = 1;
+}
