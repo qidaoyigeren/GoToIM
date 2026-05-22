@@ -16,6 +16,7 @@ type Dao struct {
 	c           *conf.Config
 	kafkaPub    sarama.SyncProducer
 	mqProducer  mq.Producer // optional: MQ abstraction (nil when not configured)
+	ackBatcher  *mqkafka.ACKBatcher
 	redis       *redis.Pool
 	redisExpire int32
 }
@@ -34,6 +35,9 @@ func New(c *conf.Config) *Dao {
 			panic(err)
 		}
 		d.mqProducer = pub
+	}
+	if c.Kafka != nil && c.Kafka.ACKTopic != "" {
+		d.ackBatcher = mqkafka.NewACKBatcher(c.Kafka.ACKTopic, d.kafkaPub)
 	}
 	return d
 }
@@ -72,6 +76,9 @@ func newRedis(c *conf.Redis) *redis.Pool {
 
 // Close close the resource.
 func (d *Dao) Close() error {
+	if d.ackBatcher != nil {
+		_ = d.ackBatcher.Close()
+	}
 	if d.kafkaPub != nil {
 		d.kafkaPub.Close()
 	}

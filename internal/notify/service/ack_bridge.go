@@ -124,35 +124,42 @@ func (h *ackBridgeHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim 
 // the ACK into the Notify Server's notification table.
 func (h *ackBridgeHandler) processMessage(msg *sarama.ConsumerMessage) {
 	var event struct {
-		MsgID      string  `json:"msg_id"`
-		UserID     string  `json:"user_id"`
-		DeviceID   string  `json:"device_id"`
-		SessionID  string  `json:"session_id"`
-		AckTime    int64   `json:"ack_time"`
-		Status     string  `json:"status"`
-		TargetNode string  `json:"target_node"`
-		LatencyMs  float64 `json:"latency_ms"`
-		TraceID    string  `json:"trace_id"`
-		NotifyID   string  `json:"notify_id"`
+		MsgID      string   `json:"msg_id"`
+		MsgIDs     []string `json:"msg_ids"`
+		UserID     string   `json:"user_id"`
+		DeviceID   string   `json:"device_id"`
+		SessionID  string   `json:"session_id"`
+		AckTime    int64    `json:"ack_time"`
+		Status     string   `json:"status"`
+		TargetNode string   `json:"target_node"`
+		LatencyMs  float64  `json:"latency_ms"`
+		TraceID    string   `json:"trace_id"`
+		NotifyID   string   `json:"notify_id"`
 	}
 	if err := decodeAckBridgeEvent(msg.Value, &event); err != nil {
 		log.Warningf("ack bridge: decode event failed offset=%d: %v", msg.Offset, err)
 		return
 	}
-	if event.MsgID == "" {
+	msgIDs := normalizeAckBridgeMsgIDs(event.MsgID, event.MsgIDs)
+	if len(msgIDs) == 0 {
 		return
 	}
+	for _, msgID := range msgIDs {
+		h.processAckEvent(msgID, event.NotifyID, event.DeviceID, event.SessionID, event.Status, event.TraceID)
+	}
+}
 
+func (h *ackBridgeHandler) processAckEvent(msgID, eventNotifyID, deviceID, sessionID, status, traceID string) {
 	// TODO: When notification_id is available in the AckEvent, use it directly.
 	// For now, we map via msg_id lookup in notification_acks table.
 	// If the notification cannot be found, this is likely an IM chat message
 	// (not a business notification), which is safe to skip.
-	notifyID := event.NotifyID
+	notifyID := eventNotifyID
 	if notifyID == "" {
 		var err error
-		notifyID, err = h.svc.FindNotifyIDByMsgID(event.MsgID)
+		notifyID, err = h.svc.FindNotifyIDByMsgID(msgID)
 		if err != nil {
-			log.Warningf("ack bridge: msg_id lookup failed msg_id=%s: %v", event.MsgID, err)
+			log.Warningf("ack bridge: msg_id lookup failed msg_id=%s: %v", msgID, err)
 			return
 		}
 	}
@@ -161,7 +168,7 @@ func (h *ackBridgeHandler) processMessage(msg *sarama.ConsumerMessage) {
 		return
 	}
 
-	switch event.Status {
+	switch status {
 	case "server_received":
 		_ = h.svc.store.UpdateNotificationStatus(notifyID, "delivering", time.Now())
 		return
@@ -170,25 +177,41 @@ func (h *ackBridgeHandler) processMessage(msg *sarama.ConsumerMessage) {
 		return
 	case "", "acked":
 	default:
-		log.V(1).Infof("ack bridge: ignored status=%s msg_id=%s", event.Status, event.MsgID)
+		log.V(1).Infof("ack bridge: ignored status=%s msg_id=%s", status, msgID)
 		return
 	}
 
 	// RecordAckIdempotent handles deduplication — repeated ACK events are safe
 	recorded, err := h.svc.RecordAckIdempotent(AckInput{
 		NotifyID:  notifyID,
-		MsgID:     event.MsgID,
-		DeviceID:  event.DeviceID,
-		SessionID: event.SessionID,
-		TraceID:   event.TraceID,
-	}, "kafka-ack-"+event.MsgID)
+		MsgID:     msgID,
+		DeviceID:  deviceID,
+		SessionID: sessionID,
+		TraceID:   traceID,
+	}, "kafka-ack-"+msgID)
 	if err != nil {
-		log.Warningf("ack bridge: record ack failed notify_id=%s msg_id=%s: %v", notifyID, event.MsgID, err)
+		log.Warningf("ack bridge: record ack failed notify_id=%s msg_id=%s: %v", notifyID, msgID, err)
 		return
 	}
 	if recorded {
-		log.V(1).Infof("ack bridge: synced notify_id=%s msg_id=%s device=%s", notifyID, event.MsgID, event.DeviceID)
+		log.V(1).Infof("ack bridge: synced notify_id=%s msg_id=%s device=%s", notifyID, msgID, deviceID)
 	}
+}
+
+func normalizeAckBridgeMsgIDs(msgID string, msgIDs []string) []string {
+	seen := make(map[string]struct{}, len(msgIDs)+1)
+	out := make([]string, 0, len(msgIDs)+1)
+	for _, id := range append(msgIDs, msgID) {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func decodeAckBridgeEvent(data []byte, dst any) error {

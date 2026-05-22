@@ -7,7 +7,7 @@
 
 goim 是基于 [Terry-Mao/goim](https://github.com/Terry-Mao/goim) 演进的实时消息投递系统。当前项目的核心不再只是原版 Comet / Logic / Job 管道，而是拆出了清晰的 **Comet、Logic、Router、Worker 四层架构**，把长连接接入、业务入口、路由决策和投递执行分开治理。
 
-这套改进的目标是让 goim 从“能推消息”升级为“可追踪、可补偿、可恢复、可运营”的消息中台：在线直推走低延迟路径，离线或失败进入可靠路径；消息具备 msg_id、幂等、ACK、状态机、attempt、trace、DLQ 和业务 SLA；上层业务可以通过 HTTP API 接入，而不需要理解长连接和 Kafka 投递细节。
+这套改进的目标是让 goim 从“能推消息”升级为“可追踪、可补偿、可恢复、可运营”的消息中台：在线直推走低延迟路径，离线或失败进入可靠路径；消息具备 msg_id、幂等、ACK、轻量状态闭环、attempt、trace、DLQ 和业务 SLA；上层业务可以通过 HTTP API 接入，而不需要理解长连接和 Kafka 投递细节。
 
 ## 核心架构
 
@@ -59,7 +59,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | Comet | `internal/comet`, `cmd/comet` | 独立进程 `comet` | 长连接接入层。维护 TCP / WebSocket 连接、Bucket 分片、Channel、Room、优先级队列，并通过 gRPC 接收投递指令。 |
 | Logic | `internal/logic`, `cmd/logic` | 独立进程 `logic` | 薄业务入口层。暴露 HTTP/gRPC API，管理 Session、在线状态、节点发现、离线同步入口，并把推送请求交给 Router。 |
-| Router | `internal/router` | 当前嵌入 Logic 进程，边界已独立 | 消息路由决策层。负责 msg_id、幂等抢占、在线判断、直推/fallback 决策、离线队列、ACK、投递结果，并预留状态机与 attempt recorder hooks。 |
+| Router | `internal/router` | 当前嵌入 Logic 进程，边界已独立 | 消息路由决策层。负责 msg_id、幂等抢占、在线判断、直推/fallback 决策、离线队列、ACK、投递结果，并预留状态 timeline 与 attempt recorder hooks。 |
 | Worker | `internal/worker`, `cmd/job` | 独立进程 `job`，语义上是 Delivery Worker | 投递执行层。消费 Kafka Consumer Group，处理单播/房间/广播消息，管理 Comet 连接池、重试、DLQ 和房间聚合。 |
 
 Redis、Kafka、Discovery、MySQL 是基础设施，不是核心业务层级。Notify Server 和 Dashboard 是建立在四层消息中台之上的业务验证与运营系统。
@@ -125,7 +125,7 @@ sequenceDiagram
 
 - 双通道投递：在线直推作为 fast path，Kafka + Redis 离线队列作为 reliable path。
 - 原子幂等：Router 使用 Redis `HSETNX` 抢占 `msg_id`，避免重复投递。
-- 状态追踪：Router 已定义 `accepted -> routed -> direct_sent/direct_failed -> fallback_queued/offline_stored -> delivered -> acked` 等状态模型和 recorder 扩展点。
+- 状态追踪：主链路收敛为 `accepted -> pushed -> acked / timeout / failed`，`routed`、`direct_failed`、`fallback_queued`、`offline_stored` 等细粒度状态作为 trace timeline 扩展点。
 - 投递审计：`DeliveryResult` 返回 `grpc_direct`、`kafka_fallback`、`offline_stored`、`failed` 等路径。
 - 设备级 ACK：ACK 可携带 `device_id`、`session_id`，支持多端通知统计。
 - 离线同步：Redis ZSET 保存离线消息，用户上线后按 cursor / seq 拉取。

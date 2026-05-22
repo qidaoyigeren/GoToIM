@@ -75,15 +75,20 @@ const MaxRetries = 3
 // AckEvent is published to Kafka when a client ACKs a message.
 // Notify Server consumes these events to synchronize its ACK state.
 type AckEvent struct {
-	MsgID      string  `json:"msg_id"`
-	UserID     string  `json:"user_id"`
-	DeviceID   string  `json:"device_id"`
-	SessionID  string  `json:"session_id"`
-	AckTime    int64   `json:"ack_time"`
-	Status     string  `json:"status,omitempty"`
-	TargetNode string  `json:"target_node,omitempty"`
-	LatencyMs  float64 `json:"latency_ms,omitempty"`
-	TraceID    string  `json:"trace_id,omitempty"`
+	MsgID        string   `json:"msg_id"`
+	MsgIDs       []string `json:"msg_ids,omitempty"`
+	UserID       string   `json:"user_id"`
+	UID          int64    `json:"uid,omitempty"`
+	DeviceID     string   `json:"device_id"`
+	SessionID    string   `json:"session_id"`
+	AckTime      int64    `json:"ack_time"`
+	FirstAckTime int64    `json:"first_ack_time,omitempty"`
+	Status       string   `json:"status,omitempty"`
+	TargetNode   string   `json:"target_node,omitempty"`
+	LatencyMs    float64  `json:"latency_ms,omitempty"`
+	TraceID      string   `json:"trace_id,omitempty"`
+	Count        int      `json:"count,omitempty"`
+	Batched      bool     `json:"batched,omitempty"`
 	// NotifyID maps to the business notification when available.
 	// When empty, Notify Server maps via msg_id lookup.
 	NotifyID string `json:"notify_id,omitempty"`

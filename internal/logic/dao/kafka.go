@@ -2,13 +2,13 @@ package dao
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/IBM/sarama"
 	pb "github.com/Terry-Mao/goim/api/logic"
 	"github.com/Terry-Mao/goim/internal/mq"
+	mqkafka "github.com/Terry-Mao/goim/internal/mq/kafka"
 	"github.com/Terry-Mao/goim/internal/tracectx"
 	log "github.com/Terry-Mao/goim/pkg/log"
 	"google.golang.org/protobuf/proto"
@@ -114,28 +114,24 @@ func (d *Dao) PublishACK(c context.Context, msgID string, uid int64, status, tar
 		return nil // ACK topic not configured, skip
 	}
 	traceID := tracectx.TraceID(c)
-	// Build AckEvent JSON for cross-system ACK bridging (Phase 1)
-	ackEvent := fmt.Sprintf(`{"msg_id":"%s","user_id":"%d","device_id":"%s","session_id":"%s","ack_time":%d,"status":"%s","target_node":"%s","latency_ms":0,"trace_id":"%s"}`,
-		msgID, uid, deviceID, sessionID, time.Now().UnixMilli(), status, targetNode, traceID)
-	ackMsg := &pb.PushMsg{
-		Type:      pb.PushMsg_PUSH,
-		Operation: 19, // OpPushMsgAck
-		Keys:      []string{fmt.Sprintf("uid:%d", uid)},
-		Msg:       []byte(ackEvent),
+	event := mq.AckEvent{
+		MsgID:      msgID,
+		UserID:     strconv.FormatInt(uid, 10),
+		UID:        uid,
+		DeviceID:   deviceID,
+		SessionID:  sessionID,
+		AckTime:    time.Now().UnixMilli(),
+		Status:     status,
+		TargetNode: targetNode,
+		TraceID:    traceID,
 	}
-	b, err := proto.Marshal(ackMsg)
+	var err error
+	if d.ackBatcher != nil {
+		err = d.ackBatcher.Enqueue(c, event)
+	} else {
+		err = mqkafka.SendACKEvent(c, d.kafkaPub, topic, event)
+	}
 	if err != nil {
-		return err
-	}
-	m := &sarama.ProducerMessage{
-		Key:   sarama.StringEncoder(msgID),
-		Topic: topic,
-		Value: sarama.ByteEncoder(b),
-	}
-	if traceID != "" {
-		m.Headers = []sarama.RecordHeader{{Key: []byte(mq.HeaderTraceID), Value: []byte(traceID)}}
-	}
-	if _, _, err = d.kafkaPub.SendMessage(m); err != nil {
 		log.Errorf("PublishACK.send(msg_id:%s) error(%v)", msgID, err)
 	}
 	return err

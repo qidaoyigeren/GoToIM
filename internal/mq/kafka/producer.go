@@ -2,27 +2,25 @@ package kafka
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/IBM/sarama"
-	pb "github.com/Terry-Mao/goim/api/logic"
 	"github.com/Terry-Mao/goim/internal/mq"
 	"github.com/Terry-Mao/goim/internal/tracectx"
-	"google.golang.org/protobuf/proto"
 )
 
 // Producer 通过 Kafka SyncProducer 实现 mq.Producer 接口。
 // Phase 2 升级：支持按 priority 分 topic、Kafka header 携带业务元信息。
 type Producer struct {
-	pub       sarama.SyncProducer
-	pushTopic string
-	roomTopic string
-	allTopic  string
-	ackTopic  string
-	dlqTopic  string // Phase 2: dead-letter-queue topic
-	fallback  string
+	pub        sarama.SyncProducer
+	pushTopic  string
+	roomTopic  string
+	allTopic   string
+	ackTopic   string
+	ackBatcher *ACKBatcher
+	dlqTopic   string // Phase 2: dead-letter-queue topic
+	fallback   string
 	// Phase 2: priority-split topics (optional)
 	enablePriorityTopics bool
 	pushTopicHigh        string
@@ -40,14 +38,16 @@ func NewProducer(brokers []string, pushTopic, roomTopic, allTopic, ackTopic, fal
 	if err != nil {
 		return nil, err
 	}
-	return &Producer{
+	p := &Producer{
 		pub:       pub,
 		pushTopic: pushTopic,
 		roomTopic: roomTopic,
 		allTopic:  allTopic,
 		ackTopic:  ackTopic,
 		fallback:  fallback,
-	}, nil
+	}
+	p.ackBatcher = NewACKBatcher(ackTopic, pub)
+	return p, nil
 }
 
 // SetPriorityTopics enables priority-based topic routing (Phase 2).
@@ -185,26 +185,19 @@ func (p *Producer) EnqueueACK(ctx context.Context, msgID string, uid int64, stat
 		return nil
 	}
 	traceID := tracectx.TraceID(ctx)
-	ackMsg := &pb.PushMsg{
-		Type:      pb.PushMsg_PUSH,
-		Operation: 19,
-		Keys:      []string{fmt.Sprintf("uid:%d", uid)},
-		Msg:       []byte(fmt.Sprintf(`{"msg_id":"%s","user_id":"%d","uid":%d,"status":"%s","target_node":"%s","ack_time":%d,"trace_id":"%s"}`, msgID, uid, uid, status, targetNode, time.Now().UnixMilli(), traceID)),
+	event := mq.AckEvent{
+		MsgID:      msgID,
+		UserID:     strconv.FormatInt(uid, 10),
+		UID:        uid,
+		Status:     status,
+		TargetNode: targetNode,
+		AckTime:    time.Now().UnixMilli(),
+		TraceID:    traceID,
 	}
-	b, err := proto.Marshal(ackMsg)
-	if err != nil {
-		return err
+	if p.ackBatcher != nil {
+		return p.ackBatcher.Enqueue(ctx, event)
 	}
-	km := &sarama.ProducerMessage{
-		Topic: p.ackTopic,
-		Key:   sarama.StringEncoder(msgID),
-		Value: sarama.ByteEncoder(b),
-	}
-	if traceID != "" {
-		km.Headers = []sarama.RecordHeader{{Key: []byte(mq.HeaderTraceID), Value: []byte(traceID)}}
-	}
-	_, _, err = p.pub.SendMessage(km)
-	return err
+	return SendACKEvent(ctx, p.pub, p.ackTopic, event)
 }
 
 // EnqueueDelayed 发送一条延迟投递的消息，同时携带 Phase 2 业务 header。
@@ -247,5 +240,8 @@ func (p *Producer) EnqueueToDLQ(ctx context.Context, msg *mq.Message) error {
 
 // Close 关闭底层的 Kafka 生产者。
 func (p *Producer) Close() error {
+	if p.ackBatcher != nil {
+		_ = p.ackBatcher.Close()
+	}
 	return p.pub.Close()
 }

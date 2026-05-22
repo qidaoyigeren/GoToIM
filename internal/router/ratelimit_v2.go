@@ -189,9 +189,6 @@ func (m *MultiDimRateLimiter) CheckAll(uid int64, bizType, evtType, priority str
 	if !m.AllowUser(uid) {
 		return RateLimitResult{Allowed: false, Dimension: "user", Reason: "user rate limit exceeded"}
 	}
-	if !m.AllowBusinessType(bizType) {
-		return RateLimitResult{Allowed: false, Dimension: "business_type", Reason: bizType + " rate limit exceeded"}
-	}
 	if !m.AllowEventType(evtType) {
 		return RateLimitResult{Allowed: false, Dimension: "event_type", Reason: evtType + " rate limit exceeded"}
 	}

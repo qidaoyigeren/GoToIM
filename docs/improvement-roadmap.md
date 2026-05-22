@@ -9,6 +9,15 @@
 
 **整体完成度：约 65-70%**
 
+### 2026-05-22 设计收敛修正
+
+复盘后，IM 主链路不再默认追求“完整强状态机 + 全量多维限流”。新的设计原则是：
+
+- **主链路保持轻量闭环**：默认只关注 `accepted -> pushed -> acked / timeout / failed`，保证投递结果可解释、可补偿。
+- **详细状态只做 trace 扩展**：`routed/direct_failed/fallback_queued/offline_stored` 等细粒度状态用于排障时间线，不作为每条消息的强决策前置。
+- **限流默认收敛为用户维度 + 优先级维度**：`business_type`、`event_type` 先作为观测标签和灰度开关，只有某类业务被监控证明存在冲击时才启用强限流。
+- **三段 ACK 分层处理**：Server ACK 和 Push ACK 偏链路观测，可采样、批量或仅对关键消息全量记录；Client ACK 才是业务最终确认。
+
 | 模块 | 完成度 | 说明 |
 |---|---:|---|
 | IM 核心管道（Router/Worker/Logic） | 40% | 可靠投递语义升级大部分未开始 |
@@ -20,14 +29,18 @@
 
 ## 一、IM 系统改善（完成度 ~40%）
 
-### 1.1 消息投递状态机 — 完成度 30%
+### 1.1 消息投递状态闭环 — 完成度 30%
 
-**目标状态：**
+**主链路目标状态：**
 ```
-accepted -> routed -> direct_sent -> delivered -> acked
-accepted -> routed -> direct_failed -> fallback_queued -> fallback_sent -> acked
-accepted -> routed -> offline_stored -> synced -> acked
-accepted -> expired -> dlq
+accepted -> pushed -> acked
+accepted -> pushed -> timeout -> retry / offline_sync / dlq
+accepted -> failed -> retry / dlq
+```
+
+**Trace 扩展状态（用于排障，不默认作为强状态机约束）：**
+```
+routed / direct_sent / direct_failed / fallback_queued / fallback_sent / offline_stored / synced
 ```
 
 **当前状态：**
@@ -35,10 +48,10 @@ accepted -> expired -> dlq
 - [x] 双通道投递逻辑：gRPC 直连 + Kafka 回退（`router/dispatch.go`）
 
 **待完成：**
-- [ ] `accepted -> routed` 阶段无显式状态记录
-- [ ] `direct_failed -> fallback_queued -> fallback_sent` 路径无状态机追踪
-- [ ] IM 核心管道无 TTL 过期丢弃机制（`expired -> dlq`）
-- [ ] 状态转换未在 `internal/router/` 中作为统一状态机落地
+- [ ] 主链路缺少明确的 `timeout` 终态和对应补偿策略
+- [ ] `server_received / pushed / acked` 三段事件需要统一映射到 Notify trace
+- [ ] 细粒度状态可以补充到 timeline，但不应阻塞主投递流程
+- [ ] IM 核心管道无 TTL 过期丢弃机制（`timeout -> dlq`）
 
 **涉及文件：**
 - `internal/router/dispatch.go` — RouteByUser 主入口
@@ -48,29 +61,27 @@ accepted -> expired -> dlq
 **实施步骤：**
 
 ```
-步骤 1.1.1：定义投递状态枚举
+步骤 1.1.1：定义轻量投递状态枚举
   - 新建 internal/router/state.go
-  - 定义 DeliveryState 枚举：accepted, routed, direct_sent, direct_failed,
-    fallback_queued, fallback_sent, delivered, offline_stored, synced, acked, expired, dlq
-  - 定义合法状态转换 map[DeliveryState][]DeliveryState
+  - 主状态：accepted, pushed, acked, timeout, failed, dlq
+  - Trace 扩展状态：routed, direct_sent, direct_failed, fallback_queued, fallback_sent, offline_stored, synced
+  - 主状态参与业务补偿；扩展状态仅写 timeline
 
 步骤 1.1.2：在 DispatchEngine 中集成状态追踪
-  - 修改 RouteByUser()，在每个关键节点写入状态
+  - 修改 RouteByUser()，在关键节点写入主状态
   - ID 生成后 -> accepted
-  - 开始路由 -> routed
-  - gRPC 直连尝试 -> direct_sent / direct_failed
-  - 写入 Kafka -> fallback_queued
-  - Worker 投递成功 -> fallback_sent
+  - gRPC 直连或 Kafka fallback 成功接管 -> pushed
   - ACK 收到 -> acked
+  - TTL/SLA 超时 -> timeout
 
 步骤 1.1.3：消息状态持久化
   - 扩展 Redis msg:{msg_id} hash 增加 state 字段
-  - 或新建 msg_state:{msg_id} key 记录状态时间线
+  - 新建 msg_state_timeline:{msg_id} 记录细粒度 trace 时间线
 
-步骤 1.1.4：TTL 过期机制
+步骤 1.1.4：TTL / ACK SLA 超时机制
   - 在 Worker 消费时检查消息 TTL（从 Kafka header 读取）
-  - 过期消息路由到 DLQ topic
-  - 添加 expired -> dlq 状态转换
+  - 对 pushed 但未 acked 的消息按业务 SLA 扫描
+  - 超时后按策略进入 retry / offline_sync / DLQ
 ```
 
 ### 1.2 多设备 ACK — 完成度 70%
@@ -233,9 +244,9 @@ accepted -> expired -> dlq
 - [x] 广播按实例分摊限速
 
 **待完成：**
-- [ ] **Router RateLimiter 未接入 DispatchEngine**（最关键缺口）
-- [ ] 无按业务方限流
-- [ ] 无按消息类型限流
+- [ ] Router RateLimiter 参数需要配置化，避免硬编码
+- [ ] 优先级维度限流需要补齐默认策略
+- [ ] 业务方 / 消息类型维度先作为指标标签，后续通过灰度开关启用强限流
 - [ ] 无 Kafka backlog 监控和自动降级
 - [ ] 无 Comet 节点压力感知
 
@@ -251,11 +262,11 @@ accepted -> expired -> dlq
   - 拒绝时返回限流错误，记录 metric
   - 配置化：rate 和 burst 从配置文件读取
 
-步骤 1.6.2：多维度限流扩展
-  - 扩展 RateLimiter 支持 business_type 维度
-  - AllowBusinessType(bt, rate, burst) — 按业务方限流
-  - AllowMsgType(mt, rate, burst) — 按消息类型限流
-  - 在 RouteByUser 中从消息 header 读取 business_type 并检查
+步骤 1.6.2：高级限流灰度扩展
+  - 默认只启用 user + priority，保证主链路简单
+  - business_type / event_type 先进入指标标签和日志
+  - 当某类业务出现突发冲击时，再通过配置开关启用对应维度强限流
+  - 限流命中后根据 priority 决定拒绝、降级到 Kafka，或只做告警
 
 步骤 1.6.3：Kafka backlog 监控
   - 新建 internal/router/backpressure.go
@@ -534,11 +545,11 @@ accepted -> expired -> dlq
   │
 阶段 1  基础收尾（1 周）     ──  把已完成的 90% 推到 100%
   │
-阶段 2  IM 可靠投递（2 周）  ──  核心缺口：状态机、多设备 ACK、优先级、限流
+阶段 2  IM 可靠投递（2 周）  ──  核心缺口：轻量状态闭环、多设备 ACK、优先级、基础限流
   │
 阶段 3  业务编排增强（2 周）  ──  策略配置化、模板、Campaign、Scenario 报告
   │
-阶段 4  生产治理（2-3 周）   ──  全链路 trace、多维限流、降级、Chaos 测试
+阶段 4  生产治理（2-3 周）   ──  全链路 trace、高级限流灰度、降级、Chaos 测试
 ```
 
 ---
@@ -584,17 +595,17 @@ accepted -> expired -> dlq
 
 **目标：** 补全 IM 核心管道的可靠投递语义，让消息从"能发"变成"可追踪、可解释"
 **工期：** 2 周
-**验收标准：** 消息有完整状态机、Kafka 支持优先级和 TTL、离线消息按设备同步、限流按业务维度生效
+**验收标准：** 消息有轻量状态闭环和 trace 时间线、Kafka 支持优先级和 TTL、离线消息按设备同步、默认按用户与优先级限流，业务维度可灰度启用
 
 | # | 任务 | 改动点 | 工时 | 依赖 |
 |---:|---|---|---:|---|
-| 2.1 | **投递状态机** | 新建 `router/state.go` 定义状态枚举和转换表；`dispatch.go` 在各节点写状态到 Redis | 2d | 1.4 |
+| 2.1 | **轻量投递状态闭环** | 新建 `router/state.go` 定义主状态与 trace 扩展状态；`dispatch.go` 只让主状态参与补偿，细粒度状态写 timeline | 2d | 1.4 |
 | 2.2 | **消息优先级在 Kafka 层落地** | `logic.proto` PushMsgRequest 增加 priority/ttl/trace_id；`mq/kafka/producer.go` 写入 Kafka header；按优先级分 topic（push.high/push.normal/push.low） | 2d | 无 |
 | 2.3 | **TTL 过期丢弃** | `mq/kafka/consumer.go` Worker 消费时检查 goim_ttl header，过期路由 DLQ | 1d | 2.1 |
 | 2.4 | **设备级离线 cursor** | `dao/redis.go` 新增 device_cursor:{uid}:{device_id}；`service/sync.go` OnUserOnline 支持按设备同步 | 1.5d | 1.3 |
 | 2.5 | **离线消息合并策略** | 新建 `router/merge.go` MergePolicy 接口 + OrderStatusMergePolicy 实现；`dispatch.go` 写入 offline queue 前检查合并 | 1.5d | 2.4 |
 | 2.6 | **标准化消息协议** | 定义 BizEnvelope protobuf（msg_id/business_id/business_type/event_type/priority/ttl/dedupe_key/trace_id/payload）；Notify Server 发送时包装 | 1.5d | 2.2 |
-| 2.7 | **多维度限流** | `ratelimit.go` 扩展 business_type 维度；`dispatch.go` 从消息 header 读取 business_type 做限流检查 | 1.5d | 0.1 |
+| 2.7 | **分层限流策略** | 默认启用 user + priority；business_type / event_type 先作为指标标签和灰度开关，需要时再启用强限流 | 1.5d | 0.1 |
 
 **前置依赖：** 阶段 1 完成
 **风险：** 2.1/2.2/2.6 涉及核心路径和协议变更，需要：
