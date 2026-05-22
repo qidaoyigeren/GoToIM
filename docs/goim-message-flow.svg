@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">goim single user message delivery flow</title>
+  <desc id="desc">Visual flow for a single user push from business API to Router, fast path or reliable path, client receive and ACK event batching.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f1f5f9"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="7" stdDeviation="9" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#f97316"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#16a34a"/>
+    </marker>
+    <style>
+      .title { font: 700 30px "Inter", "Segoe UI", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .subtitle { font: 500 15px "Inter", "Segoe UI", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .step-title { font: 700 17px "Inter", "Segoe UI", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .step-sub { font: 500 13px "Inter", "Segoe UI", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .num { font: 800 16px "Inter", "Segoe UI", sans-serif; fill: #ffffff; }
+      .lane-title { font: 700 15px "Inter", "Segoe UI", "Microsoft YaHei", sans-serif; fill: #334155; }
+      .note { font: 600 13px "Inter", "Segoe UI", "Microsoft YaHei", sans-serif; fill: #334155; }
+      .card { rx: 18; fill: #ffffff; stroke: #dbe4ef; stroke-width: 1.2; filter: url(#shadow); }
+      .fast { stroke: #2563eb; stroke-width: 4; fill: none; marker-end: url(#arrow-blue); }
+      .slow { stroke: #f97316; stroke-width: 4; fill: none; marker-end: url(#arrow-orange); }
+      .ack { stroke: #16a34a; stroke-width: 3.5; fill: none; stroke-dasharray: 9 7; marker-end: url(#arrow-green); }
+    </style>
+  </defs>
+
+  <rect width="1280" height="760" fill="url(#bg)"/>
+  <text x="54" y="58" class="title">单用户消息投递链路</text>
+  <text x="54" y="84" class="subtitle">同一条消息先尝试在线直推；离线或失败进入可靠通道；客户端 ACK 回流后更新状态并合并发布 ACK 事件。</text>
+
+  <rect x="54" y="120" width="1172" height="154" rx="24" fill="#eff6ff" stroke="#bfdbfe"/>
+  <text x="80" y="152" class="lane-title">入口与路由决策</text>
+
+  <rect x="84" y="178" width="190" height="72" class="card"/>
+  <circle cx="108" cy="214" r="17" fill="#2563eb"/>
+  <text x="103" y="220" class="num">1</text>
+  <text x="136" y="207" class="step-title">业务发起</text>
+  <text x="136" y="230" class="step-sub">POST /goim/push/mids</text>
+
+  <rect x="340" y="178" width="190" height="72" class="card"/>
+  <circle cx="364" cy="214" r="17" fill="#2563eb"/>
+  <text x="359" y="220" class="num">2</text>
+  <text x="392" y="207" class="step-title">Logic 接入</text>
+  <text x="392" y="230" class="step-sub">鉴权 / 参数 / trace</text>
+
+  <rect x="596" y="178" width="226" height="72" class="card"/>
+  <circle cx="620" cy="214" r="17" fill="#2563eb"/>
+  <text x="615" y="220" class="num">3</text>
+  <text x="648" y="207" class="step-title">Router 抢占 msg_id</text>
+  <text x="648" y="230" class="step-sub">HSETNX + pending state</text>
+
+  <rect x="888" y="178" width="254" height="72" class="card"/>
+  <circle cx="912" cy="214" r="17" fill="#2563eb"/>
+  <text x="907" y="220" class="num">4</text>
+  <text x="940" y="207" class="step-title">查询在线状态</text>
+  <text x="940" y="230" class="step-sub">Session / weighted Comet node</text>
+
+  <path d="M274 214 H340" class="fast"/>
+  <path d="M530 214 H596" class="fast"/>
+  <path d="M822 214 H888" class="fast"/>
+
+  <rect x="54" y="320" width="550" height="238" rx="24" fill="#ecfdf5" stroke="#bbf7d0"/>
+  <text x="80" y="352" class="lane-title">Fast Path：用户在线</text>
+
+  <rect x="84" y="394" width="190" height="82" class="card"/>
+  <circle cx="108" cy="435" r="17" fill="#16a34a"/>
+  <text x="103" y="441" class="num">5</text>
+  <text x="136" y="426" class="step-title">直推 Comet</text>
+  <text x="136" y="449" class="step-sub">gRPC PushMsg</text>
+
+  <rect x="346" y="394" width="190" height="82" class="card"/>
+  <circle cx="370" cy="435" r="17" fill="#16a34a"/>
+  <text x="365" y="441" class="num">6</text>
+  <text x="398" y="426" class="step-title">客户端收到</text>
+  <text x="398" y="449" class="step-sub">TCP / WebSocket OpRaw</text>
+
+  <path d="M1015 250 C936 326 796 358 604 435 H536" class="fast"/>
+  <path d="M274 435 H346" class="fast"/>
+
+  <rect x="676" y="320" width="550" height="238" rx="24" fill="#fff7ed" stroke="#fed7aa"/>
+  <text x="702" y="352" class="lane-title">Reliable Path：离线或直推失败</text>
+
+  <rect x="706" y="394" width="160" height="82" class="card"/>
+  <circle cx="730" cy="435" r="17" fill="#f97316"/>
+  <text x="725" y="441" class="num">5</text>
+  <text x="758" y="426" class="step-title">写离线队列</text>
+  <text x="758" y="449" class="step-sub">Redis ZSET</text>
+
+  <rect x="906" y="394" width="146" height="82" class="card"/>
+  <circle cx="930" cy="435" r="17" fill="#f97316"/>
+  <text x="925" y="441" class="num">6</text>
+  <text x="958" y="426" class="step-title">进入 Kafka</text>
+  <text x="958" y="449" class="step-sub">user topic</text>
+
+  <rect x="1084" y="394" width="112" height="82" class="card"/>
+  <circle cx="1108" cy="435" r="17" fill="#f97316"/>
+  <text x="1103" y="441" class="num">7</text>
+  <text x="1132" y="426" class="step-title">Worker</text>
+  <text x="1132" y="449" class="step-sub">重试 / fan-out</text>
+
+  <path d="M1015 250 C972 312 870 338 786 394" class="slow"/>
+  <path d="M866 435 H906" class="slow"/>
+  <path d="M1052 435 H1084" class="slow"/>
+
+  <rect x="54" y="610" width="1172" height="92" rx="24" fill="#f0fdf4" stroke="#bbf7d0"/>
+  <text x="80" y="642" class="lane-title">ACK 回流与可观测</text>
+
+  <rect x="230" y="654" width="196" height="34" rx="17" fill="#dcfce7" stroke="#86efac"/>
+  <text x="260" y="676" class="note">Client ACK</text>
+  <rect x="486" y="654" width="216" height="34" rx="17" fill="#dcfce7" stroke="#86efac"/>
+  <text x="516" y="676" class="note">Router: delivered -> acked</text>
+  <rect x="762" y="654" width="268" height="34" rx="17" fill="#dcfce7" stroke="#86efac"/>
+  <text x="792" y="676" class="note">Kafka ACK batch: msg_ids[]</text>
+
+  <path d="M440 476 C424 560 350 604 328 654" class="ack"/>
+  <path d="M328 654 H486" class="ack"/>
+  <path d="M702 671 H762" class="ack"/>
+  <path d="M1140 476 C1110 560 1016 612 930 654" class="ack"/>
+
+  <rect x="84" y="586" width="230" height="30" rx="15" fill="#ffffff" stroke="#dbe4ef"/>
+  <text x="105" y="606" class="note">状态闭环：accepted -> pushed -> acked</text>
+</svg>
