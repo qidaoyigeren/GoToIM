@@ -157,6 +157,7 @@ type mockMessageDAO struct {
 	offline      map[string][]string
 	userMessages map[int64][]string
 	seqs         map[int64]int64
+	attemptLocks map[string]string
 }
 
 func newMockMessageDAO() *mockMessageDAO {
@@ -165,6 +166,7 @@ func newMockMessageDAO() *mockMessageDAO {
 		offline:      make(map[string][]string),
 		userMessages: make(map[int64][]string),
 		seqs:         make(map[int64]int64),
+		attemptLocks: make(map[string]string),
 	}
 }
 
@@ -255,6 +257,19 @@ func (m *mockMessageDAO) RecordDeviceACK(ctx context.Context, msgID, deviceID, s
 }
 func (m *mockMessageDAO) GetDeviceACKs(ctx context.Context, msgID string) (map[string]string, error) {
 	return nil, nil
+}
+func (m *mockMessageDAO) AcquireDeliveryAttemptLock(ctx context.Context, msgID, token string, ttl time.Duration) (bool, error) {
+	if m.attemptLocks[msgID] != "" {
+		return false, nil
+	}
+	m.attemptLocks[msgID] = token
+	return true, nil
+}
+func (m *mockMessageDAO) ReleaseDeliveryAttemptLock(ctx context.Context, msgID, token string) error {
+	if m.attemptLocks[msgID] == token {
+		delete(m.attemptLocks, msgID)
+	}
+	return nil
 }
 
 // Phase 2: device cursor and merge index mocks
@@ -419,6 +434,49 @@ func TestRouteByUserSkipsDuplicateAfterDelivered(t *testing.T) {
 	assert.Equal(t, 1, pusher.calls)
 	assert.Len(t, prod.enqueued, 0)
 	assert.Equal(t, DeliveryStats{Direct: 1}, engine.Stats())
+}
+
+func TestRouteByUserAllowsRetryWhenMessageStillPending(t *testing.T) {
+	prod := &mockProducer{userErr: assert.AnError}
+	msgDAO := newMockMessageDAO()
+	sessDAO := newMockSessionDAO()
+	pusher := &mockCometPusher{pushErr: assert.AnError}
+
+	sessDAO.AddSession(context.Background(), "sid1", 5004, "key1", "dev1", "web", "comet-1")
+	sessMgr := service.NewSessionManager(sessDAO, 30*time.Minute)
+
+	engine := NewDispatchEngine(&mockPushDAO{}, msgDAO, sessMgr, pusher)
+	engine.SetMQProducer(prod)
+
+	err := engine.RouteByUser(context.Background(), "msg-pending-retry", 5004, 9, []byte("retry me"), 1)
+	assert.Error(t, err)
+	err = engine.RouteByUser(context.Background(), "msg-pending-retry", 5004, 9, []byte("retry me"), 1)
+	assert.Error(t, err)
+
+	assert.Equal(t, 2, pusher.calls)
+	assert.Equal(t, "pending", msgDAO.statuses["msg-pending-retry"]["status"])
+}
+
+func TestRouteByUserSkipsConcurrentDeliveryAttempt(t *testing.T) {
+	prod := &mockProducer{}
+	msgDAO := newMockMessageDAO()
+	sessDAO := newMockSessionDAO()
+	pusher := &mockCometPusher{pushErr: nil}
+
+	sessDAO.AddSession(context.Background(), "sid1", 5005, "key1", "dev1", "web", "comet-1")
+	sessMgr := service.NewSessionManager(sessDAO, 30*time.Minute)
+
+	engine := NewDispatchEngine(&mockPushDAO{}, msgDAO, sessMgr, pusher)
+	engine.SetMQProducer(prod)
+	locked, err := msgDAO.AcquireDeliveryAttemptLock(context.Background(), "msg-in-flight", "other-worker", time.Second)
+	assert.NoError(t, err)
+	assert.True(t, locked)
+
+	err = engine.RouteByUser(context.Background(), "msg-in-flight", 5005, 9, []byte("already running"), 1)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 0, pusher.calls)
+	assert.Len(t, prod.enqueued, 0)
 }
 
 func TestRouteByUserFallsBackToMQ(t *testing.T) {

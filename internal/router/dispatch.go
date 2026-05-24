@@ -146,6 +146,21 @@ func (e *DispatchEngine) RouteByUserWithMode(ctx context.Context, msgID string, 
 	// ── 步骤 1：消息去重（幂等性保证） ──────────────────────────────────
 	// TrackMessage 内部先走 IsDuplicate 快速路径，再走 Redis 原子注册兜底。
 	// MarkSeen 只在 delivered/acked 后写入，避免 pending 消息被过早判重。
+	unlockAttempt, acquired, err := e.ackHandler.BeginDeliveryAttempt(ctx, msgID)
+	if err != nil {
+		return err
+	}
+	if !acquired {
+		log.V(1).Infof("msg delivery attempt already in progress: msg_id=%s", msgID)
+		return nil
+	}
+	releaseAttemptLock := true
+	defer func() {
+		if releaseAttemptLock {
+			unlockAttempt()
+		}
+	}()
+
 	if err := e.ackHandler.TrackMessage(ctx, msgID, 0, toUID, op, body); err != nil {
 		log.V(1).Infof("msg already tracked: msg_id=%s err=%v", msgID, err)
 		return nil
@@ -175,7 +190,11 @@ func (e *DispatchEngine) RouteByUserWithMode(ctx context.Context, msgID string, 
 			if IsDegradable(env.Priority) {
 				log.Infof("limiterV2 degraded to kafka: uid=%d dim=%s priority=%s", toUID, rl.Dimension, env.Priority)
 				e.recordState(ctx, msgID, "routed", "fallback_queued", "rate_limited_degraded:"+rl.Dimension, "")
-				return e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, nil)
+				err = e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, nil)
+				if err == nil {
+					releaseAttemptLock = false
+				}
+				return err
 			}
 			return fmt.Errorf("rate limited (v2 %s): uid=%d", rl.Dimension, toUID)
 		}
@@ -266,7 +285,7 @@ func (e *DispatchEngine) RouteByUserWithMode(ctx context.Context, msgID string, 
 	// reliableEnqueue 做两件事：
 	//   1. 将消息写入离线队列（Redis ZSet），供用户下次上线时拉取
 	//   2. 将消息投递到 Kafka（producer），由 DeliveryWorker（internal/worker/dispatch.go）消费后推送给 Comet
-	err := e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, sessions)
+	err = e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, sessions)
 	channel := "kafka_fallback"
 	if !online {
 		channel = "offline_stored"
@@ -278,6 +297,7 @@ func (e *DispatchEngine) RouteByUserWithMode(ctx context.Context, msgID string, 
 		e.recordState(ctx, msgID, "direct_failed", "fallback_queued", "kafka fallback", "")
 	}
 	if err == nil {
+		releaseAttemptLock = false
 		e.kafkaTotal.Add(1)
 		metrics.PushTotal.WithLabelValues("kafka", "success").Inc()
 		metrics.PushLatency.WithLabelValues("kafka").Observe(time.Since(start).Seconds())
@@ -463,6 +483,23 @@ func (e *DispatchEngine) RouteByUserResult(ctx context.Context, msgID string, to
 		result.MsgID = id
 	}
 	ctx = tracectx.WithTraceID(ctx, traceID)
+	unlockAttempt, acquired, err := e.ackHandler.BeginDeliveryAttempt(ctx, msgID)
+	if err != nil {
+		result.ErrorCode = "delivery_attempt_lock_failed"
+		result.ErrorMessage = err.Error()
+		return result, err
+	}
+	if !acquired {
+		result.Path = "in_progress"
+		return result, nil
+	}
+	releaseAttemptLock := true
+	defer func() {
+		if releaseAttemptLock {
+			unlockAttempt()
+		}
+	}()
+
 	if err := e.ackHandler.TrackMessage(ctx, msgID, 0, toUID, op, body); err != nil {
 		log.V(1).Infof("msg already tracked: msg_id=%s err=%v", msgID, err)
 		result.Path = "grpc_direct"
@@ -491,6 +528,7 @@ func (e *DispatchEngine) RouteByUserResult(ctx context.Context, msgID string, to
 					result.ErrorMessage = err.Error()
 					return result, err
 				}
+				releaseAttemptLock = false
 				e.kafkaTotal.Add(1)
 				return result, nil
 			}
@@ -542,8 +580,9 @@ func (e *DispatchEngine) RouteByUserResult(ctx context.Context, msgID string, to
 		metrics.PushTotal.WithLabelValues("direct", "failed").Inc()
 	}
 
-	err := e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, sessions)
+	err = e.reliableEnqueue(ctx, msgID, toUID, op, body, seq, sessions)
 	if err == nil {
+		releaseAttemptLock = false
 		e.kafkaTotal.Add(1)
 		metrics.PushTotal.WithLabelValues("kafka", "success").Inc()
 		metrics.PushLatency.WithLabelValues("kafka").Observe(time.Since(start).Seconds())

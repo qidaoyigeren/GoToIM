@@ -29,6 +29,7 @@ const (
 	_prefixKeySession    = "key_sid:%s"           // connection key -> sid (reverse index for O(1) heartbeat)
 	_prefixRetryCnt      = "retry_cnt:%s:%d:%d"   // topic:partition:offset -> retry count
 	_prefixDeviceACKs    = "msg_acks:%s"          // msg_id -> device ACK records (hash)
+	_prefixMsgAttempt    = "msg_attempt:%s"       // msg_id -> in-flight delivery attempt lock
 	_userMsgsTTL         = 30 * 24 * 3600
 )
 
@@ -39,6 +40,13 @@ end
 redis.call("HSET", KEYS[1], unpack(ARGV, 2))
 redis.call("EXPIRE", KEYS[1], ARGV[1])
 return 1
+`)
+
+var releaseDeliveryAttemptLockScript = redis.NewScript(1, `
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+	return redis.call("DEL", KEYS[1])
+end
+return 0
 `)
 
 func keyMidServer(mid int64) string {
@@ -87,6 +95,10 @@ func keyKeySession(key string) string {
 
 func keyDeviceACKs(msgID string) string {
 	return fmt.Sprintf(_prefixDeviceACKs, msgID)
+}
+
+func keyMsgAttempt(msgID string) string {
+	return fmt.Sprintf(_prefixMsgAttempt, msgID)
 }
 
 // pingRedis check redis connection.
@@ -570,6 +582,36 @@ func (d *Dao) TrackMessageAtomic(c context.Context, msgID string, fields map[str
 		return false, err
 	}
 	return n == 1, nil
+}
+
+// AcquireDeliveryAttemptLock takes a short-lived in-flight delivery lock.
+// It prevents concurrent duplicate sends while allowing retries after TTL.
+func (d *Dao) AcquireDeliveryAttemptLock(c context.Context, msgID, token string, ttl time.Duration) (bool, error) {
+	if ttl <= 0 {
+		ttl = 10 * time.Second
+	}
+	conn := d.redis.Get()
+	defer conn.Close()
+	reply, err := redis.String(conn.Do("SET", keyMsgAttempt(msgID), token, "NX", "PX", int64(ttl/time.Millisecond)))
+	if err == redis.ErrNil {
+		return false, nil
+	}
+	if err != nil {
+		log.Errorf("conn.Do(SET msg_attempt:%s NX PX) error(%v)", msgID, err)
+		return false, err
+	}
+	return reply == "OK", nil
+}
+
+// ReleaseDeliveryAttemptLock releases a delivery lock only if the owner token matches.
+func (d *Dao) ReleaseDeliveryAttemptLock(c context.Context, msgID, token string) error {
+	conn := d.redis.Get()
+	defer conn.Close()
+	if _, err := releaseDeliveryAttemptLockScript.Do(conn, keyMsgAttempt(msgID), token); err != nil {
+		log.Errorf("releaseDeliveryAttemptLockScript msg:%s error(%v)", msgID, err)
+		return err
+	}
+	return nil
 }
 
 // SetMessageStatusNX sets a single field on a message status hash only if it does not already exist (HSETNX).

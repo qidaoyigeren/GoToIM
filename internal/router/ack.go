@@ -53,6 +53,8 @@ const (
 	MsgStatusDelivered = "delivered" // 已送达：消息已推送到客户端，等待客户端 ACK 确认
 	MsgStatusAcked     = "acked"     // 已确认：客户端已发送 ACK，投递完成（终态）
 	MsgStatusFailed    = "failed"    // 投递失败：多次重试后仍无法送达（终态）
+
+	deliveryAttemptLockTTL = 10 * time.Second
 )
 
 // ACKHandler 处理客户端的 ACK 回执。
@@ -73,6 +75,11 @@ type ACKHandler struct {
 
 type atomicMessageTracker interface {
 	TrackMessageAtomic(ctx context.Context, msgID string, fields map[string]interface{}) (bool, error)
+}
+
+type deliveryAttemptLocker interface {
+	AcquireDeliveryAttemptLock(ctx context.Context, msgID, token string, ttl time.Duration) (bool, error)
+	ReleaseDeliveryAttemptLock(ctx context.Context, msgID, token string) error
 }
 
 // NewACKHandler 创建 ACKHandler 实例。
@@ -201,10 +208,41 @@ func (a *ACKHandler) MarkSeen(msgID string) {
 	a.idCache.MarkSeen(msgID)
 }
 
+func (a *ACKHandler) BeginDeliveryAttempt(ctx context.Context, msgID string) (func(), bool, error) {
+	unlock := func() {}
+	if msgID == "" {
+		return unlock, true, nil
+	}
+	locker, ok := a.dao.(deliveryAttemptLocker)
+	if !ok {
+		return unlock, true, nil
+	}
+	token := fmt.Sprintf("%s:%d", msgID, time.Now().UnixNano())
+	acquired, err := locker.AcquireDeliveryAttemptLock(ctx, msgID, token, deliveryAttemptLockTTL)
+	if err != nil {
+		return nil, false, fmt.Errorf("acquire delivery attempt lock: %w", err)
+	}
+	if !acquired {
+		return unlock, false, nil
+	}
+	return func() {
+		if err := locker.ReleaseDeliveryAttemptLock(context.Background(), msgID, token); err != nil {
+			log.Warningf("release delivery attempt lock failed: msg_id=%s err=%v", msgID, err)
+		}
+	}, true, nil
+}
+
 func (a *ACKHandler) TrackMessage(ctx context.Context, msgID string, fromUID, toUID int64, op int32, body []byte) error {
 	if msgID != "" && a.IsDuplicate(ctx, msgID) {
 		a.ensureUserMessageIndex(ctx, toUID, msgID)
 		return fmt.Errorf("message already processed: %s", msgID)
+	}
+	if msgID != "" {
+		if tracked, err := a.allowExistingUnfinishedMessage(ctx, toUID, msgID); err != nil {
+			return err
+		} else if tracked {
+			return nil
+		}
 	}
 
 	traceID := traceIDFromBodyOrContext(ctx, body)
@@ -236,8 +274,7 @@ func (a *ACKHandler) TrackMessage(ctx context.Context, msgID string, fromUID, to
 			return fmt.Errorf("track message: %w", err)
 		}
 		if !added {
-			a.ensureUserMessageIndex(ctx, toUID, msgID)
-			return fmt.Errorf("message already tracked: %s", msgID)
+			return a.handleExistingTrackedMessage(ctx, toUID, msgID)
 		}
 		if seq > 0 {
 			if err := a.dao.AddUserMessage(ctx, toUID, msgID, seq); err != nil {
@@ -252,8 +289,7 @@ func (a *ACKHandler) TrackMessage(ctx context.Context, msgID string, fromUID, to
 		return fmt.Errorf("track message: %w", err)
 	}
 	if !added {
-		a.ensureUserMessageIndex(ctx, toUID, msgID)
-		return fmt.Errorf("message already tracked: %s", msgID)
+		return a.handleExistingTrackedMessage(ctx, toUID, msgID)
 	}
 	if err := a.dao.SetMessageStatus(ctx, msgID, fields); err != nil {
 		return err
@@ -264,6 +300,36 @@ func (a *ACKHandler) TrackMessage(ctx context.Context, msgID string, fromUID, to
 		}
 	}
 	return nil
+}
+
+func (a *ACKHandler) allowExistingUnfinishedMessage(ctx context.Context, uid int64, msgID string) (bool, error) {
+	data, err := a.dao.GetMessageStatus(ctx, msgID)
+	if err != nil {
+		return false, nil
+	}
+	if len(data) == 0 {
+		return false, nil
+	}
+	return true, a.handleTrackedStatus(ctx, uid, msgID, data)
+}
+
+func (a *ACKHandler) handleExistingTrackedMessage(ctx context.Context, uid int64, msgID string) error {
+	data, err := a.dao.GetMessageStatus(ctx, msgID)
+	if err != nil {
+		return fmt.Errorf("get tracked message: %w", err)
+	}
+	return a.handleTrackedStatus(ctx, uid, msgID, data)
+}
+
+func (a *ACKHandler) handleTrackedStatus(ctx context.Context, uid int64, msgID string, data map[string]string) error {
+	a.ensureUserMessageIndex(ctx, uid, msgID)
+	switch data["status"] {
+	case MsgStatusAcked, MsgStatusDelivered:
+		a.idCache.MarkSeen(msgID)
+		return fmt.Errorf("message already processed: %s", msgID)
+	default:
+		return nil
+	}
 }
 
 func (a *ACKHandler) ensureUserMessageIndex(ctx context.Context, uid int64, msgID string) {
