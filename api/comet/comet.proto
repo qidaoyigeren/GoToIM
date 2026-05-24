@@ -12,7 +12,9 @@ message PushMsgReq {
     goim.protocol.Proto proto = 2;
 }
 
-message PushMsgReply {}
+message PushMsgReply {
+    repeated string failedKeys = 1;
+}
 
 message BroadcastReq{
     int32 protoOp = 1;

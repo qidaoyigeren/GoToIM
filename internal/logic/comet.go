@@ -113,12 +113,21 @@ func (p *CometPusher) PushMsg(ctx context.Context, server string, keys []string,
 	pb.Body = buf.Buffer() // 用序列化后的完整帧替换 body
 	pb.Op = protocol.OpRaw // op 改为 OpRaw，Comet 端会解析内层 header
 
-	_, err := client.PushMsg(ctx, &comet.PushMsgReq{
+	reply, err := client.PushMsg(ctx, &comet.PushMsgReq{
 		Keys:    keys,
 		ProtoOp: op, // 原始 op 透传，Comet 可用于日志/统计
 		Proto:   pb,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	if reply == nil {
+		return fmt.Errorf("empty comet push reply")
+	}
+	if failedKeys := reply.GetFailedKeys(); len(failedKeys) > 0 {
+		return fmt.Errorf("comet push failed for keys %v", failedKeys)
+	}
+	return nil
 }
 
 // UpdateNodes 根据服务发现的结果刷新 Comet 连接池。

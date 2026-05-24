@@ -84,6 +84,7 @@ func (x *PushMsgReq) GetProto() *protocol.Proto {
 
 type PushMsgReply struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	FailedKeys    []string               `protobuf:"bytes,1,rep,name=failedKeys,proto3" json:"failedKeys,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -116,6 +117,13 @@ func (x *PushMsgReply) ProtoReflect() protoreflect.Message {
 // Deprecated: Use PushMsgReply.ProtoReflect.Descriptor instead.
 func (*PushMsgReply) Descriptor() ([]byte, []int) {
 	return file_api_comet_comet_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *PushMsgReply) GetFailedKeys() []string {
+	if x != nil {
+		return x.FailedKeys
+	}
+	return nil
 }
 
 type BroadcastReq struct {
@@ -392,8 +400,11 @@ const file_api_comet_comet_proto_rawDesc = "" +
 	"PushMsgReq\x12\x12\n" +
 	"\x04keys\x18\x01 \x03(\tR\x04keys\x12\x18\n" +
 	"\aprotoOp\x18\x03 \x01(\x05R\aprotoOp\x12*\n" +
-	"\x05proto\x18\x02 \x01(\v2\x14.goim.protocol.ProtoR\x05proto\"\x0e\n" +
-	"\fPushMsgReply\"j\n" +
+	"\x05proto\x18\x02 \x01(\v2\x14.goim.protocol.ProtoR\x05proto\".\n" +
+	"\fPushMsgReply\x12\x1e\n" +
+	"\n" +
+	"failedKeys\x18\x01 \x03(\tR\n" +
+	"failedKeys\"j\n" +
 	"\fBroadcastReq\x12\x18\n" +
 	"\aprotoOp\x18\x01 \x01(\x05R\aprotoOp\x12*\n" +
 	"\x05proto\x18\x02 \x01(\v2\x14.goim.protocol.ProtoR\x05proto\x12\x14\n" +

@@ -188,11 +188,13 @@ func (s *server) PushMsg(ctx context.Context, req *pb.PushMsgReq) (reply *pb.Pus
 	}
 	log.Infof("PushMsg: keys=%v protoOp=%d bodyLen=%d", req.Keys, req.ProtoOp, len(req.Proto.Body))
 
+	failedKeys := make([]string, 0)
 	for _, key := range req.Keys {
 		// 步骤 1：cityhash 分片路由，定位 Bucket
 		bucket := s.srv.Bucket(key)
 		if bucket == nil {
 			log.Warningf("PushMsg: bucket nil for key=%s", key)
+			failedKeys = append(failedKeys, key)
 			continue
 		}
 
@@ -207,12 +209,14 @@ func (s *server) PushMsg(ctx context.Context, req *pb.PushMsgReq) (reply *pb.Pus
 			// 步骤 4：客户端过滤——检查该连接是否接受此类 op
 			if !channel.NeedPush(req.ProtoOp) {
 				log.Warningf("PushMsg: NeedPush=false key=%s op=%d (client did not accept this op)", key, req.ProtoOp)
+				failedKeys = append(failedKeys, key)
 				continue
 			}
 
 			// 步骤 5：消息入队
 			if err = channel.Push(req.Proto); err != nil {
 				log.Warningf("PushMsg: Push failed key=%s err=%v", key, err)
+				failedKeys = append(failedKeys, key)
 				return
 			}
 
@@ -221,9 +225,10 @@ func (s *server) PushMsg(ctx context.Context, req *pb.PushMsgReq) (reply *pb.Pus
 			log.Infof("PushMsg: delivered key=%s op=%d", key, req.ProtoOp)
 		} else {
 			log.Warningf("PushMsg: channel nil for key=%s", key)
+			failedKeys = append(failedKeys, key)
 		}
 	}
-	return &pb.PushMsgReply{}, nil
+	return &pb.PushMsgReply{FailedKeys: failedKeys}, nil
 }
 
 // Broadcast 向所有在线用户广播消息（全服广播）。

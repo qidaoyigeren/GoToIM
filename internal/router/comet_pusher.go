@@ -42,12 +42,21 @@ func (p *CometPusherPool) PushMsg(ctx context.Context, server string, keys []str
 	}
 
 	pb := wrapProto(op, body)
-	_, err := client.PushMsg(ctx, &comet.PushMsgReq{
+	reply, err := client.PushMsg(ctx, &comet.PushMsgReq{
 		Keys:    keys,
 		ProtoOp: op,
 		Proto:   pb,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	if reply == nil {
+		return fmt.Errorf("empty comet push reply")
+	}
+	if failedKeys := reply.GetFailedKeys(); len(failedKeys) > 0 {
+		return fmt.Errorf("comet push failed for keys %v", failedKeys)
+	}
+	return nil
 }
 
 // BroadcastRoom broadcasts a room message through all known Comet nodes.

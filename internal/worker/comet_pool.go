@@ -214,10 +214,15 @@ func (c *cometClient) process(pushCh chan *comet.PushMsgReq, roomCh chan *comet.
 				log.Errorf("BroadcastRoom(%s) server:%s error(%v)", arg, c.serverID, err)
 			}
 		case arg := <-pushCh:
-			if _, err := c.client.PushMsg(c.ctx, &comet.PushMsgReq{
+			reply, err := c.client.PushMsg(c.ctx, &comet.PushMsgReq{
 				Keys: arg.Keys, Proto: arg.Proto, ProtoOp: arg.ProtoOp,
-			}); err != nil {
+			})
+			if err != nil {
 				log.Errorf("PushMsg(%s) server:%s error(%v)", arg, c.serverID, err)
+			} else if reply == nil {
+				log.Errorf("PushMsg(%s) server:%s empty reply", arg, c.serverID)
+			} else if failedKeys := reply.GetFailedKeys(); len(failedKeys) > 0 {
+				log.Errorf("PushMsg(%s) server:%s failed keys:%v", arg, c.serverID, failedKeys)
 			}
 		case <-c.ctx.Done():
 			return
