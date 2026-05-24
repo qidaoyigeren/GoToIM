@@ -189,7 +189,24 @@ func (a *ACKHandler) HandleACKWithDevice(ctx context.Context, uid int64, msgID, 
 //	body                   — 消息体（Base64 编码，避免二进制数据在 Redis 中的存储问题）
 //	retry_cnt: 0           — 重试计数，初始为 0
 //	created_at, updated_at — 时间戳（Unix 毫秒）
+//
+// IsDuplicate 快速路径：查内存缓存判断 msgID 是否已处理过。
+// 命中则跳过 Redis HSETNX，减少 Redis 压力。
+func (a *ACKHandler) IsDuplicate(ctx context.Context, msgID string) bool {
+	return a.idCache.IsDuplicate(ctx, msgID)
+}
+
+// MarkSeen 将 msgID 写入内存缓存，标记为已处理。
+func (a *ACKHandler) MarkSeen(msgID string) {
+	a.idCache.MarkSeen(msgID)
+}
+
 func (a *ACKHandler) TrackMessage(ctx context.Context, msgID string, fromUID, toUID int64, op int32, body []byte) error {
+	if msgID != "" && a.IsDuplicate(ctx, msgID) {
+		a.ensureUserMessageIndex(ctx, toUID, msgID)
+		return fmt.Errorf("message already processed: %s", msgID)
+	}
+
 	traceID := traceIDFromBodyOrContext(ctx, body)
 	ctx = tracectx.WithTraceID(ctx, traceID)
 	now := time.Now().UnixMilli()

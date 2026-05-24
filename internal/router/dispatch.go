@@ -144,11 +144,8 @@ func (e *DispatchEngine) RouteByUserWithMode(ctx context.Context, msgID string, 
 	e.recordState(ctx, msgID, "", "accepted", "message accepted", "")
 
 	// ── 步骤 1：消息去重（幂等性保证） ──────────────────────────────────
-	// 利用 Redis HSETNX 命令的原子性来做"抢占式注册"：
-	//   - HSETNX 返回 1 → 当前进程抢到了这条消息的处理权，继续投递
-	//   - HSETNX 返回 0 → 已有其他 goroutine/节点在处理同一 msgID，直接返回 nil
-	//
-	// 这保证了：即使上游重复投递（网络重试等），同一 msgID 也只会被推送一次。
+	// TrackMessage 内部先走 IsDuplicate 快速路径，再走 Redis 原子注册兜底。
+	// MarkSeen 只在 delivered/acked 后写入，避免 pending 消息被过早判重。
 	if err := e.ackHandler.TrackMessage(ctx, msgID, 0, toUID, op, body); err != nil {
 		log.V(1).Infof("msg already tracked: msg_id=%s err=%v", msgID, err)
 		return nil

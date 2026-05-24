@@ -311,9 +311,11 @@ func (m *mockPushDAO) PublishACK(ctx context.Context, msgID string, uid int64, s
 type mockCometPusher struct {
 	pushErr    error
 	perKeyErrs map[string]error
+	calls      int
 }
 
 func (m *mockCometPusher) PushMsg(ctx context.Context, server string, keys []string, op int32, body []byte) error {
+	m.calls++
 	if len(keys) > 0 && m.perKeyErrs != nil {
 		if err, ok := m.perKeyErrs[keys[0]]; ok {
 			return err
@@ -393,6 +395,28 @@ func TestRouteByUserDirectPushSuccess(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Direct push succeeded, so producer should NOT be called
+	assert.Len(t, prod.enqueued, 0)
+	assert.Equal(t, DeliveryStats{Direct: 1}, engine.Stats())
+}
+
+func TestRouteByUserSkipsDuplicateAfterDelivered(t *testing.T) {
+	prod := &mockProducer{}
+	msgDAO := newMockMessageDAO()
+	sessDAO := newMockSessionDAO()
+	pusher := &mockCometPusher{pushErr: nil}
+
+	sessDAO.AddSession(context.Background(), "sid1", 5001, "key1", "dev1", "web", "comet-1")
+	sessMgr := service.NewSessionManager(sessDAO, 30*time.Minute)
+
+	engine := NewDispatchEngine(&mockPushDAO{}, msgDAO, sessMgr, pusher)
+	engine.SetMQProducer(prod)
+
+	err := engine.RouteByUser(context.Background(), "msg-duplicate", 5001, 9, []byte("hello online"), 1)
+	assert.Nil(t, err)
+	err = engine.RouteByUser(context.Background(), "msg-duplicate", 5001, 9, []byte("hello online"), 1)
+	assert.Nil(t, err)
+
+	assert.Equal(t, 1, pusher.calls)
 	assert.Len(t, prod.enqueued, 0)
 	assert.Equal(t, DeliveryStats{Direct: 1}, engine.Stats())
 }

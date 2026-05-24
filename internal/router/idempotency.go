@@ -142,6 +142,10 @@ func NewIdempotencyChecker(md dao.MessageDAO) *IdempotencyChecker {
 //	true  → 消息已处理过，调用方应跳过本次处理。
 //	false → 消息未处理（或 Redis 查询异常时保守返回 false），调用方应正常处理。
 func (c *IdempotencyChecker) IsDuplicate(ctx context.Context, msgID string) bool {
+	if c == nil || msgID == "" {
+		return false
+	}
+
 	// 计算消息 ID 的哈希值
 	h := hashMsgID(msgID)
 
@@ -161,6 +165,10 @@ func (c *IdempotencyChecker) IsDuplicate(ctx context.Context, msgID string) bool
 		delete(sh.seen, h)
 	}
 	sh.mu.Unlock()
+
+	if c.msgDAO == nil {
+		return false
+	}
 
 	// 内存未命中，降级到 Redis 做精确判断
 	status, err := c.msgDAO.GetMessageStatus(ctx, msgID)
