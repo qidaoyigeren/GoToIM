@@ -7,6 +7,8 @@ import (
 	pb "github.com/Terry-Mao/goim/api/comet"
 	"github.com/Terry-Mao/goim/api/protocol"
 	"github.com/Terry-Mao/goim/internal/comet/conf"
+	log "github.com/Terry-Mao/goim/pkg/log"
+	"github.com/Terry-Mao/goim/pkg/metrics"
 )
 
 // Bucket 是连接分片管理器，负责管理一组 Channel（用户连接）和 Room（聊天室）。
@@ -240,16 +242,28 @@ func (b *Bucket) Channel(key string) (ch *Channel) {
 //   - p:  要广播的协议消息
 //   - op: 操作类型，用于过滤不需要该操作的连接
 func (b *Bucket) Broadcast(p *protocol.Proto, op int32) {
-	var ch *Channel
+	var (
+		ch      *Channel
+		dropped int
+		total   int
+	)
 	b.cLock.RLock()
+	total = len(b.chs)
 	for _, ch = range b.chs {
 		if !ch.NeedPush(op) {
 			continue
 		}
-		_ = ch.Push(p)
+		if err := ch.Push(p); err != nil {
+			dropped++
+			metrics.BroadcastPushDroppedTotal.Inc()
+			continue
+		}
 		ch.Signal()
 	}
 	b.cLock.RUnlock()
+	if dropped > 0 {
+		log.Warningf("broadcast push dropped: dropped=%d total=%d op=%d", dropped, total, p.Op)
+	}
 }
 
 // Room 根据房间ID查找房间。
