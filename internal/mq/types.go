@@ -105,18 +105,36 @@ type AckEvent struct {
 // Backward compatibility: old clients that don't produce BizEnvelope
 // still work — the Router falls back to raw body interpretation.
 type BizEnvelope struct {
+	EventID              string          `json:"event_id,omitempty"`      // durable event id, usually outbox_id
+	NotifyID             string          `json:"notify_id,omitempty"`     // business notification id
+	BusinessID           string          `json:"business_id,omitempty"`   // e.g. order_id, campaign_id
+	BusinessType         string          `json:"business_type,omitempty"` // order / marketing / system
+	EventType            string          `json:"event_type,omitempty"`    // created / paid / shipped
+	UserID               string          `json:"user_id,omitempty"`
+	TargetType           string          `json:"target_type,omitempty"` // user / room / broadcast
+	TargetID             string          `json:"target_id,omitempty"`
+	Priority             string          `json:"priority,omitempty"`    // critical / high / normal / low
+	TTLSeconds           int32           `json:"ttl_seconds,omitempty"` // 0 = no expiry
+	DedupeKey            string          `json:"dedupe_key,omitempty"`
+	TraceID              string          `json:"trace_id,omitempty"`
+	CreatedAt            string          `json:"created_at,omitempty"`
+	PayloadJSON          string          `json:"payload_json,omitempty"`
+	AckPolicy            string          `json:"ack_policy,omitempty"`
+	RetryPolicy          *BizRetryPolicy `json:"retry_policy,omitempty"`
+	CompensationStrategy string          `json:"compensation_strategy,omitempty"`
+
+	// Backward-compatible fields used by the existing IM core pipeline.
 	MsgID        string          `json:"msg_id,omitempty"`
-	BizID        string          `json:"biz_id,omitempty"`        // e.g. order_id, campaign_id
-	BusinessType string          `json:"business_type,omitempty"` // order / marketing / system
-	EventType    string          `json:"event_type,omitempty"`    // created / paid / shipped
-	UserID       string          `json:"user_id,omitempty"`
-	Priority     string          `json:"priority,omitempty"`    // critical / high / normal / low
-	TTLSeconds   int32           `json:"ttl_seconds,omitempty"` // 0 = no expiry
-	DedupeKey    string          `json:"dedupe_key,omitempty"`
-	TraceID      string          `json:"trace_id,omitempty"`
+	BizID        string          `json:"biz_id,omitempty"`
 	DeliveryMode MsgDeliveryMode `json:"delivery_mode,omitempty"`
 	Payload      []byte          `json:"payload,omitempty"` // original business payload
 	CreatedAtMS  int64           `json:"created_at_unix_ms,omitempty"`
+}
+
+// BizRetryPolicy describes business-level retry guidance carried with an envelope.
+type BizRetryPolicy struct {
+	MaxRetries int64  `json:"max_retries,omitempty"`
+	Backoff    string `json:"backoff,omitempty"`
 }
 
 // DLQMessage is written to the DLQ topic when a message expires or exhausts retries.

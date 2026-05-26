@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Terry-Mao/goim/internal/mq"
+	mqkafka "github.com/Terry-Mao/goim/internal/mq/kafka"
 	"github.com/Terry-Mao/goim/internal/notify/conf"
 	"github.com/Terry-Mao/goim/internal/notify/handler"
 	"github.com/Terry-Mao/goim/internal/notify/policy"
@@ -26,6 +28,11 @@ type Server struct {
 	simulator    *simulator.Engine
 	store        *store.SQLStore
 	outboxWorker *service.OutboxWorker
+	outboxRelay  *service.OutboxRelay
+	pushConsumer *service.NotifyPushConsumer
+	ackBridge    *service.AckBridgeConsumer
+	campaignGen  *service.CampaignBatchGenerator
+	mqProducer   mq.Producer
 	statsStop    chan struct{}
 	statsDone    chan struct{}
 	statsOnce    sync.Once
@@ -57,14 +64,80 @@ func New(cfg *conf.Config) *Server {
 	chatSvc := service.NewChatService(notifyStore, pushClient)
 	flashSaleSvc := service.NewFlashSaleService(pushClient, orderSvc.GetStatsCollector())
 	flashSaleSvc.SetOrderService(orderSvc)
-	outboxWorker := service.NewOutboxWorker(orderSvc, service.OutboxWorkerConfig{
-		Enabled:      cfg.Outbox.Enabled,
-		BatchSize:    cfg.Outbox.BatchSize,
-		PollInterval: cfg.Outbox.PollInterval,
-		MaxRetries:   cfg.Outbox.MaxRetries,
-		LockTTL:      cfg.Outbox.LockTTL,
+	flashSaleSvc.SetDefaultRateLimit(cfg.Campaign.DefaultRateLimit)
+	flashSaleSvc.SetBatchGeneration(cfg.Campaign.AsyncFanoutThreshold, cfg.Campaign.AudienceBatchSize)
+	campaignGen := service.NewCampaignBatchGenerator(notifyStore, orderSvc, service.CampaignBatchGeneratorConfig{
+		Enabled:          cfg.Campaign.BatchGeneratorEnabled,
+		BatchSize:        cfg.Campaign.BatchGeneratorBatchSize,
+		WorkerCount:      cfg.Campaign.BatchGeneratorWorkerCount,
+		TargetBatchSize:  cfg.Campaign.BatchGeneratorTargetBatchSize,
+		PollInterval:     cfg.Campaign.BatchGeneratorPollInterval,
+		LockTTL:          cfg.Campaign.BatchGeneratorLockTTL,
+		DefaultRateLimit: cfg.Campaign.DefaultRateLimit,
 	})
-	outboxWorker.Start()
+	campaignGen.Start()
+	var (
+		outboxWorker *service.OutboxWorker
+		outboxRelay  *service.OutboxRelay
+		pushConsumer *service.NotifyPushConsumer
+		ackBridge    *service.AckBridgeConsumer
+		mqProducer   mq.Producer
+	)
+	if cfg.MQ.Enabled {
+		producer, err := mqkafka.NewProducer(cfg.MQ.Brokers, cfg.MQ.NotifyTopic, "", "", cfg.MQ.ACKTopic, cfg.MQ.NotifyTopic)
+		if err != nil {
+			panic(err)
+		}
+		mqProducer = producer
+		outboxRelay = service.NewOutboxRelay(notifyStore, service.NewNotifyEventProducer(producer, cfg.MQ.NotifyTopic), service.OutboxRelayConfig{
+			Enabled:      cfg.Relay.Enabled,
+			BatchSize:    cfg.Relay.BatchSize,
+			WorkerCount:  cfg.Relay.WorkerCount,
+			PollInterval: cfg.Relay.PollInterval,
+			MaxRetries:   cfg.Relay.MaxRetries,
+			LockTTL:      cfg.Relay.LockTTL,
+		})
+		outboxRelay.Start()
+		pushConsumer = service.NewNotifyPushConsumer(notifyStore, pushClient, func() (mq.Consumer, error) {
+			return mqkafka.NewConsumer(cfg.MQ.Brokers, nonEmptyConfig(cfg.MQ.ConsumerGroup, "goim-notify-push"), []string{cfg.MQ.NotifyTopic})
+		}, service.NotifyPushConsumerConfig{
+			Enabled:      cfg.PushConsumer.Enabled,
+			WorkerCount:  cfg.PushConsumer.WorkerCount,
+			MaxInflight:  cfg.PushConsumer.MaxInflight,
+			BatchSize:    cfg.PushConsumer.BatchSize,
+			PollInterval: cfg.PushConsumer.PollInterval,
+			MaxRetries:   cfg.PushConsumer.MaxRetries,
+			Backoff:      cfg.PushConsumer.Backoff,
+		})
+		if err := pushConsumer.Start(); err != nil {
+			panic(err)
+		}
+		ackConsumer, err := service.NewAckBridgeConsumer(orderSvc, service.AckBridgeConfig{
+			Brokers:       cfg.MQ.Brokers,
+			Topic:         cfg.MQ.ACKTopic,
+			GroupID:       nonEmptyConfig(cfg.MQ.ConsumerGroup, "goim-notify-push") + "-ack",
+			BatchSize:     cfg.PushConsumer.BatchSize,
+			FlushInterval: cfg.PushConsumer.PollInterval,
+		})
+		if err != nil {
+			panic(err)
+		}
+		if ackConsumer != nil {
+			ackBridge = ackConsumer
+			ackBridge.Start()
+		}
+		log.Printf("[server] notify MQ mode enabled topic=%s group=%s", cfg.MQ.NotifyTopic, cfg.MQ.ConsumerGroup)
+	} else {
+		outboxWorker = service.NewOutboxWorker(orderSvc, service.OutboxWorkerConfig{
+			Enabled:      cfg.Outbox.Enabled,
+			BatchSize:    cfg.Outbox.BatchSize,
+			PollInterval: cfg.Outbox.PollInterval,
+			MaxRetries:   cfg.Outbox.MaxRetries,
+			LockTTL:      cfg.Outbox.LockTTL,
+		})
+		outboxWorker.Start()
+		log.Println("[server] notify legacy direct outbox mode enabled")
+	}
 
 	h := handler.New(orderSvc, flashSaleSvc)
 	h.SetChatService(chatSvc)
@@ -80,6 +153,11 @@ func New(cfg *conf.Config) *Server {
 		simulator:    simEngine,
 		store:        notifyStore,
 		outboxWorker: outboxWorker,
+		outboxRelay:  outboxRelay,
+		pushConsumer: pushConsumer,
+		ackBridge:    ackBridge,
+		campaignGen:  campaignGen,
+		mqProducer:   mqProducer,
 		statsStop:    statsStop,
 		statsDone:    statsDone,
 	}
@@ -191,6 +269,21 @@ func (s *Server) Close() {
 	if s.outboxWorker != nil {
 		s.outboxWorker.Stop()
 	}
+	if s.outboxRelay != nil {
+		s.outboxRelay.Stop()
+	}
+	if s.pushConsumer != nil {
+		s.pushConsumer.Stop()
+	}
+	if s.ackBridge != nil {
+		s.ackBridge.Stop()
+	}
+	if s.campaignGen != nil {
+		s.campaignGen.Stop()
+	}
+	if s.mqProducer != nil {
+		_ = s.mqProducer.Close()
+	}
 	s.statsOnce.Do(func() {
 		if s.statsStop != nil {
 			close(s.statsStop)
@@ -210,6 +303,13 @@ func (s *Server) Close() {
 // StartSimulator starts the load generator. Call this after server is running.
 func (s *Server) StartSimulator(mode string, qps, users int) error {
 	return s.simulator.Start(mode, qps, users)
+}
+
+func nonEmptyConfig(v, fallback string) string {
+	if v == "" {
+		return fallback
+	}
+	return v
 }
 
 func corsMiddleware() gin.HandlerFunc {

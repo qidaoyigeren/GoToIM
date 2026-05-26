@@ -11,11 +11,28 @@ import (
 	"time"
 
 	"github.com/Terry-Mao/goim/internal/notify/model"
-	_ "github.com/go-sql-driver/mysql"
+	mysql "github.com/go-sql-driver/mysql"
 )
 
-// ErrNotFound is returned when a stored resource does not exist.
-var ErrNotFound = errors.New("not found")
+var (
+	// ErrNotFound is returned when a stored resource does not exist.
+	ErrNotFound = errors.New("not found")
+	// ErrOrderStateChanged means another transaction changed the order status before this transaction committed.
+	ErrOrderStateChanged = errors.New("order status changed")
+)
+
+// IsDuplicateKey reports whether err is a MySQL duplicate-key violation.
+func IsDuplicateKey(err error) bool {
+	if err == nil {
+		return false
+	}
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number == 1062
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate entry") || strings.Contains(msg, "duplicate key")
+}
 
 // SQLStore persists Notify Server business state in a MySQL database.
 type SQLStore struct {
@@ -202,6 +219,11 @@ func (s *SQLStore) schemaStatements() []string {
 				target_count BIGINT NOT NULL,
 				sent_count BIGINT NOT NULL DEFAULT 0,
 				failed_count BIGINT NOT NULL DEFAULT 0,
+				status VARCHAR(32) NOT NULL DEFAULT 'active',
+				rate_limit BIGINT NOT NULL DEFAULT 0,
+				paused_at VARCHAR(40),
+				cancelled_at VARCHAR(40),
+				completed_at VARCHAR(40),
 				idempotency_key VARCHAR(255),
 				created_at VARCHAR(40) NOT NULL,
 				updated_at VARCHAR(40) NOT NULL
@@ -233,6 +255,9 @@ func (s *SQLStore) schemaStatements() []string {
 				target_count BIGINT NOT NULL DEFAULT 0,
 				success_count BIGINT NOT NULL DEFAULT 0,
 				failed_count BIGINT NOT NULL DEFAULT 0,
+				locked_by VARCHAR(255),
+				locked_until VARCHAR(40),
+				last_error TEXT,
 				created_at VARCHAR(40) NOT NULL,
 				updated_at VARCHAR(40) NOT NULL,
 				INDEX idx_campaign_audience_batches_audience (audience_id, status)
@@ -244,6 +269,7 @@ func (s *SQLStore) schemaStatements() []string {
 				batch_id VARCHAR(64),
 				notify_id VARCHAR(64),
 				status VARCHAR(32) NOT NULL,
+				last_error TEXT,
 				created_at VARCHAR(40) NOT NULL,
 				updated_at VARCHAR(40) NOT NULL,
 				PRIMARY KEY(audience_id, user_id),
@@ -413,6 +439,32 @@ func (s *SQLStore) migrateSchema(ctx context.Context) error {
 			return err
 		}
 	}
+	for name, decl := range map[string]string{
+		"status":       "VARCHAR(32) NOT NULL DEFAULT 'active'",
+		"rate_limit":   "BIGINT NOT NULL DEFAULT 0",
+		"paused_at":    "VARCHAR(40)",
+		"cancelled_at": "VARCHAR(40)",
+		"completed_at": "VARCHAR(40)",
+	} {
+		if err := s.addColumnIfMissing(ctx, "campaigns", name, decl); err != nil {
+			return err
+		}
+	}
+	if err := s.migrateDateTimeCompatibility(ctx); err != nil {
+		return err
+	}
+	for name, decl := range map[string]string{
+		"locked_by":    "VARCHAR(255)",
+		"locked_until": "VARCHAR(40)",
+		"last_error":   "TEXT",
+	} {
+		if err := s.addColumnIfMissing(ctx, "campaign_audience_batches", name, decl); err != nil {
+			return err
+		}
+	}
+	if err := s.addColumnIfMissing(ctx, "campaign_audience_targets", "last_error", "TEXT"); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -430,6 +482,65 @@ func (s *SQLStore) addColumnIfMissing(ctx context.Context, table, column, decl s
 	}
 	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, decl))
 	return err
+}
+
+type dateTimeMirrorColumn struct {
+	table  string
+	source string
+	target string
+}
+
+func (s *SQLStore) migrateDateTimeCompatibility(ctx context.Context) error {
+	mirrors := []dateTimeMirrorColumn{
+		{table: "orders", source: "created_at", target: "created_at_dt"},
+		{table: "orders", source: "updated_at", target: "updated_at_dt"},
+		{table: "order_status_events", source: "created_at", target: "created_at_dt"},
+		{table: "notifications", source: "created_at", target: "created_at_dt"},
+		{table: "notifications", source: "updated_at", target: "updated_at_dt"},
+		{table: "notification_attempts", source: "started_at", target: "started_at_dt"},
+		{table: "notification_attempts", source: "finished_at", target: "finished_at_dt"},
+		{table: "notification_acks", source: "created_at", target: "created_at_dt"},
+		{table: "notification_acks", source: "policy_satisfied_at", target: "policy_satisfied_at_dt"},
+		{table: "notification_outbox", source: "created_at", target: "created_at_dt"},
+		{table: "notification_outbox", source: "updated_at", target: "updated_at_dt"},
+		{table: "notification_outbox", source: "next_retry_at", target: "next_retry_at_dt"},
+		{table: "notification_outbox", source: "locked_until", target: "locked_until_dt"},
+		{table: "notification_dlq", source: "created_at", target: "created_at_dt"},
+		{table: "notification_dlq", source: "resolved_at", target: "resolved_at_dt"},
+		{table: "campaigns", source: "created_at", target: "created_at_dt"},
+		{table: "campaigns", source: "updated_at", target: "updated_at_dt"},
+		{table: "campaigns", source: "paused_at", target: "paused_at_dt"},
+		{table: "campaigns", source: "cancelled_at", target: "cancelled_at_dt"},
+		{table: "campaigns", source: "completed_at", target: "completed_at_dt"},
+		{table: "campaign_audience_batches", source: "locked_until", target: "locked_until_dt"},
+		{table: "idempotency_keys", source: "created_at", target: "created_at_dt"},
+	}
+	for _, mirror := range mirrors {
+		if err := s.addColumnIfMissing(ctx, mirror.table, mirror.target, "DATETIME(3) NULL"); err != nil {
+			return err
+		}
+		if err := s.backfillDateTimeMirror(ctx, mirror); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SQLStore) backfillDateTimeMirror(ctx context.Context, mirror dateTimeMirrorColumn) error {
+	stmt := fmt.Sprintf(`UPDATE %s
+		SET %s = COALESCE(
+			STR_TO_DATE(REPLACE(REPLACE(%s, 'T', ' '), 'Z', ''), '%%Y-%%m-%%d %%H:%%i:%%s.%%f'),
+			STR_TO_DATE(REPLACE(REPLACE(%s, 'T', ' '), 'Z', ''), '%%Y-%%m-%%d %%H:%%i:%%s')
+		)
+		WHERE %s IS NULL AND %s IS NOT NULL AND %s <> ''`,
+		quoteIdent(mirror.table), quoteIdent(mirror.target), quoteIdent(mirror.source),
+		quoteIdent(mirror.source), quoteIdent(mirror.target), quoteIdent(mirror.source), quoteIdent(mirror.source))
+	_, err := s.db.ExecContext(ctx, stmt)
+	return err
+}
+
+func quoteIdent(v string) string {
+	return "`" + strings.ReplaceAll(v, "`", "``") + "`"
 }
 
 // SaveIdempotency stores the first successful response for a scope/key pair.
@@ -498,8 +609,14 @@ func (s *SQLStore) ChangeOrderNotificationOutbox(order *model.Order, event *mode
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(context.Background(), `UPDATE orders SET status = ?, updated_at = ? WHERE order_id = ?`,
-		string(order.Status), formatTime(order.UpdatedAt), order.OrderID); err != nil {
+	res, err := tx.ExecContext(context.Background(), `UPDATE orders SET status = ?, updated_at = ? WHERE order_id = ? AND status = ?`,
+		string(order.Status), formatTime(order.UpdatedAt), order.OrderID, string(event.FromStatus))
+	if err != nil {
+		return err
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows == 0 {
+		return ErrOrderStateChanged
+	} else if err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(context.Background(), `INSERT INTO order_status_events
@@ -647,8 +764,14 @@ func (s *SQLStore) UpdateOrderStatusAndInsertEvent(order *model.Order, event *mo
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(context.Background(), `UPDATE orders SET status = ?, updated_at = ? WHERE order_id = ?`,
-		string(order.Status), formatTime(order.UpdatedAt), order.OrderID); err != nil {
+	res, err := tx.ExecContext(context.Background(), `UPDATE orders SET status = ?, updated_at = ? WHERE order_id = ? AND status = ?`,
+		string(order.Status), formatTime(order.UpdatedAt), order.OrderID, string(event.FromStatus))
+	if err != nil {
+		return err
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows == 0 {
+		return ErrOrderStateChanged
+	} else if err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(context.Background(), `INSERT INTO order_status_events
@@ -759,6 +882,55 @@ func (s *SQLStore) OutboxCount(status string) (int64, error) {
 	return s.count(`SELECT COUNT(*) FROM notification_outbox WHERE status = '` + status + `'`)
 }
 
+// GetOutbox returns one outbox row by id.
+func (s *SQLStore) GetOutbox(outboxID string) (*model.NotificationOutbox, error) {
+	row := s.db.QueryRowContext(context.Background(), `SELECT outbox_id, notify_id, user_id, order_id, business_type, event_type,
+		payload_json, priority, ttl_seconds, status, retry_count, next_retry_at, locked_by, locked_until, last_error, COALESCE(scenario_run_id, ''), COALESCE(trace_id, notify_id), COALESCE(compensation_strategy, 'retry_then_dlq'), created_at, updated_at
+		FROM notification_outbox WHERE outbox_id = ?`, outboxID)
+	return scanOutbox(row)
+}
+
+// ClaimPublishedOutbox atomically claims an MQ-published outbox row for IM delivery.
+func (s *SQLStore) ClaimPublishedOutbox(outboxID, workerID string, lockTTL time.Duration) (*model.NotificationOutbox, bool, error) {
+	now := time.Now()
+	nowS := formatTime(now)
+	lockedUntil := formatTime(now.Add(lockTTL))
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(context.Background(), `UPDATE notification_outbox
+		SET status = 'delivering', locked_by = ?, locked_until = ?, updated_at = ?
+		WHERE outbox_id = ?
+		  AND (
+		    status = 'published'
+		    OR (status = 'delivering' AND (locked_until IS NULL OR locked_until = '' OR locked_until <= ?))
+		  )`,
+		workerID, lockedUntil, nowS, outboxID, nowS)
+	if err != nil {
+		return nil, false, err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return nil, false, err
+	}
+	if rows == 0 {
+		return nil, false, tx.Commit()
+	}
+	row := tx.QueryRowContext(context.Background(), `SELECT outbox_id, notify_id, user_id, order_id, business_type, event_type,
+		payload_json, priority, ttl_seconds, status, retry_count, next_retry_at, locked_by, locked_until, last_error, COALESCE(scenario_run_id, ''), COALESCE(trace_id, notify_id), COALESCE(compensation_strategy, 'retry_then_dlq'), created_at, updated_at
+		FROM notification_outbox WHERE outbox_id = ?`, outboxID)
+	outbox, err := scanOutbox(row)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, err
+	}
+	return outbox, true, nil
+}
+
 // ClaimOutbox locks due outbox rows for one worker.
 func (s *SQLStore) ClaimOutbox(workerID string, batchSize int, lockTTL time.Duration) ([]*model.NotificationOutbox, error) {
 	if batchSize <= 0 {
@@ -771,12 +943,15 @@ func (s *SQLStore) ClaimOutbox(workerID string, batchSize int, lockTTL time.Dura
 	}
 	defer tx.Rollback()
 
+	nowS := formatTime(now)
 	rows, err := tx.QueryContext(context.Background(), `SELECT outbox_id FROM notification_outbox
-		WHERE status IN ('pending','failed')
-		  AND (next_retry_at IS NULL OR next_retry_at = '' OR next_retry_at <= ?)
+		WHERE (
+			(status IN ('pending','failed') AND (next_retry_at IS NULL OR next_retry_at = '' OR next_retry_at <= ?))
+			OR (status = 'processing' AND (locked_until IS NULL OR locked_until = '' OR locked_until <= ?))
+		  )
 		  AND (locked_until IS NULL OR locked_until = '' OR locked_until <= ?)
 		ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, created_at
-		LIMIT ?`, formatTime(now), formatTime(now), batchSize)
+		LIMIT ? FOR UPDATE SKIP LOCKED`, nowS, nowS, nowS, batchSize)
 	if err != nil {
 		return nil, err
 	}
@@ -800,13 +975,24 @@ func (s *SQLStore) ClaimOutbox(workerID string, batchSize int, lockTTL time.Dura
 	}
 
 	lockedUntil := now.Add(lockTTL)
+	claimedIDs := make([]string, 0, len(ids))
 	for _, id := range ids {
-		if _, err := tx.ExecContext(context.Background(), `UPDATE notification_outbox
+		res, err := tx.ExecContext(context.Background(), `UPDATE notification_outbox
 			SET status = 'processing', locked_by = ?, locked_until = ?, updated_at = ?
-			WHERE outbox_id = ?`,
-			workerID, formatTime(lockedUntil), formatTime(now), id); err != nil {
+			WHERE outbox_id = ?
+			  AND status IN ('pending','failed','processing')
+			  AND (locked_until IS NULL OR locked_until = '' OR locked_until <= ?)`,
+			workerID, formatTime(lockedUntil), nowS, id, nowS)
+		if err != nil {
 			return nil, err
 		}
+		if rowsAffected, err := res.RowsAffected(); err == nil && rowsAffected == 1 {
+			claimedIDs = append(claimedIDs, id)
+		}
+	}
+	ids = claimedIDs
+	if len(ids) == 0 {
+		return nil, tx.Commit()
 	}
 
 	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
@@ -859,6 +1045,110 @@ func (s *SQLStore) MarkOutboxSent(outboxID string, attempt *model.NotificationAt
 		return err
 	}
 	_, _ = tx.ExecContext(context.Background(), `UPDATE campaign_targets SET status = 'sent' WHERE notify_id = ?`, attempt.NotifyID)
+	return tx.Commit()
+}
+
+// MarkOutboxPublished records a successful MQ publish and releases the claim.
+func (s *SQLStore) MarkOutboxPublished(outboxID, workerID string, attempt *model.NotificationAttempt, at time.Time) error {
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if attempt != nil {
+		if err := insertAttemptTx(tx, attempt); err != nil {
+			return err
+		}
+	}
+	res, err := tx.ExecContext(context.Background(), `UPDATE notification_outbox
+		SET status = 'published', locked_by = NULL, locked_until = NULL, last_error = NULL, updated_at = ?
+		WHERE outbox_id = ? AND status = 'processing' AND locked_by = ?`,
+		formatTime(at), outboxID, workerID)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	if attempt != nil {
+		if _, err := tx.ExecContext(context.Background(), `UPDATE notifications
+			SET status = 'queued', updated_at = ? WHERE notify_id = ? AND status NOT IN ('acked','delivered')`,
+			formatTime(at), attempt.NotifyID); err != nil {
+			return err
+		}
+		_, _ = tx.ExecContext(context.Background(), `UPDATE campaign_targets SET status = 'queued' WHERE notify_id = ?`, attempt.NotifyID)
+	}
+	return tx.Commit()
+}
+
+// MarkOutboxPublishRetry records a failed MQ publish and schedules relay retry.
+func (s *SQLStore) MarkOutboxPublishRetry(outboxID, workerID string, retryCount int64, nextRetryAt time.Time, lastError string, attempt *model.NotificationAttempt) error {
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if attempt != nil {
+		if err := insertAttemptTx(tx, attempt); err != nil {
+			return err
+		}
+	}
+	now := time.Now()
+	res, err := tx.ExecContext(context.Background(), `UPDATE notification_outbox
+		SET status = 'failed', retry_count = ?, next_retry_at = ?, locked_by = NULL, locked_until = NULL, last_error = ?, updated_at = ?
+		WHERE outbox_id = ? AND status = 'processing' AND locked_by = ?`,
+		retryCount, formatTime(nextRetryAt), lastError, formatTime(now), outboxID, workerID)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	if attempt != nil {
+		_, _ = tx.ExecContext(context.Background(), `UPDATE notifications SET status = 'retrying', updated_at = ? WHERE notify_id = ? AND status <> 'acked'`,
+			formatTime(now), attempt.NotifyID)
+		_, _ = tx.ExecContext(context.Background(), `UPDATE campaign_targets SET status = 'retrying' WHERE notify_id = ?`, attempt.NotifyID)
+	}
+	return tx.Commit()
+}
+
+// MarkOutboxExpired marks an MQ-published notification as expired without DLQ.
+func (s *SQLStore) MarkOutboxExpired(outboxID, notifyID, lastError string, at time.Time) error {
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if outboxID != "" {
+		if _, err := tx.ExecContext(context.Background(), `UPDATE notification_outbox
+			SET status = 'expired', locked_by = NULL, locked_until = NULL, last_error = ?, updated_at = ?
+			WHERE outbox_id = ? AND status NOT IN ('sent','dlq','expired')`,
+			lastError, formatTime(at), outboxID); err != nil {
+			return err
+		}
+	} else if notifyID != "" {
+		if _, err := tx.ExecContext(context.Background(), `UPDATE notification_outbox
+			SET status = 'expired', locked_by = NULL, locked_until = NULL, last_error = ?, updated_at = ?
+			WHERE notify_id = ? AND status NOT IN ('sent','dlq','expired')`,
+			lastError, formatTime(at), notifyID); err != nil {
+			return err
+		}
+	}
+	if notifyID != "" {
+		if _, err := tx.ExecContext(context.Background(), `UPDATE notifications SET status = 'expired', updated_at = ? WHERE notify_id = ? AND status <> 'acked'`,
+			formatTime(at), notifyID); err != nil {
+			return err
+		}
+		_, _ = tx.ExecContext(context.Background(), `UPDATE campaign_targets SET status = 'expired' WHERE notify_id = ?`, notifyID)
+	}
 	return tx.Commit()
 }
 
@@ -1142,10 +1432,15 @@ func (s *SQLStore) ResolveDLQ(id, resolvedBy, resolution string) error {
 
 // InsertCampaign records a flash-sale campaign summary.
 func (s *SQLStore) InsertCampaign(campaignID, title, description, businessType string, targetCount int, idempotencyKey string, createdAt time.Time) error {
+	return s.InsertCampaignWithRateLimit(campaignID, title, description, businessType, targetCount, idempotencyKey, 0, createdAt)
+}
+
+// InsertCampaignWithRateLimit records a campaign summary with a configured token-bucket rate.
+func (s *SQLStore) InsertCampaignWithRateLimit(campaignID, title, description, businessType string, targetCount int, idempotencyKey string, rateLimit int, createdAt time.Time) error {
 	_, err := s.db.ExecContext(context.Background(), `INSERT INTO campaigns
-		(campaign_id, title, description, business_type, target_count, sent_count, failed_count, idempotency_key, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`,
-		campaignID, title, description, businessType, targetCount, idempotencyKey, formatTime(createdAt), formatTime(createdAt))
+		(campaign_id, title, description, business_type, target_count, sent_count, failed_count, status, rate_limit, idempotency_key, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, 0, 0, 'active', ?, ?, ?, ?)`,
+		campaignID, title, description, businessType, targetCount, rateLimit, idempotencyKey, formatTime(createdAt), formatTime(createdAt))
 	return err
 }
 
@@ -1185,12 +1480,7 @@ func (s *SQLStore) ImportCampaignAudience(campaignID, name string, definition ma
 	if err != nil {
 		return nil, nil, err
 	}
-	tx, err := s.db.BeginTx(context.Background(), nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO campaign_audiences
+	if _, err := s.db.ExecContext(context.Background(), `INSERT INTO campaign_audiences
 		(audience_id, campaign_id, name, definition_json, target_count, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		audience.AudienceID, campaignID, audience.Name, string(defJSON), audience.TargetCount, formatTime(now)); err != nil {
@@ -1213,23 +1503,35 @@ func (s *SQLStore) ImportCampaignAudience(campaignID, name string, definition ma
 			CreatedAt:   now,
 			UpdatedAt:   now,
 		}
-		if _, err := tx.ExecContext(context.Background(), `INSERT INTO campaign_audience_batches
-			(batch_id, audience_id, campaign_id, status, start_offset, end_offset, target_count, success_count, failed_count, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
-			batch.BatchID, batch.AudienceID, batch.CampaignID, batch.Status, batch.StartOffset, batch.EndOffset, batch.TargetCount, formatTime(now), formatTime(now)); err != nil {
-			return nil, nil, err
-		}
-		for _, uid := range targetUIDs[start:end] {
-			if _, err := tx.ExecContext(context.Background(), `INSERT IGNORE INTO campaign_audience_targets
-				(audience_id, campaign_id, user_id, batch_id, notify_id, status, created_at, updated_at)
-				VALUES (?, ?, ?, ?, NULL, 'pending', ?, ?)`,
-				audience.AudienceID, campaignID, uid, batch.BatchID, formatTime(now), formatTime(now)); err != nil {
-				return nil, nil, err
-			}
+		if err := s.insertCampaignAudienceBatch(batch, targetUIDs[start:end], now); err != nil {
+			return audience, batches, err
 		}
 		batches = append(batches, batch)
 	}
-	return audience, batches, tx.Commit()
+	return audience, batches, nil
+}
+
+func (s *SQLStore) insertCampaignAudienceBatch(batch *model.CampaignAudienceBatch, targetUIDs []string, now time.Time) error {
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO campaign_audience_batches
+			(batch_id, audience_id, campaign_id, status, start_offset, end_offset, target_count, success_count, failed_count, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
+		batch.BatchID, batch.AudienceID, batch.CampaignID, batch.Status, batch.StartOffset, batch.EndOffset, batch.TargetCount, formatTime(now), formatTime(now)); err != nil {
+		return err
+	}
+	for _, uid := range targetUIDs {
+		if _, err := tx.ExecContext(context.Background(), `INSERT IGNORE INTO campaign_audience_targets
+				(audience_id, campaign_id, user_id, batch_id, notify_id, status, created_at, updated_at)
+				VALUES (?, ?, ?, ?, NULL, 'pending', ?, ?)`,
+			batch.AudienceID, batch.CampaignID, uid, batch.BatchID, formatTime(now), formatTime(now)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // ListCampaignAudienceTargets returns imported audience targets.
@@ -1240,6 +1542,38 @@ func (s *SQLStore) ListCampaignAudienceTargets(audienceID string, statuses []str
 	query := `SELECT audience_id, campaign_id, user_id, COALESCE(batch_id, ''), COALESCE(notify_id, ''), status, created_at, updated_at
 		FROM campaign_audience_targets WHERE audience_id = ?`
 	args := []any{audienceID}
+	if len(statuses) > 0 {
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(statuses)), ",")
+		query += " AND status IN (" + placeholders + ")"
+		for _, status := range statuses {
+			args = append(args, status)
+		}
+	}
+	query += fmt.Sprintf(" ORDER BY created_at ASC LIMIT %d", limit)
+	rows, err := s.db.QueryContext(context.Background(), query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var targets []*model.CampaignAudienceTarget
+	for rows.Next() {
+		target, err := scanCampaignAudienceTarget(rows)
+		if err != nil {
+			return nil, err
+		}
+		targets = append(targets, target)
+	}
+	return targets, rows.Err()
+}
+
+// ListCampaignAudienceTargetsByBatch returns targets in one imported audience batch.
+func (s *SQLStore) ListCampaignAudienceTargetsByBatch(batchID string, statuses []string, limit int) ([]*model.CampaignAudienceTarget, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	query := `SELECT audience_id, campaign_id, user_id, COALESCE(batch_id, ''), COALESCE(notify_id, ''), status, created_at, updated_at
+		FROM campaign_audience_targets WHERE batch_id = ?`
+	args := []any{batchID}
 	if len(statuses) > 0 {
 		placeholders := strings.TrimRight(strings.Repeat("?,", len(statuses)), ",")
 		query += " AND status IN (" + placeholders + ")"
@@ -1292,6 +1626,170 @@ func (s *SQLStore) MarkCampaignAudienceTargetCreated(audienceID, userID, notifyI
 	return err
 }
 
+// ClaimCampaignAudienceBatches locks pending audience batches for background notification generation.
+func (s *SQLStore) ClaimCampaignAudienceBatches(workerID string, batchSize int, lockTTL time.Duration) ([]*model.CampaignAudienceBatch, error) {
+	if batchSize <= 0 {
+		batchSize = 10
+	}
+	now := time.Now()
+	nowS := formatTime(now)
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(context.Background(), `SELECT batch_id FROM campaign_audience_batches
+		WHERE status IN ('pending','retrying')
+		  AND (locked_until IS NULL OR locked_until = '' OR locked_until <= ?)
+		ORDER BY created_at ASC LIMIT ? FOR UPDATE SKIP LOCKED`, nowS, batchSize)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, tx.Commit()
+	}
+	lockedUntil := formatTime(now.Add(lockTTL))
+	claimedIDs := make([]string, 0, len(ids))
+	for _, id := range ids {
+		res, err := tx.ExecContext(context.Background(), `UPDATE campaign_audience_batches
+			SET status = 'processing', locked_by = ?, locked_until = ?, updated_at = ?
+			WHERE batch_id = ? AND status IN ('pending','retrying')
+			  AND (locked_until IS NULL OR locked_until = '' OR locked_until <= ?)`,
+			workerID, lockedUntil, nowS, id, nowS)
+		if err != nil {
+			return nil, err
+		}
+		if n, err := res.RowsAffected(); err == nil && n == 1 {
+			claimedIDs = append(claimedIDs, id)
+		}
+	}
+	if len(claimedIDs) == 0 {
+		return nil, tx.Commit()
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(claimedIDs)), ",")
+	args := make([]any, 0, len(claimedIDs))
+	for _, id := range claimedIDs {
+		args = append(args, id)
+	}
+	claimedRows, err := tx.QueryContext(context.Background(), `SELECT batch_id, audience_id, campaign_id, status, start_offset,
+		end_offset, target_count, success_count, failed_count, created_at, updated_at
+		FROM campaign_audience_batches WHERE batch_id IN (`+placeholders+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer claimedRows.Close()
+	var batches []*model.CampaignAudienceBatch
+	for claimedRows.Next() {
+		batch, err := scanCampaignAudienceBatch(claimedRows)
+		if err != nil {
+			return nil, err
+		}
+		batches = append(batches, batch)
+	}
+	if err := claimedRows.Err(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return batches, nil
+}
+
+// CreateCampaignAudienceTargetNotification atomically links one audience target to a notification/outbox.
+func (s *SQLStore) CreateCampaignAudienceTargetNotification(target *model.CampaignAudienceTarget, n *model.Notification, outbox *model.NotificationOutbox) error {
+	if target == nil || n == nil || outbox == nil {
+		return ErrNotFound
+	}
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := time.Now()
+	res, err := tx.ExecContext(context.Background(), `UPDATE campaign_audience_targets
+		SET notify_id = ?, status = 'creating', last_error = NULL, updated_at = ?
+		WHERE audience_id = ? AND user_id = ? AND batch_id = ?
+		  AND status IN ('pending','retrying','failed')
+		  AND (notify_id IS NULL OR notify_id = '')`,
+		n.NotifyID, formatTime(now), target.AudienceID, target.UserID, target.BatchID)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	if err := insertNotificationTx(tx, n); err != nil {
+		return err
+	}
+	if err := insertOutboxTx(tx, outbox); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(context.Background(), s.insertIgnoreCampaignTargetSQL(),
+		target.CampaignID, target.UserID, n.NotifyID, "pending", formatTime(now)); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(context.Background(), `UPDATE campaign_audience_targets
+		SET status = 'created', updated_at = ? WHERE audience_id = ? AND user_id = ? AND notify_id = ?`,
+		formatTime(time.Now()), target.AudienceID, target.UserID, n.NotifyID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// MarkCampaignAudienceTargetFailed records a target-level generation failure.
+func (s *SQLStore) MarkCampaignAudienceTargetFailed(audienceID, userID, lastError string) error {
+	_, err := s.db.ExecContext(context.Background(), `UPDATE campaign_audience_targets
+		SET status = 'failed', last_error = ?, updated_at = ? WHERE audience_id = ? AND user_id = ? AND status <> 'created'`,
+		lastError, formatTime(time.Now()), audienceID, userID)
+	return err
+}
+
+// MarkCampaignAudienceTargetExpired marks a target expired before notification generation.
+func (s *SQLStore) MarkCampaignAudienceTargetExpired(audienceID, userID string) error {
+	_, err := s.db.ExecContext(context.Background(), `UPDATE campaign_audience_targets
+		SET status = 'expired', last_error = 'ttl_expired', updated_at = ? WHERE audience_id = ? AND user_id = ? AND status <> 'created'`,
+		formatTime(time.Now()), audienceID, userID)
+	return err
+}
+
+// MarkCampaignAudienceBatchResult releases a claimed batch with final counters.
+func (s *SQLStore) MarkCampaignAudienceBatchResult(batchID, workerID, status, lastError string, successCount, failedCount int64) error {
+	now := formatTime(time.Now())
+	res, err := s.db.ExecContext(context.Background(), `UPDATE campaign_audience_batches
+		SET status = ?, success_count = success_count + ?, failed_count = failed_count + ?,
+		    locked_by = NULL, locked_until = NULL, last_error = ?, updated_at = ?
+		WHERE batch_id = ? AND status = 'processing' AND locked_by = ?`,
+		status, successCount, failedCount, emptyToNil(lastError), now, batchID, workerID)
+	if err != nil {
+		return err
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows == 0 {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
 // RetryCampaignAudienceBatch moves failed batch targets back to pending.
 func (s *SQLStore) RetryCampaignAudienceBatch(batchID string) error {
 	now := formatTime(time.Now())
@@ -1301,11 +1799,11 @@ func (s *SQLStore) RetryCampaignAudienceBatch(batchID string) error {
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(context.Background(), `UPDATE campaign_audience_targets
-		SET status = 'pending', notify_id = NULL, updated_at = ? WHERE batch_id = ? AND status IN ('failed','dlq')`, now, batchID); err != nil {
+		SET status = 'pending', notify_id = NULL, last_error = NULL, updated_at = ? WHERE batch_id = ? AND status IN ('failed','dlq')`, now, batchID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(context.Background(), `UPDATE campaign_audience_batches
-		SET status = 'retrying', failed_count = 0, updated_at = ? WHERE batch_id = ?`, now, batchID); err != nil {
+		SET status = 'retrying', failed_count = 0, locked_by = NULL, locked_until = NULL, last_error = NULL, updated_at = ? WHERE batch_id = ?`, now, batchID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -1801,7 +2299,28 @@ func formatTime(t time.Time) string {
 }
 
 func parseTime(v string) (time.Time, error) {
-	return time.Parse(time.RFC3339Nano, v)
+	layouts := []string{
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05.000",
+		"2006-01-02 15:04:05",
+	}
+	var lastErr error
+	for _, layout := range layouts {
+		t, err := time.Parse(layout, v)
+		if err == nil {
+			return t, nil
+		}
+		lastErr = err
+	}
+	for _, layout := range layouts[1:] {
+		t, err := time.ParseInLocation(layout, v, time.Local)
+		if err == nil {
+			return t, nil
+		}
+		lastErr = err
+	}
+	return time.Time{}, lastErr
 }
 
 func parseNullTime(v sql.NullString) time.Time {

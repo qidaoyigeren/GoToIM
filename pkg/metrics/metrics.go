@@ -101,6 +101,112 @@ var (
 		Help:      "Total PushClient requests blocked while the circuit breaker is open",
 	})
 
+	NotifyOutboxPublishedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "outbox_published_total",
+		Help:      "Total notification outbox rows published to MQ",
+	})
+
+	NotifyOutboxPublishFailedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "outbox_publish_failed_total",
+		Help:      "Total notification outbox MQ publish failures",
+	})
+
+	NotifyPushConsumeTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "push_consume_total",
+		Help:      "Total notify push MQ messages consumed",
+	}, []string{"business_type", "event_type"})
+
+	NotifyPushSuccessTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "push_success_total",
+		Help:      "Total notify push messages delivered by NotifyPushConsumer",
+	})
+
+	NotifyPushFailedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "push_failed_total",
+		Help:      "Total notify push delivery failures",
+	}, []string{"class"})
+
+	NotifyPushDLQTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "push_dlq_total",
+		Help:      "Total notify push messages moved to DLQ",
+	})
+
+	NotifyPushLatencyMS = promauto.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "push_latency_ms",
+		Help:      "Notify push delivery latency in milliseconds",
+		Buckets:   []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000},
+	})
+
+	NotifyDedupeHitTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "dedupe_hit_total",
+		Help:      "Total notify idempotency or duplicate delivery hits",
+	})
+
+	NotifyACKConsumedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "ack_consumed_total",
+		Help:      "Total ACK topic events consumed by Notify ACK bridge",
+	})
+
+	NotifyACKWriteFailedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "ack_write_failed_total",
+		Help:      "Total ACK bridge MySQL write failures",
+	})
+
+	NotifyMQLag = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "mq_lag",
+		Help:      "Best-effort notify MQ lag in milliseconds based on message timestamp",
+	})
+
+	NotifyCampaignRateLimitedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "campaign_rate_limited_total",
+		Help:      "Total campaign target creations delayed by token bucket rate limiting",
+	})
+
+	NotifyCampaignBatchProcessedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "campaign_batch_processed_total",
+		Help:      "Total campaign audience batches processed by status",
+	}, []string{"status"})
+
+	NotifyCampaignTargetGeneratedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "campaign_target_generated_total",
+		Help:      "Total campaign targets materialized into notification outbox rows",
+	})
+
+	NotifyCampaignTargetExpiredTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "goim",
+		Subsystem: "notify",
+		Name:      "campaign_target_expired_total",
+		Help:      "Total campaign targets expired before notification generation",
+	})
+
 	// SpoolWriteTotal counts messages written to the local durable spool.
 	SpoolWriteTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "goim",

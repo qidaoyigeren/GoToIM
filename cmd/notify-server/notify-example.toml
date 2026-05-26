@@ -10,11 +10,47 @@ driver = "mysql"
 dsn = "goim:goim@tcp(127.0.0.1:3306)/goim_notify?charset=utf8mb4&parseTime=true&loc=Local"
 
 [outbox]
+# Legacy direct MySQL outbox worker. Used only when mq.enabled = false.
 enabled = true
 batch_size = 100
 poll_interval = "1s"
 max_retries = 5
 lock_ttl = "30s"
+
+[mq]
+enabled = false
+brokers = ["127.0.0.1:9092"]
+notify_topic = "notify.push"
+ack_topic = "notify.ack"
+consumer_group = "goim-notify-push"
+
+[relay]
+enabled = true
+batch_size = 100
+worker_count = 4
+poll_interval = "1s"
+max_retries = 5
+lock_ttl = "30s"
+
+[push_consumer]
+enabled = true
+worker_count = 1
+max_inflight = 64
+batch_size = 100
+poll_interval = "1s"
+max_retries = 3
+backoff = "1s"
+
+[campaign]
+default_rate_limit = 1000
+batch_generator_enabled = true
+batch_generator_worker_count = 2
+batch_generator_batch_size = 10
+batch_generator_target_batch_size = 500
+batch_generator_poll_interval = "1s"
+batch_generator_lock_ttl = "30s"
+async_fanout_threshold = 500
+audience_batch_size = 500
 
 [simulation]
 default_qps = 100

@@ -9,6 +9,7 @@ import (
 	"github.com/IBM/sarama"
 	pb "github.com/Terry-Mao/goim/api/logic"
 	log "github.com/Terry-Mao/goim/pkg/log"
+	"github.com/Terry-Mao/goim/pkg/metrics"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -22,19 +23,23 @@ import (
 // The consumer is best-effort: Kafka unavailability does not block IM ACKs,
 // and duplicate events are handled by RecordAckIdempotent's existing dedup.
 type AckBridgeConsumer struct {
-	orderSvc *OrderNotifyService
-	client   sarama.ConsumerGroup
-	topic    string
-	ready    chan struct{}
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
+	orderSvc      *OrderNotifyService
+	client        sarama.ConsumerGroup
+	topic         string
+	batchSize     int
+	flushInterval time.Duration
+	ready         chan struct{}
+	stopCh        chan struct{}
+	wg            sync.WaitGroup
 }
 
 // AckBridgeConfig holds configuration for the ACK bridge consumer.
 type AckBridgeConfig struct {
-	Brokers []string
-	Topic   string
-	GroupID string
+	Brokers       []string
+	Topic         string
+	GroupID       string
+	BatchSize     int
+	FlushInterval time.Duration
 }
 
 // NewAckBridgeConsumer creates a new ACK bridge consumer.
@@ -42,6 +47,15 @@ type AckBridgeConfig struct {
 func NewAckBridgeConsumer(svc *OrderNotifyService, cfg AckBridgeConfig) (*AckBridgeConsumer, error) {
 	if cfg.Topic == "" || len(cfg.Brokers) == 0 {
 		return nil, nil
+	}
+	if cfg.GroupID == "" {
+		cfg.GroupID = "goim-notify-ack"
+	}
+	if cfg.BatchSize <= 0 {
+		cfg.BatchSize = 100
+	}
+	if cfg.FlushInterval <= 0 {
+		cfg.FlushInterval = 100 * time.Millisecond
 	}
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.Consumer.Group.Rebalance.Strategy = sarama.NewBalanceStrategyRoundRobin()
@@ -51,11 +65,13 @@ func NewAckBridgeConsumer(svc *OrderNotifyService, cfg AckBridgeConfig) (*AckBri
 		return nil, err
 	}
 	return &AckBridgeConsumer{
-		orderSvc: svc,
-		client:   client,
-		topic:    cfg.Topic,
-		ready:    make(chan struct{}),
-		stopCh:   make(chan struct{}),
+		orderSvc:      svc,
+		client:        client,
+		topic:         cfg.Topic,
+		batchSize:     cfg.BatchSize,
+		flushInterval: cfg.FlushInterval,
+		ready:         make(chan struct{}),
+		stopCh:        make(chan struct{}),
 	}, nil
 }
 
@@ -67,7 +83,7 @@ func (c *AckBridgeConsumer) Start() {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		handler := &ackBridgeHandler{svc: c.orderSvc, ready: c.ready}
+		handler := &ackBridgeHandler{svc: c.orderSvc, ready: c.ready, batchSize: c.batchSize, flushInterval: c.flushInterval}
 		for {
 			if err := c.client.Consume(context.Background(), []string{c.topic}, handler); err != nil {
 				log.Errorf("ack bridge consume error: %v", err)
@@ -98,8 +114,10 @@ func (c *AckBridgeConsumer) Stop() {
 
 // ackBridgeHandler implements sarama.ConsumerGroupHandler.
 type ackBridgeHandler struct {
-	svc   *OrderNotifyService
-	ready chan struct{}
+	svc           *OrderNotifyService
+	ready         chan struct{}
+	batchSize     int
+	flushInterval time.Duration
 }
 
 func (h *ackBridgeHandler) Setup(sarama.ConsumerGroupSession) error {
@@ -110,43 +128,143 @@ func (h *ackBridgeHandler) Setup(sarama.ConsumerGroupSession) error {
 func (h *ackBridgeHandler) Cleanup(sarama.ConsumerGroupSession) error { return nil }
 
 func (h *ackBridgeHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	for msg := range claim.Messages() {
-		if msg == nil {
-			continue
-		}
-		h.processMessage(msg)
-		sess.MarkMessage(msg, "")
+	batchSize := h.batchSize
+	if batchSize <= 0 {
+		batchSize = 100
 	}
-	return nil
+	flushInterval := h.flushInterval
+	if flushInterval <= 0 {
+		flushInterval = 100 * time.Millisecond
+	}
+	ticker := time.NewTicker(flushInterval)
+	defer ticker.Stop()
+	batch := make([]*sarama.ConsumerMessage, 0, batchSize)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		if err := h.processBatch(batch); err != nil {
+			return err
+		}
+		for _, msg := range batch {
+			sess.MarkMessage(msg, "")
+		}
+		batch = batch[:0]
+		return nil
+	}
+	for {
+		select {
+		case msg, ok := <-claim.Messages():
+			if !ok {
+				return flush()
+			}
+			if msg == nil {
+				continue
+			}
+			batch = append(batch, msg)
+			if len(batch) >= batchSize {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+		case <-ticker.C:
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+type ackBridgeEvent struct {
+	MsgID      string   `json:"msg_id"`
+	MsgIDs     []string `json:"msg_ids"`
+	UserID     string   `json:"user_id"`
+	DeviceID   string   `json:"device_id"`
+	SessionID  string   `json:"session_id"`
+	AckTime    int64    `json:"ack_time"`
+	Status     string   `json:"status"`
+	TargetNode string   `json:"target_node"`
+	LatencyMs  float64  `json:"latency_ms"`
+	TraceID    string   `json:"trace_id"`
+	NotifyID   string   `json:"notify_id"`
 }
 
 // processMessage deserializes an AckEvent from Kafka and synchronizes
 // the ACK into the Notify Server's notification table.
 func (h *ackBridgeHandler) processMessage(msg *sarama.ConsumerMessage) {
-	var event struct {
-		MsgID      string   `json:"msg_id"`
-		MsgIDs     []string `json:"msg_ids"`
-		UserID     string   `json:"user_id"`
-		DeviceID   string   `json:"device_id"`
-		SessionID  string   `json:"session_id"`
-		AckTime    int64    `json:"ack_time"`
-		Status     string   `json:"status"`
-		TargetNode string   `json:"target_node"`
-		LatencyMs  float64  `json:"latency_ms"`
-		TraceID    string   `json:"trace_id"`
-		NotifyID   string   `json:"notify_id"`
+	_ = h.processBatch([]*sarama.ConsumerMessage{msg})
+}
+
+func (h *ackBridgeHandler) processBatch(msgs []*sarama.ConsumerMessage) error {
+	inputs := make([]AckInput, 0, len(msgs))
+	for _, msg := range msgs {
+		if msg == nil {
+			continue
+		}
+		metrics.NotifyACKConsumedTotal.Inc()
+		var event ackBridgeEvent
+		if err := decodeAckBridgeEvent(msg.Value, &event); err != nil {
+			log.Warningf("ack bridge: decode event failed offset=%d: %v", msg.Offset, err)
+			continue
+		}
+		msgIDs := normalizeAckBridgeMsgIDs(event.MsgID, event.MsgIDs)
+		if len(msgIDs) == 0 {
+			continue
+		}
+		for _, msgID := range msgIDs {
+			input, ok := h.ackInputForEvent(msgID, event)
+			if !ok {
+				continue
+			}
+			inputs = append(inputs, input)
+		}
 	}
-	if err := decodeAckBridgeEvent(msg.Value, &event); err != nil {
-		log.Warningf("ack bridge: decode event failed offset=%d: %v", msg.Offset, err)
-		return
+	if len(inputs) == 0 {
+		return nil
 	}
-	msgIDs := normalizeAckBridgeMsgIDs(event.MsgID, event.MsgIDs)
-	if len(msgIDs) == 0 {
-		return
+	if _, err := h.svc.RecordAckBatchIdempotent(inputs); err != nil {
+		metrics.NotifyACKWriteFailedTotal.Inc()
+		log.Warningf("ack bridge: batch ack write failed count=%d: %v", len(inputs), err)
+		return err
 	}
-	for _, msgID := range msgIDs {
-		h.processAckEvent(msgID, event.NotifyID, event.DeviceID, event.SessionID, event.Status, event.TraceID)
+	return nil
+}
+
+func (h *ackBridgeHandler) ackInputForEvent(msgID string, event ackBridgeEvent) (AckInput, bool) {
+	notifyID := event.NotifyID
+	if notifyID == "" {
+		var err error
+		notifyID, err = h.svc.FindNotifyIDByMsgID(msgID)
+		if err != nil {
+			log.Warningf("ack bridge: msg_id lookup failed msg_id=%s: %v", msgID, err)
+			return AckInput{}, false
+		}
 	}
+	if notifyID == "" {
+		return AckInput{}, false
+	}
+
+	switch event.Status {
+	case "server_received":
+		_ = h.svc.store.UpdateNotificationStatus(notifyID, "delivering", time.Now())
+		return AckInput{}, false
+	case "pushed":
+		_ = h.svc.store.UpdateNotificationStatus(notifyID, "delivered", time.Now())
+		return AckInput{}, false
+	case "", "acked":
+	default:
+		log.V(1).Infof("ack bridge: ignored status=%s msg_id=%s", event.Status, msgID)
+		return AckInput{}, false
+	}
+
+	return AckInput{
+		NotifyID:       notifyID,
+		MsgID:          msgID,
+		DeviceID:       event.DeviceID,
+		SessionID:      event.SessionID,
+		TraceID:        event.TraceID,
+		IdempotencyKey: "kafka-ack-" + msgID,
+	}, true
 }
 
 func (h *ackBridgeHandler) processAckEvent(msgID, eventNotifyID, deviceID, sessionID, status, traceID string) {

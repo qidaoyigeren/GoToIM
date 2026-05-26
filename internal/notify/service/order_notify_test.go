@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -148,6 +149,43 @@ func TestCreateOrderIdempotencyDoesNotCreateDuplicateOrder(t *testing.T) {
 	}
 }
 
+func TestCreateOrderIdempotencyConcurrentReplay(t *testing.T) {
+	svc := newTestOrderService(t)
+	items := []model.OrderItem{{ProductName: "phone", Quantity: 1, Price: 99}}
+	userID := "user-concurrent-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	key := "create-concurrent-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+
+	const workers = 8
+	var wg sync.WaitGroup
+	orders := make([]*model.Order, workers)
+	notifs := make([]*model.Notification, workers)
+	errs := make([]error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			orders[idx], notifs[idx], errs[idx] = svc.CreateOrderIdempotent(userID, items, 99, key)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("CreateOrderIdempotent[%d] returned error: %v", i, err)
+		}
+		if orders[i] == nil || notifs[i] == nil {
+			t.Fatalf("CreateOrderIdempotent[%d] returned nil result", i)
+		}
+		if orders[i].OrderID != orders[0].OrderID || notifs[i].NotifyID != notifs[0].NotifyID {
+			t.Fatalf("replay[%d] changed ids: first=%s/%s got=%s/%s",
+				i, orders[0].OrderID, notifs[0].NotifyID, orders[i].OrderID, notifs[i].NotifyID)
+		}
+	}
+	if got := len(svc.GetUserOrders(userID)); got != 1 {
+		t.Fatalf("user order count = %d, want 1", got)
+	}
+}
+
 func TestStatusChangeIdempotencyDoesNotCreateDuplicateEventOrNotification(t *testing.T) {
 	svc := newTestOrderService(t)
 	order, _, err := svc.CreateOrder("1001", []model.OrderItem{{ProductName: "phone", Quantity: 1, Price: 99}}, 99)
@@ -179,6 +217,50 @@ func TestStatusChangeIdempotencyDoesNotCreateDuplicateEventOrNotification(t *tes
 	}
 	if notifs != 2 {
 		t.Fatalf("notification count = %d, want 2 (create + status change)", notifs)
+	}
+}
+
+func TestStatusChangeIdempotencyConcurrentReplay(t *testing.T) {
+	svc := newTestOrderService(t)
+	userID := "status-concurrent-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	order, _, err := svc.CreateOrder(userID, []model.OrderItem{{ProductName: "phone", Quantity: 1, Price: 99}}, 99)
+	if err != nil {
+		t.Fatalf("CreateOrder returned error: %v", err)
+	}
+	key := "status-concurrent-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+
+	const workers = 8
+	var wg sync.WaitGroup
+	orders := make([]*model.Order, workers)
+	notifs := make([]*model.Notification, workers)
+	errs := make([]error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			orders[idx], notifs[idx], errs[idx] = svc.ChangeOrderStatusIdempotent(order.OrderID, model.OrderPaid, nil, key)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("ChangeOrderStatusIdempotent[%d] returned error: %v", i, err)
+		}
+		if orders[i] == nil || notifs[i] == nil {
+			t.Fatalf("ChangeOrderStatusIdempotent[%d] returned nil result", i)
+		}
+		if orders[i].OrderID != orders[0].OrderID || notifs[i].NotifyID != notifs[0].NotifyID {
+			t.Fatalf("replay[%d] changed ids: first=%s/%s got=%s/%s",
+				i, orders[0].OrderID, notifs[0].NotifyID, orders[i].OrderID, notifs[i].NotifyID)
+		}
+	}
+	events, err := svc.Store().ListOrderStatusEvents(order.OrderID)
+	if err != nil {
+		t.Fatalf("ListOrderStatusEvents returned error: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("status event count for order = %d, want 1", len(events))
 	}
 }
 
@@ -260,6 +342,20 @@ func TestPlatformStatsUsePersistedNotificationAckAndLatency(t *testing.T) {
 	}
 	if acks != 1 {
 		t.Fatalf("ack count = %d, want 1 after idempotent replay", acks)
+	}
+}
+
+func TestCampaignTokenBucketRateLimit(t *testing.T) {
+	svc := &OrderNotifyService{}
+	if !svc.tryAcquireCampaignToken("camp-rate", 1) {
+		t.Fatal("first token was not available")
+	}
+	if svc.tryAcquireCampaignToken("camp-rate", 1) {
+		t.Fatal("second token should be rate limited")
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if !svc.tryAcquireCampaignToken("camp-rate", 1) {
+		t.Fatal("token was not refilled")
 	}
 }
 

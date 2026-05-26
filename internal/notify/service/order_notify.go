@@ -14,6 +14,7 @@ import (
 	"github.com/Terry-Mao/goim/internal/notify/model"
 	"github.com/Terry-Mao/goim/internal/notify/policy"
 	"github.com/Terry-Mao/goim/internal/notify/store"
+	"github.com/Terry-Mao/goim/pkg/metrics"
 )
 
 var (
@@ -58,7 +59,6 @@ func (NoopDeviceResolver) ResolveDevices(string) ([]string, string, error) {
 
 // OrderNotifyService handles order status change notifications.
 type OrderNotifyService struct {
-	mu                  sync.Mutex
 	pushClient          *PushClient
 	stats               *StatsCollector
 	store               *store.SQLStore
@@ -183,9 +183,6 @@ func (s *OrderNotifyService) CreateOrder(userID string, items []model.OrderItem,
 
 // CreateOrderIdempotent creates an order and replays the first response for a repeated key.
 func (s *OrderNotifyService) CreateOrderIdempotent(userID string, items []model.OrderItem, total float64, idempotencyKey string) (*model.Order, *model.Notification, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	var replay struct {
 		Order        *model.Order        `json:"order"`
 		Notification *model.Notification `json:"notification"`
@@ -216,6 +213,13 @@ func (s *OrderNotifyService) CreateOrderIdempotent(userID string, items []model.
 		return nil, nil, err
 	}
 	if err := s.store.CreateOrderNotificationOutbox(order, notif, outbox, "order_create", idempotencyKey, "order", order.OrderID, snapshot); err != nil {
+		if store.IsDuplicateKey(err) {
+			if ok, replayErr := s.loadIdempotencyAfterWriteConflict("order_create", idempotencyKey, &replay); replayErr != nil {
+				return nil, nil, replayErr
+			} else if ok {
+				return replay.Order, replay.Notification, nil
+			}
+		}
 		return nil, nil, fmt.Errorf("create order transaction: %w", err)
 	}
 	s.incrementScenarioRun(notif.ScenarioRunID, 1, 1, 0, 0, 0, 0)
@@ -229,9 +233,6 @@ func (s *OrderNotifyService) ChangeOrderStatus(orderID string, newStatus model.O
 
 // ChangeOrderStatusIdempotent updates status and replays the first response for a repeated key.
 func (s *OrderNotifyService) ChangeOrderStatusIdempotent(orderID string, newStatus model.OrderStatus, extra map[string]string, idempotencyKey string) (*model.Order, *model.Notification, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	var replay struct {
 		Order        *model.Order        `json:"order"`
 		Notification *model.Notification `json:"notification"`
@@ -275,6 +276,20 @@ func (s *OrderNotifyService) ChangeOrderStatusIdempotent(orderID string, newStat
 		return nil, nil, err
 	}
 	if err := s.store.ChangeOrderNotificationOutbox(order, event, notif, outbox, "order_status_change", idempotencyKey, "order_status_event", event.EventID, snapshot); err != nil {
+		if store.IsDuplicateKey(err) || errors.Is(err, store.ErrOrderStateChanged) {
+			if ok, replayErr := s.loadIdempotencyAfterWriteConflict("order_status_change", idempotencyKey, &replay); replayErr != nil {
+				return nil, nil, replayErr
+			} else if ok {
+				return replay.Order, replay.Notification, nil
+			}
+		}
+		if errors.Is(err, store.ErrOrderStateChanged) {
+			if current, getErr := s.store.GetOrder(orderID); getErr == nil {
+				if transitionErr := model.ValidTransition(current.Status, newStatus); transitionErr != nil {
+					return nil, nil, &transitionError{err: transitionErr}
+				}
+			}
+		}
 		return nil, nil, err
 	}
 	s.incrementScenarioRun(notif.ScenarioRunID, 0, 1, 0, 0, 0, 0)
@@ -631,9 +646,6 @@ func (s *OrderNotifyService) SendCustomNotification(userID string, nType model.N
 
 // SendCustomNotificationIdempotent creates a custom notification with idempotency support.
 func (s *OrderNotifyService) SendCustomNotificationIdempotent(userID string, nType model.NotifyType, orderID, title, content, idempotencyKey string) (*model.Notification, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	var replay model.Notification
 	if ok, err := s.loadIdempotency("logistics_update", idempotencyKey, &replay); err != nil {
 		return nil, err
@@ -674,6 +686,13 @@ func (s *OrderNotifyService) SendCustomNotificationIdempotent(userID string, nTy
 		return nil, err
 	}
 	if err := s.store.CreateNotificationOutbox(notif, outbox, "logistics_update", idempotencyKey, "notification", notif.NotifyID, snapshot); err != nil {
+		if store.IsDuplicateKey(err) {
+			if ok, replayErr := s.loadIdempotencyAfterWriteConflict("logistics_update", idempotencyKey, &replay); replayErr != nil {
+				return nil, replayErr
+			} else if ok {
+				return &replay, nil
+			}
+		}
 		return nil, err
 	}
 	s.incrementScenarioRun(notif.ScenarioRunID, 0, 1, 0, 0, 0, 0)
@@ -691,9 +710,36 @@ func (s *OrderNotifyService) CreateFlashSaleBroadcastNotification(campaignID, ti
 }
 
 func (s *OrderNotifyService) createFlashSaleNotificationForTarget(userID, campaignID, title, content string) (*model.Notification, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	notif := s.buildFlashSaleNotification(userID, campaignID, title, content)
+	outbox, err := s.createOutbox(notif)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.store.CreateNotificationOutbox(notif, outbox, "", "", "notification", notif.NotifyID, nil); err != nil {
+		return nil, err
+	}
+	s.incrementScenarioRun(notif.ScenarioRunID, 0, 1, 0, 0, 0, 0)
+	return notif, nil
+}
 
+// CreateCampaignAudienceTargetNotification creates notification/outbox rows for one imported campaign target atomically.
+func (s *OrderNotifyService) CreateCampaignAudienceTargetNotification(target *model.CampaignAudienceTarget, title, content string) (*model.Notification, error) {
+	if target == nil {
+		return nil, store.ErrNotFound
+	}
+	notif := s.buildFlashSaleNotification(target.UserID, target.CampaignID, title, content)
+	outbox, err := s.createOutbox(notif)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.store.CreateCampaignAudienceTargetNotification(target, notif, outbox); err != nil {
+		return nil, err
+	}
+	s.incrementScenarioRun(notif.ScenarioRunID, 0, 1, 0, 0, 0, 0)
+	return notif, nil
+}
+
+func (s *OrderNotifyService) buildFlashSaleNotification(userID, campaignID, title, content string) *model.Notification {
 	now := time.Now()
 	p := policy.Resolve("flash_sale", "notify")
 	notif := &model.Notification{
@@ -717,15 +763,7 @@ func (s *OrderNotifyService) createFlashSaleNotificationForTarget(userID, campai
 		TraceID:           generateTraceID(),
 	}
 	s.applyDeviceTargets(notif)
-	outbox, err := s.createOutbox(notif)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.store.CreateNotificationOutbox(notif, outbox, "", "", "notification", notif.NotifyID, nil); err != nil {
-		return nil, err
-	}
-	s.incrementScenarioRun(notif.ScenarioRunID, 0, 1, 0, 0, 0, 0)
-	return notif, nil
+	return notif
 }
 
 // RecordAck records an ACK with only a notification id for backwards compatibility.
@@ -742,9 +780,6 @@ func (s *OrderNotifyService) RecordAckIdempotent(input AckInput, idempotencyKey 
 	if idempotencyKey == "" {
 		idempotencyKey = input.IdempotencyKey
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var replay struct {
 		Recorded bool `json:"recorded"`
@@ -787,6 +822,13 @@ func (s *OrderNotifyService) RecordAckIdempotent(input AckInput, idempotencyKey 
 	}
 	recorded, err := s.store.RecordAckWithIdempotency(ack, "ack", idempotencyKey, "notification_ack", input.NotifyID, nil)
 	if err != nil {
+		if store.IsDuplicateKey(err) {
+			if ok, replayErr := s.loadIdempotencyAfterWriteConflict("ack", idempotencyKey, &replay); replayErr != nil {
+				return false, replayErr
+			} else if ok {
+				return replay.Recorded, nil
+			}
+		}
 		return false, err
 	}
 
@@ -795,6 +837,27 @@ func (s *OrderNotifyService) RecordAckIdempotent(input AckInput, idempotencyKey 
 		s.incrementScenarioRun(notif.ScenarioRunID, 0, 0, 0, 1, 0, 0)
 	}
 	return recorded, nil
+}
+
+// RecordAckBatchIdempotent records a small batch of ACKs. Each item keeps its
+// own idempotency key so partial retries remain safe.
+func (s *OrderNotifyService) RecordAckBatchIdempotent(inputs []AckInput) (int, error) {
+	recordedCount := 0
+	var firstErr error
+	for _, input := range inputs {
+		key := input.IdempotencyKey
+		recorded, err := s.RecordAckIdempotent(input, key)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if recorded {
+			recordedCount++
+		}
+	}
+	return recordedCount, firstErr
 }
 
 func (s *OrderNotifyService) applyDeviceTargets(notif *model.Notification) {
@@ -885,7 +948,22 @@ func (s *OrderNotifyService) loadIdempotency(scope, key string, dst any) (bool, 
 	if err := json.Unmarshal(snapshot, dst); err != nil {
 		return false, err
 	}
+	metrics.NotifyDedupeHitTotal.Inc()
 	return true, nil
+}
+
+func (s *OrderNotifyService) loadIdempotencyAfterWriteConflict(scope, key string, dst any) (bool, error) {
+	if key == "" {
+		return false, nil
+	}
+	for i := 0; i < 5; i++ {
+		ok, err := s.loadIdempotency(scope, key, dst)
+		if err != nil || ok {
+			return ok, err
+		}
+		time.Sleep(time.Duration(i+1) * 10 * time.Millisecond)
+	}
+	return false, nil
 }
 
 func (s *OrderNotifyService) saveIdempotency(scope, key, resourceType, resourceID string, payload any) error {
