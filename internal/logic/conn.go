@@ -231,7 +231,9 @@ func (l *Logic) Receive(c context.Context, mid int64, p *protocol.Proto) (err er
 			return err
 		}
 		// 调用 Router 的 HandleACKWithDevice：设备级 ACK 追踪（向后兼容旧客户端）
-		if _, err := l.routerClient.HandleACKWithDevice(c, &routerpb.HandleACKWithDeviceReq{
+		routerCtx, cancel := l.routerRPCContext(c)
+		defer cancel()
+		if _, err := l.routerClient.HandleACKWithDevice(routerCtx, &routerpb.HandleACKWithDeviceReq{
 			Uid:       mid,
 			MsgId:     ack.MsgID,
 			DeviceId:  ack.DeviceID,

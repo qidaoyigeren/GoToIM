@@ -84,12 +84,14 @@ func (l *Logic) PushMidsDetailed(c context.Context, op int32, mids []int64, msg 
 	for _, mid := range mids {
 		msgID := l.GenerateMsgID()
 		body := wrapAsMsgBody(msgID, mid, msg)
-		reply, e := l.routerClient.RouteByUser(c, &routerpb.RouteByUserReq{
+		routerCtx, cancel := l.routerRPCContext(c)
+		reply, e := l.routerClient.RouteByUser(routerCtx, &routerpb.RouteByUserReq{
 			MsgId: msgID,
 			ToUid: mid,
 			Op:    op,
 			Body:  body,
 		})
+		cancel()
 		result := deliveryResultFromReply(reply, msgID)
 		if e == nil && result.ErrorCode != "" {
 			e = fmt.Errorf("router route by user failed: %s: %s", result.ErrorCode, result.ErrorMessage)
@@ -131,7 +133,9 @@ func (l *Logic) PushRoom(c context.Context, op int32, typ, room string, msg []by
 	roomKey := model.EncodeRoomKey(typ, room)
 	msgID = l.GenerateMsgID()
 	body := wrapAsMsgBody(msgID, 0, msg)
-	_, err = l.routerClient.RouteByRoom(c, &routerpb.RouteByRoomReq{Op: op, RoomKey: roomKey, Body: body})
+	routerCtx, cancel := l.routerRPCContext(c)
+	defer cancel()
+	_, err = l.routerClient.RouteByRoom(routerCtx, &routerpb.RouteByRoomReq{Op: op, RoomKey: roomKey, Body: body})
 	return msgID, err
 }
 
@@ -141,7 +145,9 @@ func (l *Logic) PushRoom(c context.Context, op int32, typ, room string, msg []by
 func (l *Logic) PushAll(c context.Context, op, speed int32, msg []byte) (msgID string, err error) {
 	msgID = l.GenerateMsgID()
 	body := wrapAsMsgBody(msgID, 0, msg)
-	_, err = l.routerClient.RouteBroadcast(c, &routerpb.RouteBroadcastReq{Op: op, Speed: speed, Body: body})
+	routerCtx, cancel := l.routerRPCContext(c)
+	defer cancel()
+	_, err = l.routerClient.RouteBroadcast(routerCtx, &routerpb.RouteBroadcastReq{Op: op, Speed: speed, Body: body})
 	return msgID, err
 }
 

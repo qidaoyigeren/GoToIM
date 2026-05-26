@@ -254,7 +254,9 @@ func (l *Logic) onlineproc() {
 
 // PushToUser pushes a message to a specific user via the Message Router (Phase 2).
 func (l *Logic) PushToUser(c context.Context, msgID string, toUID int64, op int32, body []byte, seq int64) error {
-	reply, err := l.routerClient.RouteByUser(c, &routerpb.RouteByUserReq{
+	routerCtx, cancel := l.routerRPCContext(c)
+	defer cancel()
+	reply, err := l.routerClient.RouteByUser(routerCtx, &routerpb.RouteByUserReq{
 		MsgId: msgID,
 		ToUid: toUID,
 		Op:    op,
@@ -272,7 +274,9 @@ func (l *Logic) PushToUser(c context.Context, msgID string, toUID int64, op int3
 
 // AckMessage handles a message ACK from a client.
 func (l *Logic) AckMessage(c context.Context, mid int64, msgID string) error {
-	_, err := l.routerClient.HandleACK(c, &routerpb.HandleACKReq{Uid: mid, MsgId: msgID})
+	routerCtx, cancel := l.routerRPCContext(c)
+	defer cancel()
+	_, err := l.routerClient.HandleACK(routerCtx, &routerpb.HandleACKReq{Uid: mid, MsgId: msgID})
 	return err
 }
 
