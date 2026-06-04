@@ -91,8 +91,7 @@ func TestReceive_FullFlow(t *testing.T) {
 	}
 
 	// Verify: removed from offline queue
-	size, _ := msgDAO.GetOfflineQueueSize(ctx, 200)
-	if size != 0 {
+	if size := msgDAO.offlineQueueLen(200); size != 0 {
 		t.Errorf("after ACK: offline queue size = %d, want 0", size)
 	}
 

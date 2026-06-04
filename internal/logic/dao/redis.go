@@ -16,8 +16,6 @@ import (
 )
 
 const (
-	_prefixMidServer     = "mid_%d"               // mid -> key:server
-	_prefixKeyServer     = "key_%s"               // key -> server
 	_prefixServerOnline  = "ol_%s"                // server -> online
 	_prefixSession       = "session:%s"           // sid -> session metadata
 	_prefixUserSessions  = "user_sessions:%d"     // uid -> {sid: device_info}
@@ -27,7 +25,6 @@ const (
 	_prefixUserMsgs      = "user_msgs:%d"         // uid -> ZSET of msg_id by authoritative seq
 	_prefixOfflineQueue  = "offline:%d"           // uid -> ZSET of msg_id:seq
 	_prefixKeySession    = "key_sid:%s"           // connection key -> sid (reverse index for O(1) heartbeat)
-	_prefixRetryCnt      = "retry_cnt:%s:%d:%d"   // topic:partition:offset -> retry count
 	_prefixDeviceACKs    = "msg_acks:%s"          // msg_id -> device ACK records (hash)
 	_prefixMsgAttempt    = "msg_attempt:%s"       // msg_id -> in-flight delivery attempt lock
 	_userMsgsTTL         = 30 * 24 * 3600
@@ -48,14 +45,6 @@ if redis.call("GET", KEYS[1]) == ARGV[1] then
 end
 return 0
 `)
-
-func keyMidServer(mid int64) string {
-	return fmt.Sprintf(_prefixMidServer, mid)
-}
-
-func keyKeyServer(key string) string {
-	return fmt.Sprintf(_prefixKeyServer, key)
-}
 
 func keyServerOnline(key string) string {
 	return fmt.Sprintf(_prefixServerOnline, key)
@@ -106,152 +95,6 @@ func (d *Dao) pingRedis(c context.Context) (err error) {
 	conn := d.redis.Get()
 	_, err = conn.Do("SET", "PING", "PONG")
 	conn.Close()
-	return
-}
-
-// AddMapping add a mapping.
-// Mapping:
-//
-//	mid -> key_server
-//	key -> server
-func (d *Dao) AddMapping(c context.Context, mid int64, key, server string) (err error) {
-	conn := d.redis.Get()
-	defer conn.Close()
-	var n = 2
-	if mid > 0 {
-		if err = conn.Send("HSET", keyMidServer(mid), key, server); err != nil {
-			log.Errorf("conn.Send(HSET %d,%s,%s) error(%v)", mid, server, key, err)
-			return
-		}
-		if err = conn.Send("EXPIRE", keyMidServer(mid), d.redisExpire); err != nil {
-			log.Errorf("conn.Send(EXPIRE %d,%s,%s) error(%v)", mid, key, server, err)
-			return
-		}
-		n += 2
-	}
-	if err = conn.Send("SET", keyKeyServer(key), server); err != nil {
-		log.Errorf("conn.Send(HSET %d,%s,%s) error(%v)", mid, server, key, err)
-		return
-	}
-	if err = conn.Send("EXPIRE", keyKeyServer(key), d.redisExpire); err != nil {
-		log.Errorf("conn.Send(EXPIRE %d,%s,%s) error(%v)", mid, key, server, err)
-		return
-	}
-	if err = conn.Flush(); err != nil {
-		log.Errorf("conn.Flush() error(%v)", err)
-		return
-	}
-	for i := 0; i < n; i++ {
-		if _, err = conn.Receive(); err != nil {
-			log.Errorf("conn.Receive() error(%v)", err)
-			return
-		}
-	}
-	return
-}
-
-// ExpireMapping expire a mapping.
-func (d *Dao) ExpireMapping(c context.Context, mid int64, key string) (has bool, err error) {
-	conn := d.redis.Get()
-	defer conn.Close()
-	var n = 1
-	if mid > 0 {
-		if err = conn.Send("EXPIRE", keyMidServer(mid), d.redisExpire); err != nil {
-			log.Errorf("conn.Send(EXPIRE %d,%s) error(%v)", mid, key, err)
-			return
-		}
-		n++
-	}
-	if err = conn.Send("EXPIRE", keyKeyServer(key), d.redisExpire); err != nil {
-		log.Errorf("conn.Send(EXPIRE %d,%s) error(%v)", mid, key, err)
-		return
-	}
-	if err = conn.Flush(); err != nil {
-		log.Errorf("conn.Flush() error(%v)", err)
-		return
-	}
-	for i := 0; i < n; i++ {
-		if has, err = redis.Bool(conn.Receive()); err != nil {
-			log.Errorf("conn.Receive() error(%v)", err)
-			return
-		}
-	}
-	return
-}
-
-// DelMapping del a mapping.
-func (d *Dao) DelMapping(c context.Context, mid int64, key, server string) (has bool, err error) {
-	conn := d.redis.Get()
-	defer conn.Close()
-	n := 1
-	if mid > 0 {
-		if err = conn.Send("HDEL", keyMidServer(mid), key); err != nil {
-			log.Errorf("conn.Send(HDEL %d,%s,%s) error(%v)", mid, key, server, err)
-			return
-		}
-		n++
-	}
-	if err = conn.Send("DEL", keyKeyServer(key)); err != nil {
-		log.Errorf("conn.Send(HDEL %d,%s,%s) error(%v)", mid, key, server, err)
-		return
-	}
-	if err = conn.Flush(); err != nil {
-		log.Errorf("conn.Flush() error(%v)", err)
-		return
-	}
-	for i := 0; i < n; i++ {
-		if has, err = redis.Bool(conn.Receive()); err != nil {
-			log.Errorf("conn.Receive() error(%v)", err)
-			return
-		}
-	}
-	return
-}
-
-// ServersByKeys get a server by key.
-func (d *Dao) ServersByKeys(c context.Context, keys []string) (res []string, err error) {
-	conn := d.redis.Get()
-	defer conn.Close()
-	var args []interface{}
-	for _, key := range keys {
-		args = append(args, keyKeyServer(key))
-	}
-	if res, err = redis.Strings(conn.Do("MGET", args...)); err != nil {
-		log.Errorf("conn.Do(MGET %v) error(%v)", args, err)
-	}
-	return
-}
-
-// KeysByMids get a key server by mid.
-func (d *Dao) KeysByMids(c context.Context, mids []int64) (ress map[string]string, olMids []int64, err error) {
-	conn := d.redis.Get()
-	defer conn.Close()
-	ress = make(map[string]string)
-	for _, mid := range mids {
-		if err = conn.Send("HGETALL", keyMidServer(mid)); err != nil {
-			log.Errorf("conn.Do(HGETALL %d) error(%v)", mid, err)
-			return
-		}
-	}
-	if err = conn.Flush(); err != nil {
-		log.Errorf("conn.Flush() error(%v)", err)
-		return
-	}
-	for idx := 0; idx < len(mids); idx++ {
-		var (
-			res map[string]string
-		)
-		if res, err = redis.StringMap(conn.Receive()); err != nil {
-			log.Errorf("conn.Receive() error(%v)", err)
-			return
-		}
-		if len(res) > 0 {
-			olMids = append(olMids, mids[idx])
-		}
-		for k, v := range res {
-			ress[k] = v
-		}
-	}
 	return
 }
 
@@ -678,11 +521,6 @@ func (d *Dao) UpdateMessageStatus(c context.Context, msgID, status string) (err 
 
 // ============ Sequence Operations ============
 
-// IncrUserSeq increments and returns the user's message sequence number.
-func (d *Dao) IncrUserSeq(c context.Context, uid int64) (seq int64, err error) {
-	return d.IncrUserSeqBy(c, uid, 1)
-}
-
 // IncrUserSeqBy increments and returns the user's latest authoritative seq.
 func (d *Dao) IncrUserSeqBy(c context.Context, uid int64, delta int64) (seq int64, err error) {
 	if delta <= 0 {
@@ -773,7 +611,26 @@ func (d *Dao) AddToOfflineQueue(c context.Context, uid int64, msgID string, seq 
 	return
 }
 
+// RemoveFromOfflineQueue removes a message from the offline queue.
+func (d *Dao) RemoveFromOfflineQueue(c context.Context, uid int64, msgID string) (err error) {
+	conn := d.redis.Get()
+	defer conn.Close()
+	if _, err = conn.Do("ZREM", keyOfflineQueue(uid), msgID); err != nil {
+		log.Errorf("conn.Do(ZREM offline:%d %s) error(%v)", uid, msgID, err)
+	}
+	return
+}
+
+// ============ Test-only utilities (not part of MessageDAO interface) ============
+
+// IncrUserSeq increments and returns the user's message sequence number by 1.
+// Convenience wrapper around IncrUserSeqBy. Used in tests.
+func (d *Dao) IncrUserSeq(c context.Context, uid int64) (seq int64, err error) {
+	return d.IncrUserSeqBy(c, uid, 1)
+}
+
 // GetOfflineQueue gets messages from the offline queue with seq > lastSeq.
+// Used in integration tests.
 func (d *Dao) GetOfflineQueue(c context.Context, uid int64, lastSeq float64, limit int) (msgIDs []string, err error) {
 	conn := d.redis.Get()
 	defer conn.Close()
@@ -788,17 +645,8 @@ func (d *Dao) GetOfflineQueue(c context.Context, uid int64, lastSeq float64, lim
 	return
 }
 
-// RemoveFromOfflineQueue removes a message from the offline queue.
-func (d *Dao) RemoveFromOfflineQueue(c context.Context, uid int64, msgID string) (err error) {
-	conn := d.redis.Get()
-	defer conn.Close()
-	if _, err = conn.Do("ZREM", keyOfflineQueue(uid), msgID); err != nil {
-		log.Errorf("conn.Do(ZREM offline:%d %s) error(%v)", uid, msgID, err)
-	}
-	return
-}
-
 // GetOfflineQueueSize returns the number of offline messages for a user.
+// Used in integration tests.
 func (d *Dao) GetOfflineQueueSize(c context.Context, uid int64) (size int64, err error) {
 	conn := d.redis.Get()
 	defer conn.Close()
@@ -806,80 +654,6 @@ func (d *Dao) GetOfflineQueueSize(c context.Context, uid int64) (size int64, err
 		log.Errorf("conn.Do(ZCARD offline:%d) error(%v)", uid, err)
 	}
 	return
-}
-
-// CountActiveUsers returns the number of users that currently have at least one
-// active session hash entry.
-func (d *Dao) CountActiveUsers(c context.Context) (count int64, err error) {
-	return d.countNonEmptyKeys(c, "user_sessions:*", "HLEN")
-}
-
-// CountOfflinePending returns the total number of messages pending in all user
-// offline queues.
-func (d *Dao) CountOfflinePending(c context.Context) (count int64, err error) {
-	return d.countNonEmptyKeys(c, "offline:*", "ZCARD")
-}
-
-func (d *Dao) countNonEmptyKeys(c context.Context, pattern, countCommand string) (count int64, err error) {
-	conn := d.redis.Get()
-	defer conn.Close()
-
-	cursor := 0
-	for {
-		select {
-		case <-c.Done():
-			return count, c.Err()
-		default:
-		}
-
-		var keys []string
-		values, scanErr := redis.Values(conn.Do("SCAN", cursor, "MATCH", pattern, "COUNT", 100))
-		if scanErr != nil {
-			log.Errorf("conn.Do(SCAN %s) error(%v)", pattern, scanErr)
-			return count, scanErr
-		}
-		if _, scanErr = redis.Scan(values, &cursor, &keys); scanErr != nil {
-			log.Errorf("redis.Scan(%s) error(%v)", pattern, scanErr)
-			return count, scanErr
-		}
-
-		for _, key := range keys {
-			n, countErr := redis.Int64(conn.Do(countCommand, key))
-			if countErr != nil {
-				log.Errorf("conn.Do(%s %s) error(%v)", countCommand, key, countErr)
-				return count, countErr
-			}
-			if countCommand == "HLEN" {
-				if n > 0 {
-					count++
-				}
-			} else {
-				count += n
-			}
-		}
-		if cursor == 0 {
-			return count, nil
-		}
-	}
-}
-
-// ============ Retry Queue Operations ============
-
-// IncrMessageRetryCount atomically increments the retry counter stored in the
-// message status hash. Returns the new count value.
-func (d *Dao) IncrMessageRetryCount(c context.Context, msgID string) (int64, error) {
-	conn := d.redis.Get()
-	defer conn.Close()
-	return redis.Int64(conn.Do("HINCRBY", keyMsgStatus(msgID), "retry_cnt", 1))
-}
-
-// Incr increments the Kafka-offset-based retry counter. Implements mq.RetryCounter.
-// The counter auto-expires after 1 hour to prevent unbounded key accumulation.
-func (d *Dao) Incr(ctx context.Context, topic string, partition int32, offset int64) (int64, error) {
-	conn := d.redis.Get()
-	defer conn.Close()
-	key := fmt.Sprintf(_prefixRetryCnt, topic, partition, offset)
-	return redis.Int64(retryCounterIncrScript.Do(conn, key, 3600))
 }
 
 // ============ Device-Level ACK Operations ============
@@ -909,18 +683,4 @@ func (d *Dao) RecordDeviceACK(c context.Context, msgID, deviceID, sessionID stri
 		}
 	}
 	return nil
-}
-
-// GetDeviceACKs returns all device ACK records for a message.
-func (d *Dao) GetDeviceACKs(c context.Context, msgID string) (map[string]string, error) {
-	conn := d.redis.Get()
-	defer conn.Close()
-	res, err := redis.StringMap(conn.Do("HGETALL", keyDeviceACKs(msgID)))
-	if err != nil {
-		if err == redis.ErrNil {
-			return nil, nil
-		}
-		log.Errorf("conn.Do(HGETALL %s) error(%v)", keyDeviceACKs(msgID), err)
-	}
-	return res, err
 }

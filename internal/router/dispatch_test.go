@@ -199,10 +199,6 @@ func (m *mockMessageDAO) UpdateMessageStatus(ctx context.Context, msgID, status 
 	return nil
 }
 
-func (m *mockMessageDAO) IncrUserSeq(ctx context.Context, uid int64) (int64, error) {
-	return m.IncrUserSeqBy(ctx, uid, 1)
-}
-
 func (m *mockMessageDAO) IncrUserSeqBy(ctx context.Context, uid int64, delta int64) (int64, error) {
 	if delta <= 0 {
 		delta = 1
@@ -238,25 +234,12 @@ func (m *mockMessageDAO) AddToOfflineQueue(ctx context.Context, uid int64, msgID
 	return nil
 }
 
-func (m *mockMessageDAO) GetOfflineQueue(ctx context.Context, uid int64, lastSeq float64, limit int) ([]string, error) {
-	return nil, nil
-}
-
 func (m *mockMessageDAO) RemoveFromOfflineQueue(ctx context.Context, uid int64, msgID string) error {
 	return nil
 }
 
-func (m *mockMessageDAO) GetOfflineQueueSize(ctx context.Context, uid int64) (int64, error) {
-	return 0, nil
-}
-func (m *mockMessageDAO) IncrMessageRetryCount(ctx context.Context, msgID string) (int64, error) {
-	return 1, nil
-}
 func (m *mockMessageDAO) RecordDeviceACK(ctx context.Context, msgID, deviceID, sessionID string, ackTime int64) error {
 	return nil
-}
-func (m *mockMessageDAO) GetDeviceACKs(ctx context.Context, msgID string) (map[string]string, error) {
-	return nil, nil
 }
 func (m *mockMessageDAO) AcquireDeliveryAttemptLock(ctx context.Context, msgID, token string, ttl time.Duration) (bool, error) {
 	if m.attemptLocks[msgID] != "" {
@@ -272,35 +255,14 @@ func (m *mockMessageDAO) ReleaseDeliveryAttemptLock(ctx context.Context, msgID, 
 	return nil
 }
 
-// Phase 2: device cursor and merge index mocks
+// Phase 2: device cursor mocks
 func (m *mockMessageDAO) GetDeviceCursor(ctx context.Context, uid int64, deviceID string) (int64, error) {
 	return 0, nil
-}
-func (m *mockMessageDAO) SetDeviceCursor(ctx context.Context, uid int64, deviceID string, seq int64) error {
-	return nil
 }
 func (m *mockMessageDAO) GetOfflineMessagesByDeviceCursor(ctx context.Context, uid int64, deviceID string, limit int) ([]string, error) {
 	return nil, nil
 }
 func (m *mockMessageDAO) AdvanceDeviceCursor(ctx context.Context, uid int64, deviceID string, seq int64) error {
-	return nil
-}
-func (m *mockMessageDAO) SetMergeIndex(ctx context.Context, uid int64, bizType, bizID, msgID string) error {
-	return nil
-}
-func (m *mockMessageDAO) GetMergeIndex(ctx context.Context, uid int64, bizType, bizID string) (string, error) {
-	return "", nil
-}
-func (m *mockMessageDAO) StoreOfflineMsgPayload(ctx context.Context, msgID string, data []byte) error {
-	return nil
-}
-func (m *mockMessageDAO) GetOfflineMsgPayload(ctx context.Context, msgID string) ([]byte, error) {
-	return nil, nil
-}
-func (m *mockMessageDAO) UpdateOfflineMsgPayload(ctx context.Context, msgID string, data []byte) error {
-	return nil
-}
-func (m *mockMessageDAO) UpdateOfflineMsgTime(ctx context.Context, uid int64, msgID string, newSeq float64) error {
 	return nil
 }
 

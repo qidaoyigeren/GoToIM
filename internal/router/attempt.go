@@ -100,32 +100,3 @@ func (r *AttemptRecorder) Record(ctx context.Context, msgID, channel, status str
 		log.Warningf("attempt record failed for %s: %v", key, err)
 	}
 }
-
-// GetAttempts returns all delivery attempts for a message, ordered by attempt_no.
-// Returns nil on error (best-effort read).
-func (r *AttemptRecorder) GetAttempts(ctx context.Context, msgID string) []DeliveryAttempt {
-	if r.pool == nil || msgID == "" {
-		return nil
-	}
-	conn := r.pool.Get()
-	defer conn.Close()
-	var attempts []DeliveryAttempt
-	for attemptNo := 1; ; attemptNo++ {
-		key := keyAttempt(msgID, attemptNo)
-		data, err := redis.String(conn.Do("GET", key))
-		if err == redis.ErrNil {
-			break
-		}
-		if err != nil {
-			log.Warningf("attempt read failed for %s: %v", key, err)
-			break
-		}
-		var a DeliveryAttempt
-		if err := json.Unmarshal([]byte(data), &a); err != nil {
-			log.Warningf("attempt unmarshal failed for %s: %v", key, err)
-			continue
-		}
-		attempts = append(attempts, a)
-	}
-	return attempts
-}

@@ -94,10 +94,6 @@ func (m *recvMockMessageDAO) UpdateMessageStatus(_ context.Context, msgID, statu
 	return nil
 }
 
-func (m *recvMockMessageDAO) IncrUserSeq(_ context.Context, uid int64) (int64, error) {
-	return m.IncrUserSeqBy(context.Background(), uid, 1)
-}
-
 func (m *recvMockMessageDAO) IncrUserSeqBy(_ context.Context, uid int64, delta int64) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -161,21 +157,6 @@ func (m *recvMockMessageDAO) AddToOfflineQueue(_ context.Context, uid int64, msg
 	return nil
 }
 
-func (m *recvMockMessageDAO) GetOfflineQueue(_ context.Context, uid int64, lastSeq float64, limit int) ([]string, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var result []string
-	for _, e := range m.offlineQueue[uid] {
-		if e.seq > lastSeq {
-			result = append(result, e.msgID)
-			if len(result) >= limit {
-				break
-			}
-		}
-	}
-	return result, nil
-}
-
 func (m *recvMockMessageDAO) RemoveFromOfflineQueue(_ context.Context, uid int64, msgID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -189,50 +170,25 @@ func (m *recvMockMessageDAO) RemoveFromOfflineQueue(_ context.Context, uid int64
 	return nil
 }
 
-func (m *recvMockMessageDAO) GetOfflineQueueSize(_ context.Context, uid int64) (int64, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return int64(len(m.offlineQueue[uid])), nil
-}
-func (m *recvMockMessageDAO) IncrMessageRetryCount(_ context.Context, msgID string) (int64, error) {
-	return 1, nil
-}
 func (m *recvMockMessageDAO) RecordDeviceACK(_ context.Context, msgID, deviceID, sessionID string, ackTime int64) error {
 	return nil
 }
-func (m *recvMockMessageDAO) GetDeviceACKs(_ context.Context, msgID string) (map[string]string, error) {
-	return nil, nil
+
+// offlineQueueLen is a test-only helper (not part of MessageDAO interface).
+func (m *recvMockMessageDAO) offlineQueueLen(uid int64) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.offlineQueue[uid])
 }
 
 // Phase 2 mocks
 func (m *recvMockMessageDAO) GetDeviceCursor(_ context.Context, uid int64, deviceID string) (int64, error) {
 	return 0, nil
 }
-func (m *recvMockMessageDAO) SetDeviceCursor(_ context.Context, uid int64, deviceID string, seq int64) error {
-	return nil
-}
 func (m *recvMockMessageDAO) GetOfflineMessagesByDeviceCursor(_ context.Context, uid int64, deviceID string, limit int) ([]string, error) {
 	return nil, nil
 }
 func (m *recvMockMessageDAO) AdvanceDeviceCursor(_ context.Context, uid int64, deviceID string, seq int64) error {
-	return nil
-}
-func (m *recvMockMessageDAO) SetMergeIndex(_ context.Context, uid int64, bizType, bizID, msgID string) error {
-	return nil
-}
-func (m *recvMockMessageDAO) GetMergeIndex(_ context.Context, uid int64, bizType, bizID string) (string, error) {
-	return "", nil
-}
-func (m *recvMockMessageDAO) StoreOfflineMsgPayload(_ context.Context, msgID string, data []byte) error {
-	return nil
-}
-func (m *recvMockMessageDAO) GetOfflineMsgPayload(_ context.Context, msgID string) ([]byte, error) {
-	return nil, nil
-}
-func (m *recvMockMessageDAO) UpdateOfflineMsgPayload(_ context.Context, msgID string, data []byte) error {
-	return nil
-}
-func (m *recvMockMessageDAO) UpdateOfflineMsgTime(_ context.Context, uid int64, msgID string, newSeq float64) error {
 	return nil
 }
 

@@ -19,34 +19,18 @@ type MessageDAO interface {
 	SetMessageStatusNX(ctx context.Context, msgID, field string, value interface{}) (bool, error)
 	GetMessageStatus(ctx context.Context, msgID string) (map[string]string, error)
 	UpdateMessageStatus(ctx context.Context, msgID, status string) error
-	IncrUserSeq(ctx context.Context, uid int64) (int64, error)
 	IncrUserSeqBy(ctx context.Context, uid int64, delta int64) (int64, error)
 	GetUserMaxSeq(ctx context.Context, uid int64) (int64, error)
 	AddUserMessage(ctx context.Context, uid int64, msgID string, seq int64) error
 	GetUserMessagesAfterSeq(ctx context.Context, uid int64, lastSeq int64, limit int) ([]string, error)
 	AddToOfflineQueue(ctx context.Context, uid int64, msgID string, seq float64) error
-	GetOfflineQueue(ctx context.Context, uid int64, lastSeq float64, limit int) ([]string, error)
 	RemoveFromOfflineQueue(ctx context.Context, uid int64, msgID string) error
-	GetOfflineQueueSize(ctx context.Context, uid int64) (int64, error)
-	// IncrMessageRetryCount atomically increments the retry counter for a message.
-	// Returns the new count. Uses the message's Redis status key.
-	IncrMessageRetryCount(ctx context.Context, msgID string) (int64, error)
 	// RecordDeviceACK stores a device-level ACK record for a message.
 	RecordDeviceACK(ctx context.Context, msgID, deviceID, sessionID string, ackTime int64) error
-	// GetDeviceACKs returns all device ACK records for a message.
-	GetDeviceACKs(ctx context.Context, msgID string) (map[string]string, error)
 	// Phase 2: device-level cursor operations
 	GetDeviceCursor(ctx context.Context, uid int64, deviceID string) (int64, error)
-	SetDeviceCursor(ctx context.Context, uid int64, deviceID string, seq int64) error
 	GetOfflineMessagesByDeviceCursor(ctx context.Context, uid int64, deviceID string, limit int) ([]string, error)
 	AdvanceDeviceCursor(ctx context.Context, uid int64, deviceID string, seq int64) error
-	// Phase 2: merge index operations
-	SetMergeIndex(ctx context.Context, uid int64, bizType, bizID, msgID string) error
-	GetMergeIndex(ctx context.Context, uid int64, bizType, bizID string) (string, error)
-	StoreOfflineMsgPayload(ctx context.Context, msgID string, data []byte) error
-	GetOfflineMsgPayload(ctx context.Context, msgID string) ([]byte, error)
-	UpdateOfflineMsgPayload(ctx context.Context, msgID string, data []byte) error
-	UpdateOfflineMsgTime(ctx context.Context, uid int64, msgID string, newSeq float64) error
 }
 
 // PushDAO is the interface for Kafka push operations.

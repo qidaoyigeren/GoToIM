@@ -98,8 +98,7 @@ func TestPushService_PushToUser_Offline(t *testing.T) {
 	pushDAO.mu.Unlock()
 
 	// Should be in offline queue
-	size, _ := msgDAO.GetOfflineQueueSize(ctx, 1001)
-	if size != 1 {
+	if size := msgDAO.offlineQueueLen(1001); size != 1 {
 		t.Errorf("offline queue size = %d, want 1", size)
 	}
 }

@@ -30,8 +30,7 @@ func TestAckService_HandleAck(t *testing.T) {
 	}
 
 	// Verify removed from offline queue
-	size, _ := mock.GetOfflineQueueSize(ctx, 200)
-	if size != 0 {
+	if size := mock.offlineQueueLen(200); size != 0 {
 		t.Errorf("offline queue size = %d, want 0", size)
 	}
 }

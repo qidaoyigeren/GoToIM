@@ -8,6 +8,8 @@ import (
 	"github.com/gomodule/redigo/redis"
 )
 
+const _prefixRetryCnt = "retry_cnt:%s:%d:%d" // topic:partition:offset -> retry count
+
 var retryCounterIncrScript = redis.NewScript(1, `
 local n = redis.call("INCR", KEYS[1])
 redis.call("EXPIRE", KEYS[1], ARGV[1])
