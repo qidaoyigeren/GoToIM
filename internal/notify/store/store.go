@@ -529,8 +529,8 @@ func (s *SQLStore) migrateDateTimeCompatibility(ctx context.Context) error {
 func (s *SQLStore) backfillDateTimeMirror(ctx context.Context, mirror dateTimeMirrorColumn) error {
 	stmt := fmt.Sprintf(`UPDATE %s
 		SET %s = COALESCE(
-			STR_TO_DATE(REPLACE(REPLACE(%s, 'T', ' '), 'Z', ''), '%%Y-%%m-%%d %%H:%%i:%%s.%%f'),
-			STR_TO_DATE(REPLACE(REPLACE(%s, 'T', ' '), 'Z', ''), '%%Y-%%m-%%d %%H:%%i:%%s')
+			STR_TO_DATE(LEFT(REPLACE(REPLACE(%s, 'T', ' '), 'Z', ''), 26), '%%Y-%%m-%%d %%H:%%i:%%s.%%f'),
+			STR_TO_DATE(LEFT(REPLACE(REPLACE(%s, 'T', ' '), 'Z', ''), 26), '%%Y-%%m-%%d %%H:%%i:%%s')
 		)
 		WHERE %s IS NULL AND %s IS NOT NULL AND %s <> ''`,
 		quoteIdent(mirror.table), quoteIdent(mirror.target), quoteIdent(mirror.source),
