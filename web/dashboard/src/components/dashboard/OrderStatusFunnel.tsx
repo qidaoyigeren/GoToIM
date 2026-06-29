@@ -15,26 +15,26 @@ const statusColors: Record<OrderStatus, string> = {
   delivery_failed: '#ec4899',
 }
 
-const order: OrderStatus[] = ['created', 'paid', 'confirmed', 'shipped', 'delivered']
+const order: OrderStatus[] = ['created', 'confirmed', 'shipped', 'delivered']
 
 export default function OrderStatusFunnel() {
   const orders = useOrderStore((s) => s.orders) ?? EMPTY_ORDERS
 
   const data = useMemo(() => {
     const counts: Record<string, number> = {}
-    orders.forEach((o) => {
-      counts[o.status] = (counts[o.status] || 0) + 1
+    orders.forEach((item) => {
+      counts[item.status] = (counts[item.status] || 0) + 1
     })
-    return order.map((s) => ({
-      name: ORDER_STATUS_LABELS[s],
-      value: counts[s] || 0,
-      color: statusColors[s],
+    return order.map((status) => ({
+      name: ORDER_STATUS_LABELS[status],
+      value: counts[status] || 0,
+      color: statusColors[status],
     }))
   }, [orders])
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-      <h3 className="text-sm font-semibold text-gray-700 mb-4">订单状态分布</h3>
+    <div className="bg-white rounded-lg border border-gray-100 p-5 shadow-sm">
+      <h3 className="text-sm font-semibold text-gray-700 mb-4">购买订单状态分布</h3>
       <ResponsiveContainer width="100%" height={200}>
         <BarChart data={data} barSize={36}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -45,8 +45,8 @@ export default function OrderStatusFunnel() {
             cursor={{ fill: '#f8fafc' }}
           />
           <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-            {data.map((d, i) => (
-              <Cell key={i} fill={d.color} />
+            {data.map((item) => (
+              <Cell key={item.name} fill={item.color} />
             ))}
           </Bar>
         </BarChart>

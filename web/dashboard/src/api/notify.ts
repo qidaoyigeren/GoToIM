@@ -1,11 +1,76 @@
 import { isDemoMode } from '@/config'
 import { notifyClient } from './client'
-import type { Order, OrderStatus } from '@/types/order'
+import type { Merchant, MerchantGroup, Order, OrderStatus, Product, PurchaseOrderInput } from '@/types/order'
 import type { CampaignAudience, CampaignAudienceBatch, CampaignAudienceTarget, DLQBulkResult, DLQFilters, Notification, NotificationAttempt, NotificationDLQ, NotificationTrace, OrderTimeline, RecoveryAudit, ReplayApprovalGate, ReplayApprovalRequest } from '@/types/notification'
 import type { BusinessSLA, PlatformStats, SimulationState } from '@/types/message'
 import type { ApiResponse } from '@/types/api'
 
 type NotifyResponse<T> = ApiResponse<T>
+
+export interface PurchaseOrderResult {
+  order: Order
+  notifications: Notification[]
+  notification: Notification
+  buyer_notification?: Notification
+  merchant_notification?: Notification
+  private_conversation?: import('@/types/chat').ChatConversation
+  support_room?: MerchantGroup
+  delivery_policy: {
+    priority: string
+    ttl_seconds: number
+    ack_policy: string
+    expected_ack_count: number
+  }
+}
+
+export async function listMerchants(): Promise<Merchant[]> {
+  if (isDemoMode()) return demoMerchants()
+  const res = await notifyClient.request<NotifyResponse<Merchant[]>>('/market/merchants')
+  return res.data ?? []
+}
+
+export async function listProducts(merchantId?: string): Promise<Product[]> {
+  if (isDemoMode()) return demoProducts().filter((item) => !merchantId || item.merchant_id === merchantId)
+  const res = await notifyClient.request<NotifyResponse<Product[]>>('/market/products', {
+    params: merchantId ? { merchant_id: merchantId } : undefined,
+  })
+  return res.data ?? []
+}
+
+export async function listMerchantGroups(merchantId?: string): Promise<MerchantGroup[]> {
+  if (isDemoMode()) return demoGroups().filter((item) => !merchantId || item.merchant_id === merchantId)
+  const res = await notifyClient.request<NotifyResponse<MerchantGroup[]>>('/market/groups', {
+    params: merchantId ? { merchant_id: merchantId } : undefined,
+  })
+  return res.data ?? []
+}
+
+export async function createPurchaseOrder(input: PurchaseOrderInput): Promise<PurchaseOrderResult> {
+  if (isDemoMode()) return demoCreatePurchaseOrder(input)
+  const res = await notifyClient.request<NotifyResponse<PurchaseOrderResult>>('/purchase-orders', {
+    method: 'POST',
+    body: input,
+  })
+  return normalizePurchaseOrderResult(res.data)
+}
+
+export async function getPurchaseOrder(orderId: string): Promise<Order> {
+  if (isDemoMode()) {
+    const { mockGetOrder } = await import('./mock')
+    return mockGetOrder(orderId)
+  }
+  const res = await notifyClient.request<NotifyResponse<Order>>(`/purchase-orders/${orderId}`)
+  return res.data
+}
+
+export async function getUserPurchaseOrders(userId: string): Promise<Order[]> {
+  if (isDemoMode()) {
+    const { mockGetUserOrders } = await import('./mock')
+    return mockGetUserOrders(userId)
+  }
+  const res = await notifyClient.request<NotifyResponse<Order[]>>(`/purchase-orders/user/${userId}`)
+  return res.data ?? []
+}
 
 export async function createOrder(
   userId: string,
@@ -118,6 +183,8 @@ export async function sendAck(notifyId: string): Promise<boolean> {
 
 export async function startSimulation(mode: string, qps: number, users: number): Promise<void> {
   if (isDemoMode()) {
+    const { startMockSimulation } = await import('./mock')
+    startMockSimulation(mode, qps, users)
     return
   }
   await notifyClient.request('/simulate/start', {
@@ -128,6 +195,8 @@ export async function startSimulation(mode: string, qps: number, users: number):
 
 export async function stopSimulation(): Promise<void> {
   if (isDemoMode()) {
+    const { stopMockSimulation } = await import('./mock')
+    stopMockSimulation()
     return
   }
   await notifyClient.request('/simulate/stop', { method: 'POST' })
@@ -135,7 +204,8 @@ export async function stopSimulation(): Promise<void> {
 
 export async function getSimulationStatus(): Promise<SimulationState> {
   if (isDemoMode()) {
-    return { active: false, mode: '', qps: 0, uptime_seconds: 0 }
+    const { getMockSimulationStatus } = await import('./mock')
+    return getMockSimulationStatus()
   }
   const res = await notifyClient.request<NotifyResponse<SimulationState>>('/simulate/status')
   return res.data
@@ -380,4 +450,162 @@ export async function retryCampaignAudienceBatch(campaignId: string, audienceId:
   await notifyClient.request(`/campaigns/${campaignId}/audiences/${audienceId}/batches/${batchId}/retry`, {
     method: 'POST',
   })
+}
+
+function demoMerchants(): Merchant[] {
+  const now = new Date().toISOString()
+  return [
+    {
+      merchant_id: 'm_apple_store',
+      merchant_uid: 90001,
+      name: '数码旗舰店',
+      description: '手机、配件与虚拟权益订单演示商家',
+      group_room_id: 'merchant:m_apple_store:buyers',
+      group_name: '数码旗舰店买家群',
+      created_at: now,
+      updated_at: now,
+    },
+    {
+      merchant_id: 'm_office_supply',
+      merchant_uid: 90002,
+      name: '企业采购中心',
+      description: '办公设备与企业采购订单演示商家',
+      group_room_id: 'merchant:m_office_supply:buyers',
+      group_name: '企业采购服务群',
+      created_at: now,
+      updated_at: now,
+    },
+  ]
+}
+
+function demoProducts(): Product[] {
+  const now = new Date().toISOString()
+  return [
+    { product_id: 'p_iphone_case', merchant_id: 'm_apple_store', sku_id: 'sku_case_clear', name: '磁吸透明保护壳', description: '普通商品订单演示', price: 199, fulfillment_mode: 'physical', created_at: now, updated_at: now },
+    { product_id: 'p_cloud_coupon', merchant_id: 'm_apple_store', sku_id: 'sku_cloud_100', name: '云空间兑换码', description: '虚拟商品消息演示', price: 100, fulfillment_mode: 'virtual', created_at: now, updated_at: now },
+    { product_id: 'p_laptop_bulk', merchant_id: 'm_office_supply', sku_id: 'sku_laptop_20', name: '办公笔记本批量采购', description: '企业采购订单演示', price: 5699, fulfillment_mode: 'physical', created_at: now, updated_at: now },
+  ]
+}
+
+function demoGroups(): MerchantGroup[] {
+  const now = new Date().toISOString()
+  return demoMerchants().map((merchant) => ({
+    group_id: `grp_${merchant.merchant_id}`,
+    merchant_id: merchant.merchant_id,
+    merchant_uid: merchant.merchant_uid,
+    room_id: merchant.group_room_id || '',
+    name: merchant.group_name || `${merchant.name}群聊`,
+    description: `${merchant.name}的订单消息群聊`,
+    member_count: 0,
+    created_at: now,
+    updated_at: now,
+  }))
+}
+
+function demoCreatePurchaseOrder(input: PurchaseOrderInput): PurchaseOrderResult {
+  const now = new Date().toISOString()
+  const merchant = demoMerchants().find((item) => item.merchant_id === input.merchant_id) ?? demoMerchants()[0]
+  const products = demoProducts()
+  const items = input.items.map((item) => {
+    const product = products.find((p) => p.product_id === item.product_id) ?? products[0]
+    return {
+      product_id: product.product_id,
+      sku_id: product.sku_id,
+      product_name: product.name,
+      quantity: item.quantity || 1,
+      price: product.price,
+      image_url: product.image_url,
+    }
+  })
+  const order: Order = {
+    order_id: `ORD-DEMO-${Date.now()}`,
+    user_id: input.user_id,
+    merchant_id: merchant.merchant_id,
+    merchant_uid: merchant.merchant_uid,
+    merchant_name: merchant.name,
+    status: 'created',
+    order_type: input.order_type || 'normal',
+    importance: input.importance || 'normal',
+    buyer_note: input.buyer_note,
+    fulfillment_mode: input.fulfillment_mode || 'physical',
+    support_room_id: merchant.group_room_id,
+    private_conversation_id: `CHAT-DEMO-${Date.now()}`,
+    items,
+    total: items.reduce((sum, item) => sum + item.price * item.quantity, 0),
+    created_at: now,
+    updated_at: now,
+  }
+  const profile = policyForImportance(order.importance || 'normal')
+  const notifications: Notification[] = [
+    {
+      notify_id: `NTF-BUYER-${Date.now()}`,
+      user_id: input.user_id,
+      type: 'purchase_order',
+      business_type: 'purchase_order',
+      event_type: 'created_buyer',
+      title: '下单成功',
+      content: `订单 ${order.order_id} 已提交，${merchant.name} 已收到订单`,
+      order_id: order.order_id,
+      created_at: now,
+      updated_at: now,
+      status: 'pending',
+      ...profile,
+    },
+    {
+      notify_id: `NTF-MERCHANT-${Date.now()}`,
+      user_id: String(merchant.merchant_uid),
+      type: 'purchase_order',
+      business_type: 'purchase_order',
+      event_type: 'created_merchant',
+      title: '新订单待处理',
+      content: `用户 ${input.user_id} 提交了订单 ${order.order_id}`,
+      order_id: order.order_id,
+      created_at: now,
+      updated_at: now,
+      status: 'pending',
+      ...profile,
+    },
+  ]
+  return {
+    order,
+    notifications,
+    notification: notifications[0],
+    buyer_notification: notifications[0],
+    merchant_notification: notifications[1],
+    private_conversation: {
+      conversation_id: order.private_conversation_id || '',
+      type: 'private',
+      order_id: order.order_id,
+      merchant_id: merchant.merchant_id,
+      title: `订单私聊 ${order.order_id}`,
+      customer_uid: Number(input.user_id),
+      merchant_uid: merchant.merchant_uid,
+      room_id: `order_chat:${order.order_id}`,
+      created_at: now,
+      updated_at: now,
+    },
+    support_room: demoGroups().find((item) => item.merchant_id === merchant.merchant_id),
+    delivery_policy: {
+      priority: profile.priority || 'normal',
+      ttl_seconds: profile.ttl_seconds || 3600,
+      ack_policy: profile.ack_policy || 'best_effort',
+      expected_ack_count: profile.expected_ack_count || 0,
+    },
+  }
+}
+
+function policyForImportance(importance: string) {
+  if (importance === 'critical') return { priority: 'critical', ttl_seconds: 300, ack_policy: 'primary_device', expected_ack_count: 1 }
+  if (importance === 'urgent') return { priority: 'critical', ttl_seconds: 600, ack_policy: 'any_device', expected_ack_count: 1 }
+  if (importance === 'high') return { priority: 'high', ttl_seconds: 1800, ack_policy: 'any_device', expected_ack_count: 1 }
+  return { priority: 'normal', ttl_seconds: 3600, ack_policy: 'best_effort', expected_ack_count: 0 }
+}
+
+function normalizePurchaseOrderResult(data: PurchaseOrderResult): PurchaseOrderResult {
+  const notifications = Array.isArray(data.notifications) ? data.notifications : []
+  return {
+    ...data,
+    notifications,
+    notification: data.notification ?? data.buyer_notification ?? notifications[0],
+  }
 }

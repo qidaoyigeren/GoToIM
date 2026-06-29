@@ -1,107 +1,123 @@
-import type { Order, OrderItem, OrderStatus } from '@/types/order'
+import type { Order, OrderImportance, OrderItem, OrderStatus, OrderType } from '@/types/order'
 import type { Notification, NotifyType } from '@/types/notification'
 import type { PlatformStats } from '@/types/message'
 import type { OnlineStats } from '@/types/online'
 
-// ---- In-memory mock database ----
-
-const mockProducts = [
-  { product_name: 'iPhone 16 Pro Max', price: 9999 },
-  { product_name: 'MacBook Pro 14"', price: 14999 },
-  { product_name: 'AirPods Pro 2', price: 1899 },
-  { product_name: 'iPad Air M2', price: 4799 },
-  { product_name: 'Apple Watch Ultra 2', price: 6499 },
-  { product_name: 'Sony WH-1000XM5', price: 2499 },
-  { product_name: 'Kindle Paperwhite', price: 1068 },
-  { product_name: 'Nintendo Switch OLED', price: 2699 },
-  { product_name: 'Dyson V15 Detect', price: 4990 },
-  { product_name: 'DJI Mini 4 Pro', price: 6988 },
+const demoMerchants = [
+  { merchant_id: 'm_fast_supply', merchant_uid: 90001, name: '极速数码生活馆' },
+  { merchant_id: 'm_office_plus', merchant_uid: 90002, name: '企业办公优选' },
+  { merchant_id: 'm_service_center', merchant_uid: 90003, name: '售后服务中心' },
 ]
+
+const demoProducts = [
+  { product_id: 'p_phone_case', product_name: '透明防摔保护壳', price: 129 },
+  { product_id: 'p_keyboard', product_name: '无线办公键盘', price: 329 },
+  { product_id: 'p_monitor', product_name: '27 英寸办公显示器', price: 1599 },
+  { product_id: 'p_headset', product_name: '降噪通话耳机', price: 699 },
+  { product_id: 'p_support', product_name: '远程售后服务单', price: 99 },
+  { product_id: 'p_virtual', product_name: '数字会员兑换码', price: 199 },
+]
+
+const statusLabels: Partial<Record<OrderStatus, string>> = {
+  created: '订单已创建',
+  confirmed: '商家已确认',
+  shipped: '履约已发出',
+  delivered: '订单已送达',
+  cancelled: '订单已取消',
+  delivery_failed: '履约异常',
+}
+
+const orderTypes: OrderType[] = ['normal', 'presale', 'urgent', 'enterprise', 'after_sale', 'virtual']
+const importanceLevels: OrderImportance[] = ['normal', 'high', 'urgent', 'critical']
+const mockOrders: Order[] = []
+const mockNotifications: Notification[] = []
+let eventCounter = 0
+let simInterval: ReturnType<typeof setInterval> | null = null
+let simActive = false
+let simStartTime = 0
+let simMode = ''
+let simQps = 0
 
 function randomPick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
 }
 
-function generateId(): string {
-  return `ORD${Date.now()}${Math.random().toString(36).slice(2, 8).toUpperCase()}`
+function generateId(prefix: string): string {
+  return `${prefix}${Date.now()}${Math.random().toString(36).slice(2, 8).toUpperCase()}`
 }
 
-function generateNotifyId(): string {
-  return `NTF${Date.now()}${Math.random().toString(36).slice(2, 8).toUpperCase()}`
-}
-
-const mockOrders: Order[] = []
-const mockNotifications: Notification[] = []
-let eventCounter = 0
-
-// Seed initial data
-function seedData() {
-  if (mockOrders.length > 0) return
-
-  const statuses: OrderStatus[] = ['created', 'paid', 'confirmed', 'shipped', 'delivered', 'cancelled', 'delivery_failed']
-  const userIds = ['10001', '10002', '10003', '10004', '10005', '10006', '10007', '10008']
-
-  for (let i = 0; i < 25; i++) {
-    const status = randomPick(statuses)
-    const itemCount = Math.floor(Math.random() * 3) + 1
-    const items: OrderItem[] = []
-    let total = 0
-    for (let j = 0; j < itemCount; j++) {
-      const product = randomPick(mockProducts)
-      const qty = Math.floor(Math.random() * 2) + 1
-      items.push({ ...product, quantity: qty })
-      total += product.price * qty
-    }
-
-    const pastMinutes = Math.floor(Math.random() * 7200)
-    const orderId = `ORD${String(i + 1).padStart(6, '0')}`
-    const createdAt = new Date(Date.now() - pastMinutes * 1000).toISOString()
-    const updatedAt = new Date(Date.now() - (pastMinutes - Math.floor(Math.random() * 1800)) * 1000).toISOString()
-
-    mockOrders.push({
-      order_id: orderId,
-      user_id: randomPick(userIds),
-      status,
-      items,
-      total: Math.round(total * 100) / 100,
-      created_at: createdAt,
-      updated_at: updatedAt,
-    })
-
-    // Generate corresponding notifications
-    const notifyTypeMap: Record<string, NotifyType> = {
-      created: 'order_status',
-      paid: 'order_status',
-      confirmed: 'order_status',
-      shipped: 'logistics',
-      delivered: 'order_status',
-      cancelled: 'system',
-      delivery_failed: 'system',
-    }
-    mockNotifications.push({
-      notify_id: `NTF${String(i + 1).padStart(6, '0')}`,
-      user_id: mockOrders[i].user_id,
-      type: notifyTypeMap[status] || 'order_status',
-      title: statusLabels[status] || '状态更新',
-      content: `订单 ${orderId} ${statusLabels[status] || '状态更新'}`,
-      order_id: orderId,
-      created_at: updatedAt,
-      status: Math.random() > 0.3 ? 'acked' : 'delivered',
-    })
+function notificationFor(order: Order, status: OrderStatus): Notification {
+  const title = statusLabels[status] || '订单状态更新'
+  const notifyType: NotifyType = status === 'shipped' ? 'logistics' : status === 'created' ? 'purchase_order' : 'order_status'
+  return {
+    notify_id: generateId('NTF'),
+    user_id: order.user_id,
+    type: notifyType,
+    business_type: 'purchase_order',
+    event_type: status,
+    title,
+    content: `订单 ${order.order_id} ${title}，消息已进入 GoIM 投递链路。`,
+    order_id: order.order_id,
+    created_at: new Date().toISOString(),
+    status: Math.random() > 0.25 ? 'acked' : 'delivered',
+    priority: order.importance === 'critical' ? 'P0' : order.importance === 'urgent' ? 'P1' : order.importance === 'high' ? 'P2' : 'P3',
+    ttl_seconds: order.importance === 'critical' ? 300 : order.importance === 'urgent' ? 900 : 3600,
+    ack_policy: order.importance === 'normal' ? 'best_effort' : 'required',
+    expected_ack_count: order.importance === 'normal' ? 0 : 1,
+    acked_count: Math.random() > 0.25 ? 1 : 0,
   }
 }
 
-const statusLabels: Record<string, string> = {
-  created: '订单已创建',
-  paid: '订单已支付',
-  confirmed: '订单已确认',
-  shipped: '订单已发货',
-  delivered: '订单已签收',
-  cancelled: '订单已取消',
-  delivery_failed: '配送异常',
+function buildOrder(seed: number, status: OrderStatus): Order {
+  const merchant = randomPick(demoMerchants)
+  const itemCount = Math.floor(Math.random() * 3) + 1
+  const items: OrderItem[] = []
+  let total = 0
+  for (let i = 0; i < itemCount; i++) {
+    const product = randomPick(demoProducts)
+    const quantity = Math.floor(Math.random() * 2) + 1
+    items.push({
+      product_id: product.product_id,
+      product_name: product.product_name,
+      quantity,
+      price: product.price,
+    })
+    total += product.price * quantity
+  }
+
+  const pastMinutes = Math.floor(Math.random() * 7200)
+  const createdAt = new Date(Date.now() - pastMinutes * 1000).toISOString()
+  const updatedAt = new Date(Date.now() - Math.max(0, pastMinutes - Math.floor(Math.random() * 1800)) * 1000).toISOString()
+
+  return {
+    order_id: `ORD${String(seed).padStart(6, '0')}`,
+    user_id: randomPick(['10001', '10002', '10003', '10004', '10005', '10006', '10007', '10008']),
+    merchant_id: merchant.merchant_id,
+    merchant_uid: merchant.merchant_uid,
+    merchant_name: merchant.name,
+    status,
+    order_type: randomPick(orderTypes),
+    importance: randomPick(importanceLevels),
+    buyer_note: '请关注消息送达和 ACK 状态',
+    fulfillment_mode: status === 'delivered' ? '已完成履约' : '标准履约',
+    support_room_id: `${merchant.merchant_id}_group`,
+    private_conversation_id: `CHAT-${seed}`,
+    items,
+    total: Math.round(total * 100) / 100,
+    created_at: createdAt,
+    updated_at: updatedAt,
+  }
 }
 
-// ---- Mock API functions ----
+function seedData() {
+  if (mockOrders.length > 0) return
+  const statuses: OrderStatus[] = ['created', 'confirmed', 'shipped', 'delivered', 'cancelled', 'delivery_failed']
+  for (let i = 1; i <= 25; i++) {
+    const order = buildOrder(i, randomPick(statuses))
+    mockOrders.push(order)
+    mockNotifications.push(notificationFor(order, order.status))
+  }
+}
 
 export async function mockCreateOrder(
   userId: string,
@@ -109,12 +125,21 @@ export async function mockCreateOrder(
   total: number
 ): Promise<{ order: Order; notification: Notification }> {
   seedData()
-  const orderId = generateId()
+  const merchant = demoMerchants[0]
   const now = new Date().toISOString()
   const order: Order = {
-    order_id: orderId,
+    order_id: generateId('ORD'),
     user_id: userId,
+    merchant_id: merchant.merchant_id,
+    merchant_uid: merchant.merchant_uid,
+    merchant_name: merchant.name,
     status: 'created',
+    order_type: 'urgent',
+    importance: 'high',
+    buyer_note: items.map((item) => item.product_name).join(', '),
+    fulfillment_mode: '标准履约',
+    support_room_id: `${merchant.merchant_id}_group`,
+    private_conversation_id: generateId('CHAT'),
     items,
     total,
     created_at: now,
@@ -122,19 +147,14 @@ export async function mockCreateOrder(
   }
   mockOrders.unshift(order)
 
-  const notif: Notification = {
-    notify_id: generateNotifyId(),
-    user_id: userId,
-    type: 'order_status',
-    title: '订单已创建',
-    content: `订单 ${orderId} 已创建，等待支付`,
-    order_id: orderId,
+  const notification = {
+    ...notificationFor(order, 'created'),
+    status: 'delivered' as const,
     created_at: now,
-    status: 'delivered',
   }
-  mockNotifications.unshift(notif)
+  mockNotifications.unshift(notification)
 
-  return { order, notification: notif }
+  return { order, notification }
 }
 
 export async function mockChangeOrderStatus(
@@ -143,46 +163,41 @@ export async function mockChangeOrderStatus(
   extra?: Record<string, string>
 ): Promise<{ order: Order; notification: Notification }> {
   seedData()
-  const idx = mockOrders.findIndex((o) => o.order_id === orderId)
+  const idx = mockOrders.findIndex((order) => order.order_id === orderId)
   if (idx === -1) throw new Error('Order not found')
 
+  const updatedAt = new Date().toISOString()
   mockOrders[idx] = {
     ...mockOrders[idx],
     status: newStatus,
-    updated_at: new Date().toISOString(),
+    fulfillment_mode: newStatus === 'delivered' ? '已完成履约' : mockOrders[idx].fulfillment_mode,
+    updated_at: updatedAt,
   }
 
-  const title = statusLabels[newStatus] || '状态更新'
-  const notif: Notification = {
-    notify_id: generateNotifyId(),
-    user_id: mockOrders[idx].user_id,
-    type: newStatus === 'delivered' ? 'order_status' : newStatus === 'shipped' ? 'logistics' : 'order_status',
-    title,
-    content: `订单 ${orderId} ${title}${extra?.reason ? `：${extra.reason}` : ''}`,
-    order_id: orderId,
-    created_at: new Date().toISOString(),
-    status: 'delivered',
-  }
-  mockNotifications.unshift(notif)
+  const notification = notificationFor(mockOrders[idx], newStatus)
+  notification.content = `订单 ${orderId} ${notification.title}${extra?.location ? `，位置：${extra.location}` : ''}${extra?.reason ? `，原因：${extra.reason}` : ''}。`
+  notification.created_at = updatedAt
+  notification.status = 'delivered'
+  mockNotifications.unshift(notification)
 
-  return { order: mockOrders[idx], notification: notif }
+  return { order: mockOrders[idx], notification }
 }
 
 export async function mockGetOrder(orderId: string): Promise<Order> {
   seedData()
-  const order = mockOrders.find((o) => o.order_id === orderId)
+  const order = mockOrders.find((item) => item.order_id === orderId)
   if (!order) throw new Error('Order not found')
   return order
 }
 
-export async function mockGetUserOrders(_userId: string): Promise<Order[]> {
+export async function mockGetUserOrders(userId: string): Promise<Order[]> {
   seedData()
-  return mockOrders.filter((o) => o.user_id === _userId)
+  return mockOrders.filter((order) => order.user_id === userId)
 }
 
-export async function mockGetUserNotifications(_userId: string): Promise<Notification[]> {
+export async function mockGetUserNotifications(userId: string): Promise<Notification[]> {
   seedData()
-  return mockNotifications.filter((n) => n.user_id === _userId)
+  return mockNotifications.filter((notification) => notification.user_id === userId)
 }
 
 export function mockPlatformStats(): PlatformStats {
@@ -200,14 +215,28 @@ export function mockPlatformStats(): PlatformStats {
       grpc_direct: 0.7 + Math.random() * 0.2,
       kafka_fallback: 0.08 + Math.random() * 0.12,
     },
+    delivery_path_detail: {
+      grpc_direct: 0.68,
+      kafka_fallback: 0.12,
+      offline_stored: 0.08,
+      failed: 0.02,
+      logic_push: 0.1,
+      unknown: 0,
+    },
     online_users: Math.floor(Math.random() * 1200) + 800,
     offline_pending: Math.floor(Math.random() * 50),
-    simulation: {
-      active: false,
-      mode: '',
-      qps: 0,
-      uptime_seconds: 0,
+    simulation: getMockSimulationStatus(),
+    retry_count: Math.floor(Math.random() * 30),
+    dlq_count: Math.floor(Math.random() * 5),
+    outbox_pending: Math.floor(Math.random() * 20),
+    outbox_failed: Math.floor(Math.random() * 3),
+    notifications_by_type: {
+      purchase_order: 32,
+      order_status: 86,
+      logistics: 24,
+      system: 6,
     },
+    ack_policy_satisfied_rate: 0.9 + Math.random() * 0.08,
   }
 }
 
@@ -221,8 +250,6 @@ export function mockOnlineStats(): OnlineStats {
     kafka_fallback: Math.floor(Math.random() * 800) + 2000,
   }
 }
-
-// ---- Mock realtime event generator (for WebSocket simulation) ----
 
 export type MockRealtimeEvent = {
   id: string
@@ -240,15 +267,16 @@ export function generateRealtimeEvent(): MockRealtimeEvent {
   eventCounter++
   const order = randomPick(mockOrders)
   const deliveryPath = Math.random() > 0.15 ? 'grpc_direct' : 'kafka_fallback'
-  const types: MockRealtimeEvent['type'][] = ['push_sent', 'push_delivered', 'ack_received']
-  const type = Math.random() > 0.9 ? 'push_failed' : randomPick(types)
+  const types: MockRealtimeEvent['type'][] = ['push_sent', 'push_delivered', 'ack_received', 'order_status_change']
+  const type = Math.random() > 0.92 ? 'push_failed' : randomPick(types)
+  const pathLabel = deliveryPath === 'grpc_direct' ? 'direct push' : 'Kafka fallback'
 
-  const details: Record<string, { title: string; detail: string }> = {
-    push_sent: { title: '消息已发送', detail: `消息已路由至 Comet 节点 sh001，目标用户 ${order.user_id}` },
-    push_delivered: { title: '消息已送达', detail: `通过 ${deliveryPath === 'grpc_direct' ? 'gRPC 直连' : 'Kafka 可靠通道'} 送达设备` },
-    ack_received: { title: 'ACK 已确认', detail: `客户端已确认消息，seq=${eventCounter}，延迟 ${Math.floor(Math.random() * 30) + 2}ms` },
-    push_failed: { title: '推送失败', detail: '目标设备离线，消息已写入离线队列等待补偿' },
-    order_status_change: { title: '订单状态变更', detail: `订单 ${order.order_id} 状态更新为 ${order.status}` },
+  const details: Record<MockRealtimeEvent['type'], { title: string; detail: string }> = {
+    push_sent: { title: '消息已发送', detail: `Logic 已将订单消息路由至 Comet，目标用户 ${order.user_id}` },
+    push_delivered: { title: '消息已送达', detail: `通过 ${pathLabel} 送达客户端，会话等待 ACK` },
+    ack_received: { title: 'ACK 已确认', detail: `客户端已确认消息 seq=${eventCounter}，延迟 ${Math.floor(Math.random() * 30) + 2}ms` },
+    push_failed: { title: '投递失败', detail: '目标连接离线，消息已进入离线补偿或等待重试' },
+    order_status_change: { title: '订单状态更新', detail: `订单 ${order.order_id} 当前状态：${statusLabels[order.status] || order.status}` },
   }
 
   return {
@@ -263,20 +291,18 @@ export function generateRealtimeEvent(): MockRealtimeEvent {
   }
 }
 
-// ---- Mock simulation ----
-
-let simInterval: ReturnType<typeof setInterval> | null = null
-let simActive = false
-let simStartTime = 0
-
-export function startMockSimulation(): void {
+export function startMockSimulation(mode = 'peak', qps = 100, _users = 0): void {
   if (simActive) return
   simActive = true
   simStartTime = Date.now()
+  simMode = mode
+  simQps = qps
 }
 
 export function stopMockSimulation(): void {
   simActive = false
+  simMode = ''
+  simQps = 0
   if (simInterval) {
     clearInterval(simInterval)
     simInterval = null
@@ -286,13 +312,12 @@ export function stopMockSimulation(): void {
 export function getMockSimulationStatus() {
   return {
     active: simActive,
-    mode: simActive ? 'normal' : '',
-    qps: simActive ? 100 : 0,
+    mode: simActive ? simMode : '',
+    qps: simActive ? simQps : 0,
     uptime_seconds: simActive ? Math.floor((Date.now() - simStartTime) / 1000) : 0,
   }
 }
 
-// Export seed data for use by stores
 export function getMockOrders(): Order[] {
   seedData()
   return mockOrders

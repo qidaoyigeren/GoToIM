@@ -13,6 +13,10 @@ export type WSMessageHandler = (event: {
 
 export type WSStatusHandler = (state: ConnectionState) => void
 
+function isChatPushType(type: unknown): boolean {
+  return type === 'chat_message' || type === 'group_chat_message'
+}
+
 export class GoimWSClient {
   private ws: WebSocket | null = null
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
@@ -118,7 +122,7 @@ export class GoimWSClient {
   private handlePushMessage(body: Uint8Array) {
     const parsed = parsePushBody(body)
     if (parsed) {
-      if (parsed.type === 'chat_message') {
+      if (isChatPushType(parsed.type)) {
         this.onMessage?.({
           type: 'chat',
           data: parsed,
@@ -198,7 +202,7 @@ export class GoimWSClient {
             try {
               const parsed = parsePushBody(proto.body)
               if (parsed) {
-                this.onMessage?.({ type: parsed.type === 'chat_message' ? 'chat' : 'push', data: parsed })
+                this.onMessage?.({ type: isChatPushType(parsed.type) ? 'chat' : 'push', data: parsed })
               }
             } catch { /* ignore parse errors */ }
           }

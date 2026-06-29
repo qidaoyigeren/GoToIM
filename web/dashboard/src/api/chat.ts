@@ -67,9 +67,22 @@ export async function updateChatMessageStatus(
   })
 }
 
+export async function joinMerchantGroup(roomId: string, userId: number): Promise<ChatConversation> {
+  if (isDemoMode()) return mockJoinGroup(roomId, userId)
+  const res = await notifyClient.request<ChatResponse<ChatConversation>>(
+    `/chat/groups/${encodeURIComponent(roomId)}/join`,
+    { method: 'POST', body: { user_id: userId } }
+  )
+  return res.data
+}
+
 type DemoChatData = {
   conversations: ChatConversation[]
   messages: ChatMessage[]
+}
+
+export function getMockChatSnapshot(): DemoChatData {
+  return readDemo()
 }
 
 function readDemo(): DemoChatData {
@@ -99,6 +112,7 @@ function mockCreateConversation(orderId: string, customerUid: number, merchantUi
   const now = new Date().toISOString()
   const conv: ChatConversation = {
     conversation_id: `CHAT-${orderId}-${customerUid}-${merchantUid}`,
+    type: 'private',
     order_id: orderId,
     customer_uid: customerUid,
     merchant_uid: merchantUid,
@@ -125,17 +139,18 @@ function mockSendMessage(conversationId: string, senderUid: number, body: string
   const data = readDemo()
   const conv = data.conversations.find((item) => item.conversation_id === conversationId)
   if (!conv) throw new Error('conversation not found')
-  const receiverUid = senderUid === conv.customer_uid ? conv.merchant_uid : conv.customer_uid
+  const isGroup = conv.type === 'group'
+  const receiverUid = isGroup ? 0 : senderUid === conv.customer_uid ? conv.merchant_uid : conv.customer_uid
   const msg: ChatMessage = {
     message_id: `CHM-${Date.now()}`,
     conversation_id: conversationId,
     order_id: conv.order_id,
     sender_uid: senderUid,
     receiver_uid: receiverUid,
-    sender_role: senderUid === conv.customer_uid ? 'customer' : 'merchant',
+    sender_role: isGroup ? (senderUid === conv.merchant_uid ? 'merchant' : 'member') : senderUid === conv.customer_uid ? 'customer' : 'merchant',
     body,
     status: 'delivered',
-    delivery_path: 'mock_direct',
+    delivery_path: isGroup ? 'room_push' : 'direct_push',
     created_at: new Date().toISOString(),
     delivered_at: new Date().toISOString(),
   }
@@ -145,6 +160,35 @@ function mockSendMessage(conversationId: string, senderUid: number, body: string
   conv.updated_at = msg.created_at
   writeDemo(data)
   return msg
+}
+
+function mockJoinGroup(roomId: string, userId: number) {
+  const data = readDemo()
+  const existing = data.conversations.find((item) => item.type === 'group' && item.room_id === roomId)
+  if (existing) return existing
+  const now = new Date().toISOString()
+  const conv: ChatConversation = {
+    conversation_id: `grp_${roomId.replaceAll(':', '_')}`,
+    type: 'group',
+    order_id: `group:${roomId}`,
+    merchant_id: roomId.split(':')[1],
+    title: merchantGroupTitle(roomId),
+    customer_uid: userId,
+    merchant_uid: 90001,
+    room_id: roomId,
+    unread_count: 0,
+    created_at: now,
+    updated_at: now,
+  }
+  data.conversations.unshift(conv)
+  writeDemo(data)
+  return conv
+}
+
+function merchantGroupTitle(roomId: string) {
+  if (roomId.includes('office_supply')) return '企业采购服务群'
+  if (roomId.includes('service_care')) return '售后服务支持群'
+  return '数码生活馆买家群'
 }
 
 function mockUpdateStatus(messageId: string, status: ChatStatus) {

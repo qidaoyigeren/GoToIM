@@ -1,6 +1,6 @@
+import { Check, Circle, Clock } from 'lucide-react'
 import type { OrderStatus } from '@/types/order'
 import { ORDER_STATUS_LABELS, ORDER_STATUS_SEQUENCE } from '@/types/order'
-import { Check, Clock, Circle } from 'lucide-react'
 
 type Props = {
   currentStatus: OrderStatus
@@ -11,53 +11,44 @@ export default function StatusTimeline({ currentStatus, statusTimestamps }: Prop
   const currentIdx = ORDER_STATUS_SEQUENCE.indexOf(currentStatus)
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-      <h3 className="text-sm font-semibold text-gray-700 mb-5">状态时间线</h3>
+    <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+      <h3 className="mb-5 text-sm font-semibold text-gray-700">订单状态时间线</h3>
       <div className="space-y-0">
-        {ORDER_STATUS_SEQUENCE.map((status, idx) => {
-          const isPast = idx <= currentIdx && currentIdx >= 0
-          const isCurrent = idx === currentIdx
-          const ts = statusTimestamps[status]
+        {ORDER_STATUS_SEQUENCE.map((status, index) => {
+          const isPast = currentIdx >= 0 && index <= currentIdx
+          const isCurrent = index === currentIdx
+          const timestamp = statusTimestamps[status]
 
           return (
             <div key={status} className="flex items-stretch gap-3">
-              {/* Timeline line & dot */}
               <div className="flex flex-col items-center">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-colors ${
+                <div className={`flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors ${
                   isCurrent
-                    ? 'border-primary-500 bg-primary-50'
+                    ? 'border-blue-500 bg-blue-50'
                     : isPast
-                    ? 'border-emerald-500 bg-emerald-50'
-                    : 'border-gray-200 bg-white'
+                      ? 'border-emerald-500 bg-emerald-50'
+                      : 'border-gray-200 bg-white'
                 }`}>
                   {isPast ? (
-                    <Check size={14} className={isCurrent ? 'text-primary-600' : 'text-emerald-600'} />
+                    <Check size={14} className={isCurrent ? 'text-blue-600' : 'text-emerald-600'} />
                   ) : (
                     <Circle size={14} className="text-gray-300" />
                   )}
                 </div>
-                {idx < ORDER_STATUS_SEQUENCE.length - 1 && (
-                  <div className={`w-0.5 flex-1 min-h-[20px] ${
-                    idx < currentIdx ? 'bg-emerald-300' : 'bg-gray-200'
-                  }`} />
+                {index < ORDER_STATUS_SEQUENCE.length - 1 && (
+                  <div className={`min-h-[20px] w-0.5 flex-1 ${index < currentIdx ? 'bg-emerald-300' : 'bg-gray-200'}`} />
                 )}
               </div>
 
-              {/* Content */}
-              <div className={`pb-5 ${idx === ORDER_STATUS_SEQUENCE.length - 1 ? 'pb-0' : ''}`}>
-                <p className={`text-sm font-medium ${
-                  isCurrent ? 'text-primary-700' : isPast ? 'text-gray-800' : 'text-gray-400'
-                }`}>
+              <div className={`pb-5 ${index === ORDER_STATUS_SEQUENCE.length - 1 ? 'pb-0' : ''}`}>
+                <p className={`text-sm font-medium ${isCurrent ? 'text-blue-700' : isPast ? 'text-gray-800' : 'text-gray-400'}`}>
                   {ORDER_STATUS_LABELS[status]}
                 </p>
-                {ts && (
-                  <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
+                {timestamp && (
+                  <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-400">
                     <Clock size={10} />
-                    {new Date(ts).toLocaleString('zh-CN')}
+                    {new Date(timestamp).toLocaleString('zh-CN')}
                   </p>
-                )}
-                {!ts && isPast && (
-                  <p className="text-xs text-gray-400 mt-0.5">—</p>
                 )}
               </div>
             </div>

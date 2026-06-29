@@ -1,21 +1,15 @@
 import { NavLink } from 'react-router-dom'
 import {
-  Activity,
-  Bell,
-  LayoutDashboard,
+  MessageCircle,
   MessagesSquare,
-  Package,
-  Radio,
+  ShoppingBag,
   Zap,
 } from 'lucide-react'
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: '总览' },
-  { to: '/orders', icon: Package, label: '订单' },
-  { to: '/notifications', icon: Bell, label: '通知' },
-  { to: '/chat', icon: MessagesSquare, label: '订单在线客服' },
-  { to: '/sessions', icon: Radio, label: '在线会话' },
-  { to: '/realtime', icon: Activity, label: '实时工作台' },
+  { to: '/purchase', icon: ShoppingBag, label: '购买' },
+  { to: '/chat', icon: MessagesSquare, label: '聊天' },
+  { to: '/delivery', icon: MessageCircle, label: '投递状态' },
 ]
 
 export default function Sidebar() {
@@ -25,7 +19,7 @@ export default function Sidebar() {
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary-500 to-primary-700">
           <Zap size={18} className="text-white" />
         </div>
-        <span className="text-base font-semibold tracking-tight text-gray-900">GoToIM</span>
+        <span className="text-base font-semibold tracking-tight text-gray-900">GoIM Demo</span>
       </div>
 
       <nav className="flex-1 space-y-0.5 px-3 py-4">
@@ -33,7 +27,7 @@ export default function Sidebar() {
           <NavLink
             key={to}
             to={to}
-            end={to === '/'}
+            end
             className={({ isActive }) =>
               `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
                 isActive
@@ -49,10 +43,10 @@ export default function Sidebar() {
       </nav>
 
       <div className="border-t border-gray-100 px-4 py-3">
-        <div className="text-xs text-gray-400">
-          直连 IM + 通知投递
+        <div className="text-xs leading-5 text-gray-400">
+          订单消息传递演示
           <br />
-          业务场景演示
+          direct push / room push / ACK
         </div>
       </div>
     </aside>

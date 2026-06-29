@@ -36,11 +36,11 @@ export const useChatStore = create<ChatStoreState>((set) => ({
         conversation_id: payload.conversation_id,
         order_id: payload.order_id,
         sender_uid: payload.sender_uid,
-        receiver_uid: payload.receiver_uid,
+        receiver_uid: payload.receiver_uid ?? 0,
         sender_role: payload.sender_role,
         body: payload.body,
         status: payload.status ?? 'delivered',
-        delivery_path: 'websocket',
+        delivery_path: payload.delivery_path ?? (payload.type === 'group_chat_message' ? 'room_push' : 'websocket'),
         created_at: new Date(payload.timestamp || Date.now()).toISOString(),
       }
       const conversations = s.conversations.map((conv) =>

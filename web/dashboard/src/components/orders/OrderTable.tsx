@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import { PackageSearch } from 'lucide-react'
+import EmptyState from '@/components/ui/EmptyState'
 import { useOrderStore } from '@/stores/orderStore'
 import type { Order, OrderStatus } from '@/types/order'
 import OrderFilters from './OrderFilters'
 import OrderRow from './OrderRow'
-import EmptyState from '@/components/ui/EmptyState'
-import { PackageSearch } from 'lucide-react'
 
 const EMPTY_ORDERS: Order[] = []
 
@@ -13,12 +13,20 @@ export default function OrderTable() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all')
   const [page, setPage] = useState(1)
-  const pageSize = 10
+  const pageSize = 8
 
   const filtered = useMemo(() => {
-    return orders.filter((o) => {
-      if (search && !o.order_id.toLowerCase().includes(search.toLowerCase())) return false
-      if (statusFilter !== 'all' && o.status !== statusFilter) return false
+    const keyword = search.trim().toLowerCase()
+    return orders.filter((order) => {
+      const haystack = [
+        order.order_id,
+        order.user_id,
+        order.merchant_name,
+        order.merchant_id,
+        ...order.items.map((item) => item.product_name),
+      ].join(' ').toLowerCase()
+      if (keyword && !haystack.includes(keyword)) return false
+      if (statusFilter !== 'all' && order.status !== statusFilter) return false
       return true
     })
   }, [orders, search, statusFilter])
@@ -31,55 +39,41 @@ export default function OrderTable() {
   const totalPages = Math.ceil(filtered.length / pageSize)
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
-      <div className="px-5 py-4 border-b border-gray-100">
+    <div className="rounded-xl border border-gray-100 bg-white shadow-sm">
+      <div className="border-b border-gray-100 px-5 py-4">
         <OrderFilters
           search={search}
-          onSearchChange={(v) => { setSearch(v); setPage(1) }}
+          onSearchChange={(value) => { setSearch(value); setPage(1) }}
           statusFilter={statusFilter}
-          onStatusChange={(v) => { setStatusFilter(v); setPage(1) }}
+          onStatusChange={(value) => { setStatusFilter(value); setPage(1) }}
         />
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState icon={PackageSearch} title="暂无订单" description="尝试调整筛选条件或创建新订单" />
+        <EmptyState icon={PackageSearch} title="暂无订单" description="选择商家和商品后创建一笔购买订单。" />
       ) : (
         <>
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider py-2.5 px-4">订单号</th>
-                <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider py-2.5 px-4">用户</th>
-                <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider py-2.5 px-4">金额</th>
-                <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider py-2.5 px-4">状态</th>
-                <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider py-2.5 px-4">商品</th>
-                <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider py-2.5 px-4">更新时间</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paged.map((order, i) => (
-                <OrderRow key={order.order_id} order={order} index={i} />
-              ))}
-            </tbody>
-          </table>
+          <div className="grid grid-cols-1 gap-3 p-5 xl:grid-cols-2">
+            {paged.map((order, index) => (
+              <OrderRow key={order.order_id} order={order} index={index} />
+            ))}
+          </div>
 
           {totalPages > 1 && (
-            <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
-              <span className="text-xs text-gray-400">
-                共 {filtered.length} 条，第 {page}/{totalPages} 页
-              </span>
+            <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">
+              <span className="text-xs text-gray-400">共 {filtered.length} 条，第 {page}/{totalPages} 页</span>
               <div className="flex gap-1">
                 <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  onClick={() => setPage((value) => Math.max(1, value - 1))}
                   disabled={page === 1}
-                  className="px-3 py-1.5 text-xs rounded-md border border-gray-200 disabled:opacity-40 hover:bg-gray-50"
+                  className="rounded-md border border-gray-200 px-3 py-1.5 text-xs hover:bg-gray-50 disabled:opacity-40"
                 >
                   上一页
                 </button>
                 <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
                   disabled={page === totalPages}
-                  className="px-3 py-1.5 text-xs rounded-md border border-gray-200 disabled:opacity-40 hover:bg-gray-50"
+                  className="rounded-md border border-gray-200 px-3 py-1.5 text-xs hover:bg-gray-50 disabled:opacity-40"
                 >
                   下一页
                 </button>

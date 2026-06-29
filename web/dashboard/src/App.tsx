@@ -1,24 +1,18 @@
-import { Routes, Route } from 'react-router-dom'
+import { Navigate, Routes, Route } from 'react-router-dom'
 import AppLayout from '@/components/layout/AppLayout'
-import DashboardPage from '@/pages/DashboardPage'
-import OrdersPage from '@/pages/OrdersPage'
-import OrderDetailPage from '@/pages/OrderDetailPage'
-import NotificationsPage from '@/pages/NotificationsPage'
-import SessionsPage from '@/pages/SessionsPage'
-import RealtimeWorkbenchPage from '@/pages/RealtimeWorkbenchPage'
-import OrderLiveChatPage from '@/pages/OrderLiveChatPage'
+import PurchasePage from '@/pages/PurchasePage'
+import ChatPage from '@/pages/ChatPage'
+import DeliveryPage from '@/pages/DeliveryPage'
 
 export default function App() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route path="/" element={<DashboardPage />} />
-        <Route path="/orders" element={<OrdersPage />} />
-        <Route path="/orders/:id" element={<OrderDetailPage />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
-        <Route path="/chat" element={<OrderLiveChatPage />} />
-        <Route path="/sessions" element={<SessionsPage />} />
-        <Route path="/realtime" element={<RealtimeWorkbenchPage />} />
+        <Route path="/" element={<Navigate to="/purchase" replace />} />
+        <Route path="/purchase" element={<PurchasePage />} />
+        <Route path="/chat" element={<ChatPage />} />
+        <Route path="/delivery" element={<DeliveryPage />} />
+        <Route path="*" element={<Navigate to="/purchase" replace />} />
       </Route>
     </Routes>
   )

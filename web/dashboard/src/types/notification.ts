@@ -1,6 +1,6 @@
-export type NotifyType = 'order_status' | 'flash_sale' | 'logistics' | 'system'
+export type NotifyType = 'order_status' | 'purchase_order' | 'flash_sale' | 'logistics' | 'system'
 
-export type NotifyStatus = 'pending' | 'delivered' | 'acked' | 'failed'
+export type NotifyStatus = 'pending' | 'queued' | 'delivered' | 'acked' | 'failed'
 
 export interface Notification {
   notify_id: string
@@ -63,6 +63,7 @@ export interface NotificationOutbox {
   order_id?: string
   business_type: string
   event_type: string
+  payload_json?: string
   status: string
   retry_count: number
   next_retry_at?: string
@@ -82,6 +83,7 @@ export interface NotificationDLQ {
   trace_id?: string
   reason: string
   last_error: string
+  payload_json?: string
   retry_count: number
   created_at: string
   resolved_at?: string
@@ -121,6 +123,9 @@ export interface TimelineEvent {
   delivery_path?: string
   retry_count?: number
   business_type?: string
+  priority?: string
+  ttl_seconds?: number
+  ack_policy?: string
   failure_reason?: string
   trace_id?: string
   occurred_at: string
@@ -236,7 +241,8 @@ export interface DLQFilters {
 
 export const NOTIFY_TYPE_LABELS: Record<NotifyType, string> = {
   order_status: '订单状态',
-  flash_sale: '闪购通知',
+  purchase_order: '购买订单',
+  flash_sale: '活动通知',
   logistics: '物流更新',
   system: '系统通知',
 }
