@@ -532,22 +532,22 @@ func BuildNotificationJSON(notifyType, title, content, notifyID, orderID string)
 func statusNotification(status string, orderID string, extra map[string]string) (title, content string) {
 	switch status {
 	case "created":
-		return "订单已创建", fmt.Sprintf("订单 %s 已创建，等待支付", orderID)
+		return "订单已创建", fmt.Sprintf("订单 %s 已创建，商家已收到订单消息。", orderID)
 	case "paid":
-		return "订单已支付", fmt.Sprintf("订单 %s 已支付，商家正在确认", orderID)
+		return "订单状态更新", fmt.Sprintf("订单 %s 进入历史 paid 状态；购买订单演示主流程不再使用支付步骤。", orderID)
 	case "confirmed":
-		return "订单已确认", fmt.Sprintf("订单 %s 已确认，准备发货", orderID)
+		return "商家已确认", fmt.Sprintf("订单 %s 已由商家确认，确认消息已通过 GoIM 投递。", orderID)
 	case "shipped":
 		loc := ""
 		if extra != nil {
 			loc = extra["location"]
 		}
 		if loc != "" {
-			return "订单已发货", fmt.Sprintf("订单 %s 已从%s发出", orderID, loc)
+			return "订单已发出", fmt.Sprintf("订单 %s 已从 %s 发出。", orderID, loc)
 		}
-		return "订单已发货", fmt.Sprintf("订单 %s 已发货，正在运送途中", orderID)
+		return "订单已发出", fmt.Sprintf("订单 %s 已发出，正在履约途中。", orderID)
 	case "delivered":
-		return "订单已签收", fmt.Sprintf("订单 %s 已签收，感谢您的购买", orderID)
+		return "订单已送达", fmt.Sprintf("订单 %s 已送达，感谢确认收货。", orderID)
 	case "cancelled":
 		reason := ""
 		if extra != nil {
@@ -556,16 +556,16 @@ func statusNotification(status string, orderID string, extra map[string]string) 
 		if reason != "" {
 			return "订单已取消", fmt.Sprintf("订单 %s 已取消：%s", orderID, reason)
 		}
-		return "订单已取消", fmt.Sprintf("订单 %s 已取消", orderID)
+		return "订单已取消", fmt.Sprintf("订单 %s 已取消。", orderID)
 	case "delivery_failed":
 		reason := ""
 		if extra != nil {
 			reason = extra["reason"]
 		}
 		if reason != "" {
-			return "配送异常", fmt.Sprintf("订单 %s 配送失败：%s", orderID, reason)
+			return "履约异常", fmt.Sprintf("订单 %s 履约失败：%s", orderID, reason)
 		}
-		return "配送异常", fmt.Sprintf("订单 %s 配送失败，请联系客服", orderID)
+		return "履约异常", fmt.Sprintf("订单 %s 履约失败，请联系商家处理。", orderID)
 	default:
 		return "订单状态更新", fmt.Sprintf("订单 %s 状态更新为：%s", orderID, status)
 	}
@@ -573,12 +573,12 @@ func statusNotification(status string, orderID string, extra map[string]string) 
 
 // LogistisNotification returns a human-readable title and content for a logistics update.
 func LogistisNotification(orderID, location, desc string) (title, content string) {
-	return "物流更新", fmt.Sprintf("订单 %s — %s：%s", orderID, location, desc)
+	return "履约更新", fmt.Sprintf("订单 %s - %s：%s", orderID, location, desc)
 }
 
-// FlashSaleNotification returns a human-readable title and content for a flash sale alert.
+// FlashSaleNotification returns a human-readable title and content for a campaign alert.
 func FlashSaleNotification(saleTitle, desc string) (title, content string) {
-	return "限时闪购", fmt.Sprintf("%s — %s，立即抢购", saleTitle, desc)
+	return "活动通知", fmt.Sprintf("%s - %s", saleTitle, desc)
 }
 
 // extractKeysFromMids converts user ID strings to connection key format for goim.

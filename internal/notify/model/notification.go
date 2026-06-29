@@ -6,10 +6,11 @@ import "time"
 type NotifyType string
 
 const (
-	NotifyOrderStatus NotifyType = "order_status"
-	NotifyFlashSale   NotifyType = "flash_sale"
-	NotifyLogistics   NotifyType = "logistics"
-	NotifySystem      NotifyType = "system"
+	NotifyOrderStatus   NotifyType = "order_status"
+	NotifyPurchaseOrder NotifyType = "purchase_order"
+	NotifyFlashSale     NotifyType = "flash_sale"
+	NotifyLogistics     NotifyType = "logistics"
+	NotifySystem        NotifyType = "system"
 )
 
 // Notification represents a push notification sent to a user.
@@ -186,6 +187,9 @@ type TimelineEvent struct {
 	DeliveryPath  string    `json:"delivery_path,omitempty"`
 	RetryCount    int64     `json:"retry_count,omitempty"`
 	BusinessType  string    `json:"business_type,omitempty"`
+	Priority      string    `json:"priority,omitempty"`
+	TTLSeconds    int64     `json:"ttl_seconds,omitempty"`
+	AckPolicy     string    `json:"ack_policy,omitempty"`
 	FailureReason string    `json:"failure_reason,omitempty"`
 	TraceID       string    `json:"trace_id,omitempty"`
 	OccurredAt    time.Time `json:"occurred_at"`

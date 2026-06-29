@@ -7,17 +7,17 @@ import (
 	"github.com/Terry-Mao/goim/internal/notify/model"
 )
 
-// runOrderLifecycle runs a single order through its full lifecycle for demo purposes.
+// runOrderLifecycle runs a single purchase order through the demo lifecycle.
 func (e *Engine) runOrderLifecycle() {
 	e.wg.Add(1)
 	defer e.wg.Done()
 
 	userID := fmt.Sprintf("%d", time.Now().UnixNano()%10000+1000)
 	items := []model.OrderItem{
-		{ProductName: "iPhone 15 Pro Max", Quantity: 1, Price: 9999.00},
+		{ProductName: "即时履约服务包", Quantity: 1, Price: 1299.00},
 	}
 
-	order, _, err := e.orderSvc.CreateOrder(userID, items, 9999.00)
+	order, _, err := e.orderSvc.CreateOrder(userID, items, 1299.00)
 	if err != nil {
 		return
 	}
@@ -27,9 +27,8 @@ func (e *Engine) runOrderLifecycle() {
 		delay  time.Duration
 		extra  map[string]string
 	}{
-		{model.OrderPaid, 2 * time.Second, nil},
 		{model.OrderConfirmed, 3 * time.Second, nil},
-		{model.OrderShipped, 4 * time.Second, map[string]string{"location": "杭州仓"}},
+		{model.OrderShipped, 4 * time.Second, map[string]string{"location": "华东履约中心"}},
 		{model.OrderDelivered, 5 * time.Second, nil},
 	}
 
@@ -40,13 +39,11 @@ func (e *Engine) runOrderLifecycle() {
 		case <-time.After(t.delay):
 		}
 
-		_, _, err := e.orderSvc.ChangeOrderStatus(order.OrderID, t.status, t.extra)
-		if err != nil {
+		if _, _, err := e.orderSvc.ChangeOrderStatus(order.OrderID, t.status, t.extra); err != nil {
 			return
 		}
 	}
 
-	// Keep running indicator for a bit
 	select {
 	case <-e.stopCh:
 		return

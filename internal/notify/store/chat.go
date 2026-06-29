@@ -12,20 +12,25 @@ import (
 // UpsertChatConversation creates or returns an order-scoped customer support conversation.
 func (s *SQLStore) UpsertChatConversation(conv *model.ChatConversation) (*model.ChatConversation, error) {
 	_, err := s.db.ExecContext(context.Background(), `INSERT INTO chat_conversations
-		(conversation_id, order_id, customer_uid, merchant_uid, room_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at)`,
-		conv.ConversationID, conv.OrderID, conv.CustomerUID, conv.MerchantUID, conv.RoomID,
+		(conversation_id, conversation_type, order_id, merchant_id, title, customer_uid, merchant_uid, room_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at), title = VALUES(title), merchant_id = VALUES(merchant_id)`,
+		conv.ConversationID, nonEmpty(conv.Type, model.ChatTypePrivate), conv.OrderID, conv.MerchantID, conv.Title,
+		conv.CustomerUID, conv.MerchantUID, conv.RoomID,
 		formatTime(conv.CreatedAt), formatTime(conv.UpdatedAt))
 	if err != nil {
 		return nil, err
+	}
+	if conv.Type == model.ChatTypeGroup {
+		return s.GetChatConversation(conv.ConversationID)
 	}
 	return s.GetChatConversationByOrder(conv.OrderID, conv.CustomerUID, conv.MerchantUID)
 }
 
 // GetChatConversation returns one conversation by id.
 func (s *SQLStore) GetChatConversation(conversationID string) (*model.ChatConversation, error) {
-	row := s.db.QueryRowContext(context.Background(), `SELECT conversation_id, order_id, customer_uid, merchant_uid, room_id,
+	row := s.db.QueryRowContext(context.Background(), `SELECT conversation_id, COALESCE(conversation_type, 'private'),
+		order_id, COALESCE(merchant_id, ''), COALESCE(title, ''), customer_uid, merchant_uid, room_id,
 		COALESCE(last_message_id, ''), COALESCE(last_message_at, ''), created_at, updated_at
 		FROM chat_conversations WHERE conversation_id = ?`, conversationID)
 	return scanChatConversation(row)
@@ -33,7 +38,8 @@ func (s *SQLStore) GetChatConversation(conversationID string) (*model.ChatConver
 
 // GetChatConversationByOrder returns one conversation by order and user pair.
 func (s *SQLStore) GetChatConversationByOrder(orderID string, customerUID, merchantUID int64) (*model.ChatConversation, error) {
-	row := s.db.QueryRowContext(context.Background(), `SELECT conversation_id, order_id, customer_uid, merchant_uid, room_id,
+	row := s.db.QueryRowContext(context.Background(), `SELECT conversation_id, COALESCE(conversation_type, 'private'),
+		order_id, COALESCE(merchant_id, ''), COALESCE(title, ''), customer_uid, merchant_uid, room_id,
 		COALESCE(last_message_id, ''), COALESCE(last_message_at, ''), created_at, updated_at
 		FROM chat_conversations WHERE order_id = ? AND customer_uid = ? AND merchant_uid = ?`,
 		orderID, customerUID, merchantUID)
@@ -42,11 +48,14 @@ func (s *SQLStore) GetChatConversationByOrder(orderID string, customerUID, merch
 
 // ListChatConversations lists conversations visible to one user.
 func (s *SQLStore) ListChatConversations(userID int64) ([]*model.ChatConversation, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT conversation_id, order_id, customer_uid, merchant_uid, room_id,
+	rows, err := s.db.QueryContext(context.Background(), `SELECT conversation_id, COALESCE(conversation_type, 'private'),
+		order_id, COALESCE(merchant_id, ''), COALESCE(title, ''), customer_uid, merchant_uid, room_id,
 		COALESCE(last_message_id, ''), COALESCE(last_message_at, ''), created_at, updated_at
 		FROM chat_conversations
-		WHERE customer_uid = ? OR merchant_uid = ?
-		ORDER BY COALESCE(last_message_at, updated_at) DESC`, userID, userID)
+		WHERE customer_uid = ? OR merchant_uid = ? OR conversation_id IN (
+			SELECT conversation_id FROM chat_members WHERE user_id = ?
+		)
+		ORDER BY COALESCE(last_message_at, updated_at) DESC`, userID, userID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -64,6 +73,16 @@ func (s *SQLStore) ListChatConversations(userID int64) ([]*model.ChatConversatio
 		conversations = append(conversations, conv)
 	}
 	return conversations, rows.Err()
+}
+
+func insertChatConversationTx(tx *sql.Tx, conv *model.ChatConversation) error {
+	_, err := tx.ExecContext(context.Background(), `INSERT INTO chat_conversations
+		(conversation_id, conversation_type, order_id, merchant_id, title, customer_uid, merchant_uid, room_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at), title = VALUES(title), merchant_id = VALUES(merchant_id)`,
+		conv.ConversationID, nonEmpty(conv.Type, model.ChatTypePrivate), conv.OrderID, conv.MerchantID, conv.Title,
+		conv.CustomerUID, conv.MerchantUID, conv.RoomID, formatTime(conv.CreatedAt), formatTime(conv.UpdatedAt))
+	return err
 }
 
 // InsertChatMessage inserts a direct IM chat message and updates the conversation summary.
@@ -141,15 +160,48 @@ func (s *SQLStore) chatUnreadCount(conversationID string, userID int64) (int64, 
 	return n, err
 }
 
+// AddChatMember records a user joining a group conversation.
+func (s *SQLStore) AddChatMember(conversationID string, userID int64, role string, joinedAt time.Time) error {
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(context.Background(), `INSERT IGNORE INTO chat_members
+		(conversation_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)`,
+		conversationID, userID, role, formatTime(joinedAt))
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows > 0 {
+		_, _ = tx.ExecContext(context.Background(), `UPDATE merchant_groups g
+			JOIN chat_conversations c ON c.room_id = g.room_id
+			SET g.member_count = g.member_count + 1, g.updated_at = ?
+			WHERE c.conversation_id = ?`, formatTime(joinedAt), conversationID)
+	}
+	return tx.Commit()
+}
+
+// IsChatMember reports whether the user belongs to a group conversation.
+func (s *SQLStore) IsChatMember(conversationID string, userID int64) (bool, error) {
+	var n int64
+	err := s.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM chat_members WHERE conversation_id = ? AND user_id = ?`,
+		conversationID, userID).Scan(&n)
+	return n > 0, err
+}
+
 func scanChatConversation(row scanner) (*model.ChatConversation, error) {
 	var conv model.ChatConversation
 	var lastMessageAt, createdAt, updatedAt string
-	if err := row.Scan(&conv.ConversationID, &conv.OrderID, &conv.CustomerUID, &conv.MerchantUID, &conv.RoomID,
+	if err := row.Scan(&conv.ConversationID, &conv.Type, &conv.OrderID, &conv.MerchantID, &conv.Title, &conv.CustomerUID, &conv.MerchantUID, &conv.RoomID,
 		&conv.LastMessageID, &lastMessageAt, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
+	}
+	if conv.Type == "" {
+		conv.Type = model.ChatTypePrivate
 	}
 	if lastMessageAt != "" {
 		if t, err := parseTime(lastMessageAt); err == nil {

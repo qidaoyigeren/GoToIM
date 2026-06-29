@@ -26,6 +26,10 @@ type updateChatStatusRequest struct {
 	Status string `json:"status"`
 }
 
+type joinChatGroupRequest struct {
+	UserID int64 `json:"user_id"`
+}
+
 func (h *Handler) HandleCreateChatConversation(c *gin.Context) {
 	var req createChatConversationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -115,6 +119,24 @@ func (h *Handler) HandleUpdateChatMessageStatus(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"message_id": c.Param("id"), "status": req.Status}})
+}
+
+func (h *Handler) HandleJoinChatGroup(c *gin.Context) {
+	var req joinChatGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": -400, "message": err.Error()})
+		return
+	}
+	if req.UserID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": -400, "message": "user_id is required"})
+		return
+	}
+	conv, err := h.chatSvc.JoinMerchantGroup(c.Param("room_id"), req.UserID)
+	if err != nil {
+		writeChatError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": conv})
 }
 
 func writeChatError(c *gin.Context, err error) {

@@ -84,6 +84,9 @@ func (s *SQLStore) initSchema(ctx context.Context) error {
 	if err := s.migrateSchema(ctx); err != nil {
 		return fmt.Errorf("migrate notify %s schema: %w", "mysql", err)
 	}
+	if err := s.seedDemoMarket(ctx); err != nil {
+		return fmt.Errorf("seed demo market: %w", err)
+	}
 	return nil
 }
 
@@ -92,12 +95,62 @@ func (s *SQLStore) schemaStatements() []string {
 		`CREATE TABLE IF NOT EXISTS orders (
 				order_id VARCHAR(64) PRIMARY KEY,
 				user_id VARCHAR(64) NOT NULL,
+				merchant_id VARCHAR(64) NOT NULL DEFAULT '',
+				merchant_uid BIGINT NOT NULL DEFAULT 0,
+				merchant_name VARCHAR(255) NOT NULL DEFAULT '',
 				status VARCHAR(32) NOT NULL,
+				order_type VARCHAR(32) NOT NULL DEFAULT 'normal',
+				importance VARCHAR(32) NOT NULL DEFAULT 'normal',
+				buyer_note TEXT,
+				fulfillment_mode VARCHAR(64) NOT NULL DEFAULT '',
+				support_room_id VARCHAR(128) NOT NULL DEFAULT '',
+				private_conversation_id VARCHAR(64) NOT NULL DEFAULT '',
 				items_json TEXT NOT NULL,
 				total DOUBLE NOT NULL,
 				created_at VARCHAR(40) NOT NULL,
 				updated_at VARCHAR(40) NOT NULL,
-				INDEX idx_orders_user_created (user_id, created_at)
+				INDEX idx_orders_user_created (user_id, created_at),
+				INDEX idx_orders_merchant_created (merchant_id, created_at)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS merchants (
+				merchant_id VARCHAR(64) PRIMARY KEY,
+				merchant_uid BIGINT NOT NULL,
+				name VARCHAR(255) NOT NULL,
+				description TEXT,
+				logo_url TEXT,
+				group_room_id VARCHAR(128) NOT NULL DEFAULT '',
+				group_name VARCHAR(255) NOT NULL DEFAULT '',
+				created_at VARCHAR(40) NOT NULL,
+				updated_at VARCHAR(40) NOT NULL,
+				UNIQUE KEY idx_merchants_uid (merchant_uid)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS products (
+				product_id VARCHAR(64) PRIMARY KEY,
+				merchant_id VARCHAR(64) NOT NULL,
+				sku_id VARCHAR(64) NOT NULL DEFAULT '',
+				name VARCHAR(255) NOT NULL,
+				description TEXT,
+				price DOUBLE NOT NULL,
+				image_url TEXT,
+				fulfillment_mode VARCHAR(64) NOT NULL DEFAULT '',
+				created_at VARCHAR(40) NOT NULL,
+				updated_at VARCHAR(40) NOT NULL,
+				INDEX idx_products_merchant (merchant_id),
+				CONSTRAINT fk_products_merchant FOREIGN KEY(merchant_id) REFERENCES merchants(merchant_id)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS merchant_groups (
+				group_id VARCHAR(64) PRIMARY KEY,
+				merchant_id VARCHAR(64) NOT NULL,
+				merchant_uid BIGINT NOT NULL,
+				room_id VARCHAR(128) NOT NULL,
+				name VARCHAR(255) NOT NULL,
+				description TEXT,
+				member_count BIGINT NOT NULL DEFAULT 0,
+				created_at VARCHAR(40) NOT NULL,
+				updated_at VARCHAR(40) NOT NULL,
+				UNIQUE KEY idx_merchant_groups_room (room_id),
+				INDEX idx_merchant_groups_merchant (merchant_id),
+				CONSTRAINT fk_merchant_groups_merchant FOREIGN KEY(merchant_id) REFERENCES merchants(merchant_id)
 			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS order_status_events (
 				event_id VARCHAR(64) PRIMARY KEY,
@@ -337,7 +390,10 @@ func (s *SQLStore) schemaStatements() []string {
 			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS chat_conversations (
 				conversation_id VARCHAR(64) PRIMARY KEY,
+				conversation_type VARCHAR(32) NOT NULL DEFAULT 'private',
 				order_id VARCHAR(64) NOT NULL,
+				merchant_id VARCHAR(64) NOT NULL DEFAULT '',
+				title VARCHAR(255) NOT NULL DEFAULT '',
 				customer_uid BIGINT NOT NULL,
 				merchant_uid BIGINT NOT NULL,
 				room_id VARCHAR(128) NOT NULL,
@@ -348,6 +404,15 @@ func (s *SQLStore) schemaStatements() []string {
 				UNIQUE KEY idx_chat_conversations_order_pair (order_id, customer_uid, merchant_uid),
 				INDEX idx_chat_conversations_customer (customer_uid, updated_at),
 				INDEX idx_chat_conversations_merchant (merchant_uid, updated_at)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS chat_members (
+				conversation_id VARCHAR(64) NOT NULL,
+				user_id BIGINT NOT NULL,
+				role VARCHAR(32) NOT NULL,
+				joined_at VARCHAR(40) NOT NULL,
+				PRIMARY KEY(conversation_id, user_id),
+				INDEX idx_chat_members_user (user_id, joined_at),
+				CONSTRAINT fk_chat_members_conversation FOREIGN KEY(conversation_id) REFERENCES chat_conversations(conversation_id)
 			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS chat_messages (
 				message_id VARCHAR(64) PRIMARY KEY,
@@ -378,6 +443,22 @@ func (s *SQLStore) schemaStatements() []string {
 	}
 }
 func (s *SQLStore) migrateSchema(ctx context.Context) error {
+	orderColumns := map[string]string{
+		"merchant_id":             "VARCHAR(64) NOT NULL DEFAULT ''",
+		"merchant_uid":            "BIGINT NOT NULL DEFAULT 0",
+		"merchant_name":           "VARCHAR(255) NOT NULL DEFAULT ''",
+		"order_type":              "VARCHAR(32) NOT NULL DEFAULT 'normal'",
+		"importance":              "VARCHAR(32) NOT NULL DEFAULT 'normal'",
+		"buyer_note":              "TEXT",
+		"fulfillment_mode":        "VARCHAR(64) NOT NULL DEFAULT ''",
+		"support_room_id":         "VARCHAR(128) NOT NULL DEFAULT ''",
+		"private_conversation_id": "VARCHAR(64) NOT NULL DEFAULT ''",
+	}
+	for name, decl := range orderColumns {
+		if err := s.addColumnIfMissing(ctx, "orders", name, decl); err != nil {
+			return err
+		}
+	}
 	notificationColumns := map[string]string{
 		"business_type":       "VARCHAR(64) NOT NULL DEFAULT ''",
 		"event_type":          "VARCHAR(64) NOT NULL DEFAULT ''",
@@ -464,6 +545,15 @@ func (s *SQLStore) migrateSchema(ctx context.Context) error {
 	}
 	if err := s.addColumnIfMissing(ctx, "campaign_audience_targets", "last_error", "TEXT"); err != nil {
 		return err
+	}
+	for name, decl := range map[string]string{
+		"conversation_type": "VARCHAR(32) NOT NULL DEFAULT 'private'",
+		"merchant_id":       "VARCHAR(64) NOT NULL DEFAULT ''",
+		"title":             "VARCHAR(255) NOT NULL DEFAULT ''",
+	} {
+		if err := s.addColumnIfMissing(ctx, "chat_conversations", name, decl); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -596,6 +686,53 @@ func (s *SQLStore) CreateOrderNotificationOutbox(order *model.Order, n *model.No
 	return tx.Commit()
 }
 
+// CreatePurchaseOrderNotificationOutbox atomically creates a purchase order,
+// its initial status event, private chat conversation, notifications, outbox
+// rows, and optional idempotency replay snapshot.
+func (s *SQLStore) CreatePurchaseOrderNotificationOutbox(order *model.Order, event *model.OrderStatusEvent, conv *model.ChatConversation, notifications []*model.Notification, outboxes []*model.NotificationOutbox, scope, key, resourceType, resourceID string, snapshot []byte) error {
+	if len(notifications) != len(outboxes) {
+		return fmt.Errorf("notifications/outboxes length mismatch")
+	}
+	extra, err := json.Marshal(emptyMap(event.Extra))
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := insertOrderTx(tx, order); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO order_status_events
+		(event_id, order_id, from_status, to_status, extra_json, idempotency_key, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		event.EventID, event.OrderID, string(event.FromStatus), string(event.ToStatus), string(extra),
+		event.IdempotencyKey, formatTime(event.CreatedAt)); err != nil {
+		return err
+	}
+	if conv != nil {
+		if err := insertChatConversationTx(tx, conv); err != nil {
+			return err
+		}
+	}
+	for _, n := range notifications {
+		if err := insertNotificationTx(tx, n); err != nil {
+			return err
+		}
+	}
+	for _, outbox := range outboxes {
+		if err := insertOutboxTx(tx, outbox); err != nil {
+			return err
+		}
+	}
+	if err := saveIdempotencyTx(tx, scope, key, resourceType, resourceID, snapshot); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // ChangeOrderNotificationOutbox atomically updates the order, appends the
 // status event, creates the notification/outbox, and saves idempotency.
 func (s *SQLStore) ChangeOrderNotificationOutbox(order *model.Order, event *model.OrderStatusEvent, n *model.Notification, outbox *model.NotificationOutbox, scope, key, resourceType, resourceID string, snapshot []byte) error {
@@ -674,9 +811,12 @@ func insertOrderTx(tx *sql.Tx, order *model.Order) error {
 		return err
 	}
 	_, err = tx.ExecContext(context.Background(), `INSERT INTO orders
-		(order_id, user_id, status, items_json, total, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		order.OrderID, order.UserID, string(order.Status), string(items), order.Total,
+		(order_id, user_id, merchant_id, merchant_uid, merchant_name, status, order_type, importance,
+		 buyer_note, fulfillment_mode, support_room_id, private_conversation_id, items_json, total, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		order.OrderID, order.UserID, order.MerchantID, order.MerchantUID, order.MerchantName, string(order.Status),
+		nonEmpty(string(order.OrderType), string(model.OrderTypeNormal)), nonEmpty(string(order.Importance), string(model.OrderImportanceNormal)),
+		order.BuyerNote, order.FulfillmentMode, order.SupportRoomID, order.PrivateConversationID, string(items), order.Total,
 		formatTime(order.CreatedAt), formatTime(order.UpdatedAt))
 	return err
 }
@@ -718,23 +858,32 @@ func (s *SQLStore) InsertOrder(order *model.Order) error {
 		return err
 	}
 	_, err = s.db.ExecContext(context.Background(), `INSERT INTO orders
-		(order_id, user_id, status, items_json, total, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		order.OrderID, order.UserID, string(order.Status), string(items), order.Total,
+		(order_id, user_id, merchant_id, merchant_uid, merchant_name, status, order_type, importance,
+		 buyer_note, fulfillment_mode, support_room_id, private_conversation_id, items_json, total, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		order.OrderID, order.UserID, order.MerchantID, order.MerchantUID, order.MerchantName, string(order.Status),
+		nonEmpty(string(order.OrderType), string(model.OrderTypeNormal)), nonEmpty(string(order.Importance), string(model.OrderImportanceNormal)),
+		order.BuyerNote, order.FulfillmentMode, order.SupportRoomID, order.PrivateConversationID, string(items), order.Total,
 		formatTime(order.CreatedAt), formatTime(order.UpdatedAt))
 	return err
 }
 
 // GetOrder returns an order by id.
 func (s *SQLStore) GetOrder(orderID string) (*model.Order, error) {
-	row := s.db.QueryRowContext(context.Background(), `SELECT order_id, user_id, status, items_json, total, created_at, updated_at
+	row := s.db.QueryRowContext(context.Background(), `SELECT order_id, user_id, COALESCE(merchant_id, ''), COALESCE(merchant_uid, 0),
+		COALESCE(merchant_name, ''), status, COALESCE(order_type, 'normal'), COALESCE(importance, 'normal'),
+		COALESCE(buyer_note, ''), COALESCE(fulfillment_mode, ''), COALESCE(support_room_id, ''),
+		COALESCE(private_conversation_id, ''), items_json, total, created_at, updated_at
 		FROM orders WHERE order_id = ?`, orderID)
 	return scanOrder(row)
 }
 
 // ListUserOrders returns all persisted orders for a user.
 func (s *SQLStore) ListUserOrders(userID string) ([]*model.Order, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT order_id, user_id, status, items_json, total, created_at, updated_at
+	rows, err := s.db.QueryContext(context.Background(), `SELECT order_id, user_id, COALESCE(merchant_id, ''), COALESCE(merchant_uid, 0),
+		COALESCE(merchant_name, ''), status, COALESCE(order_type, 'normal'), COALESCE(importance, 'normal'),
+		COALESCE(buyer_note, ''), COALESCE(fulfillment_mode, ''), COALESCE(support_room_id, ''),
+		COALESCE(private_conversation_id, ''), items_json, total, created_at, updated_at
 		FROM orders WHERE user_id = ? ORDER BY created_at DESC`, userID)
 	if err != nil {
 		return nil, err
@@ -2239,8 +2388,25 @@ func scanScenarioRun(row scanner) (*model.ScenarioRun, error) {
 
 func scanOrder(row scanner) (*model.Order, error) {
 	var order model.Order
-	var status, itemsJSON, createdAt, updatedAt string
-	if err := row.Scan(&order.OrderID, &order.UserID, &status, &itemsJSON, &order.Total, &createdAt, &updatedAt); err != nil {
+	var status, orderType, importance, itemsJSON, createdAt, updatedAt string
+	if err := row.Scan(
+		&order.OrderID,
+		&order.UserID,
+		&order.MerchantID,
+		&order.MerchantUID,
+		&order.MerchantName,
+		&status,
+		&orderType,
+		&importance,
+		&order.BuyerNote,
+		&order.FulfillmentMode,
+		&order.SupportRoomID,
+		&order.PrivateConversationID,
+		&itemsJSON,
+		&order.Total,
+		&createdAt,
+		&updatedAt,
+	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -2258,6 +2424,8 @@ func scanOrder(row scanner) (*model.Order, error) {
 		return nil, err
 	}
 	order.Status = model.OrderStatus(status)
+	order.OrderType = model.OrderType(nonEmpty(orderType, string(model.OrderTypeNormal)))
+	order.Importance = model.OrderImportance(nonEmpty(importance, string(model.OrderImportanceNormal)))
 	order.CreatedAt = created
 	order.UpdatedAt = updated
 	return &order, nil
@@ -2578,7 +2746,8 @@ func buildTimeline(events []*model.OrderStatusEvent, notifs []*model.Notificatio
 	for _, n := range notifs {
 		t = append(t, model.TimelineEvent{
 			ID: n.NotifyID, Type: "notification", Label: n.Title, NotifyID: n.NotifyID,
-			OrderID: n.OrderID, Status: n.Status, BusinessType: n.BusinessType, TraceID: n.TraceID, OccurredAt: n.CreatedAt,
+			OrderID: n.OrderID, Status: n.Status, BusinessType: n.BusinessType, Priority: n.Priority,
+			TTLSeconds: n.TTLSeconds, AckPolicy: n.AckPolicy, TraceID: n.TraceID, OccurredAt: n.CreatedAt,
 		})
 	}
 	for _, a := range attempts {

@@ -44,7 +44,6 @@ func (e *Engine) runPeakTraffic(qps, userPool int) {
 		case <-e.stopCh:
 			return
 		case <-burstTick.C:
-			// Burst: create 50 orders at once
 			for i := 0; i < 50; i++ {
 				e.generateOneEvent(userPool)
 			}
@@ -60,7 +59,6 @@ func (e *Engine) generateOneEvent(userPool int) {
 
 	switch {
 	case eventType < 5:
-		// Create new order
 		items := randomItems()
 		total := 0.0
 		for _, item := range items {
@@ -69,7 +67,6 @@ func (e *Engine) generateOneEvent(userPool int) {
 		e.orderSvc.CreateOrder(userID, items, total)
 
 	case eventType < 8:
-		// Status change on existing order
 		orders := e.orderSvc.GetUserOrders(userID)
 		if len(orders) == 0 {
 			return
@@ -85,14 +82,13 @@ func (e *Engine) generateOneEvent(userPool int) {
 		e.orderSvc.ChangeOrderStatus(order.OrderID, nextStatus, nil)
 
 	default:
-		// Occasional flash sale to random subset
 		users := make([]string, rand.Intn(20)+5)
 		for i := range users {
 			users[i] = fmt.Sprintf("%d", 1000+rand.Intn(userPool))
 		}
 		e.flashSaleSvc.CreateFlashSale(
-			"限时特惠",
-			"精选商品限时折扣，立即抢购！",
+			"会员服务提醒",
+			"重点用户可查看新的履约权益与服务消息",
 			users,
 		)
 	}
@@ -103,14 +99,14 @@ func randomItems() []model.OrderItem {
 		name  string
 		price float64
 	}{
-		{"iPhone 15 Pro Max", 9999.00},
-		{"MacBook Pro 14", 14999.00},
-		{"AirPods Pro", 1999.00},
-		{"iPad Air", 4799.00},
-		{"Apple Watch Ultra", 6299.00},
-		{"机械键盘 Cherry MX", 899.00},
-		{"4K显示器 27寸", 2999.00},
-		{"无线鼠标", 299.00},
+		{"透明防摔保护壳", 129.00},
+		{"无线办公键盘", 329.00},
+		{"27 英寸办公显示器", 1599.00},
+		{"降噪通话耳机", 699.00},
+		{"企业采购服务包", 2499.00},
+		{"远程售后服务单", 99.00},
+		{"数字会员兑换码", 199.00},
+		{"加急履约服务", 299.00},
 	}
 	n := rand.Intn(3) + 1
 	items := make([]model.OrderItem, n)
@@ -127,7 +123,7 @@ func randomItems() []model.OrderItem {
 
 func randomNextStatus(current model.OrderStatus) model.OrderStatus {
 	transitions := map[model.OrderStatus][]model.OrderStatus{
-		model.OrderCreated:   {model.OrderPaid, model.OrderCancelled},
+		model.OrderCreated:   {model.OrderConfirmed, model.OrderCancelled},
 		model.OrderPaid:      {model.OrderConfirmed, model.OrderCancelled},
 		model.OrderConfirmed: {model.OrderShipped, model.OrderCancelled},
 		model.OrderShipped:   {model.OrderDelivered, model.OrderDeliveryFailed},

@@ -185,6 +185,12 @@ func (s *Server) initRouter() {
 	s.engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	api := s.engine.Group("/api")
+	api.GET("/market/merchants", s.handler.HandleListMerchants)
+	api.GET("/market/products", s.handler.HandleListProducts)
+	api.GET("/market/groups", s.handler.HandleListMerchantGroups)
+	api.POST("/purchase-orders", s.handler.HandleCreatePurchaseOrder)
+	api.GET("/purchase-orders/:order_id", s.handler.HandleGetPurchaseOrder)
+	api.GET("/purchase-orders/user/:uid", s.handler.HandleGetUserPurchaseOrders)
 	api.POST("/order/create", s.handler.HandleCreateOrder)
 	api.POST("/order/status-change", s.handler.HandleOrderStatusChange)
 	api.GET("/orders/:order_id", s.handler.HandleGetOrder)
@@ -195,6 +201,8 @@ func (s *Server) initRouter() {
 	api.GET("/user/:uid/notifications", s.handler.HandleGetUserNotifications)
 	api.GET("/notifications/:notify_id/attempts", s.handler.HandleListAttempts)
 	api.GET("/notifications/:notify_id/trace", s.handler.HandleNotificationTrace)
+	api.GET("/delivery/messages", s.handler.HandleListDeliveryMessages)
+	api.GET("/delivery/messages/:id", s.handler.HandleGetDeliveryMessage)
 	api.GET("/platform/stats", s.handler.HandleGetPlatformStats)
 	api.GET("/platform/sla", s.handler.HandleGetBusinessSLA)
 	api.POST("/simulate/start", s.handler.HandleSimulateStart)
@@ -225,6 +233,7 @@ func (s *Server) initRouter() {
 	api.GET("/chat/conversations/:id/messages", s.handler.HandleListChatMessages)
 	api.POST("/chat/conversations/:id/messages", s.handler.HandleSendChatMessage)
 	api.PATCH("/chat/messages/:id/status", s.handler.HandleUpdateChatMessageStatus)
+	api.POST("/chat/groups/:room_id/join", s.handler.HandleJoinChatGroup)
 
 	// Phase 3: Campaign lifecycle
 	api.GET("/campaigns/:id", s.handler.HandleGetCampaign)

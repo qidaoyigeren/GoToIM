@@ -48,7 +48,10 @@ func (h *Handler) HandleLogistisUpdate(c *gin.Context) {
 
 func buildLogisticsMsg(orderID, location, desc string) (string, string) {
 	if location == "" {
-		location = "转运中心"
+		location = "配送处理中"
 	}
-	return "物流更新", fmt.Sprintf("订单 %s — %s：%s", orderID, location, desc)
+	if desc == "" {
+		desc = "订单物流节点已更新"
+	}
+	return "物流更新", fmt.Sprintf("订单 %s - %s：%s", orderID, location, desc)
 }

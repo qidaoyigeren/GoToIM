@@ -94,12 +94,12 @@ func TestStatusChangeCreatesEventAndNotification(t *testing.T) {
 		t.Fatalf("CreateOrder returned error: %v", err)
 	}
 
-	updated, notif, err := svc.ChangeOrderStatus(order.OrderID, model.OrderPaid, nil)
+	updated, notif, err := svc.ChangeOrderStatus(order.OrderID, model.OrderConfirmed, nil)
 	if err != nil {
 		t.Fatalf("ChangeOrderStatus returned error: %v", err)
 	}
-	if updated.Status != model.OrderPaid {
-		t.Fatalf("status = %s, want paid", updated.Status)
+	if updated.Status != model.OrderConfirmed {
+		t.Fatalf("status = %s, want confirmed", updated.Status)
 	}
 	if notif.OrderID != order.OrderID {
 		t.Fatalf("notification order_id = %q, want %q", notif.OrderID, order.OrderID)
@@ -193,11 +193,11 @@ func TestStatusChangeIdempotencyDoesNotCreateDuplicateEventOrNotification(t *tes
 		t.Fatalf("CreateOrder returned error: %v", err)
 	}
 
-	_, firstNotif, err := svc.ChangeOrderStatusIdempotent(order.OrderID, model.OrderPaid, nil, "status-1")
+	_, firstNotif, err := svc.ChangeOrderStatusIdempotent(order.OrderID, model.OrderConfirmed, nil, "status-1")
 	if err != nil {
 		t.Fatalf("first ChangeOrderStatusIdempotent returned error: %v", err)
 	}
-	_, secondNotif, err := svc.ChangeOrderStatusIdempotent(order.OrderID, model.OrderPaid, nil, "status-1")
+	_, secondNotif, err := svc.ChangeOrderStatusIdempotent(order.OrderID, model.OrderConfirmed, nil, "status-1")
 	if err != nil {
 		t.Fatalf("second ChangeOrderStatusIdempotent returned error: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestStatusChangeIdempotencyConcurrentReplay(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			orders[idx], notifs[idx], errs[idx] = svc.ChangeOrderStatusIdempotent(order.OrderID, model.OrderPaid, nil, key)
+			orders[idx], notifs[idx], errs[idx] = svc.ChangeOrderStatusIdempotent(order.OrderID, model.OrderConfirmed, nil, key)
 		}(i)
 	}
 	wg.Wait()

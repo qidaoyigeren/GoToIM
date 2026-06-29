@@ -558,8 +558,21 @@ func (s *OrderNotifyService) createNotification(userID string, nType model.Notif
 }
 
 func (s *OrderNotifyService) createOutbox(notif *model.Notification) (*model.NotificationOutbox, error) {
+	return s.createOutboxWithExtras(notif, nil)
+}
+
+func (s *OrderNotifyService) createOutboxWithExtras(notif *model.Notification, extras map[string]interface{}) (*model.NotificationOutbox, error) {
 	payload := BuildNotificationJSON(string(notif.Type), notif.Title, notif.Content, notif.NotifyID, notif.OrderID)
 	payload["trace_id"] = nonEmptyString(notif.TraceID, notif.NotifyID)
+	payload["business_type"] = notif.BusinessType
+	payload["event_type"] = notif.EventType
+	payload["priority"] = notif.Priority
+	payload["ttl_seconds"] = notif.TTLSeconds
+	payload["ack_policy"] = notif.AckPolicy
+	payload["expected_ack_count"] = notif.ExpectedAckCount
+	for k, v := range extras {
+		payload[k] = v
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err

@@ -5,18 +5,25 @@ import "time"
 const (
 	ChatRoleCustomer = "customer"
 	ChatRoleMerchant = "merchant"
+	ChatRoleMember   = "member"
 
 	ChatStatusPending   = "pending"
 	ChatStatusSent      = "sent"
 	ChatStatusDelivered = "delivered"
 	ChatStatusRead      = "read"
 	ChatStatusFailed    = "failed"
+
+	ChatTypePrivate = "private"
+	ChatTypeGroup   = "group"
 )
 
-// ChatConversation is a one-to-one order-scoped customer service thread.
+// ChatConversation is an IM conversation for an order private chat or a merchant group.
 type ChatConversation struct {
 	ConversationID string    `json:"conversation_id"`
-	OrderID        string    `json:"order_id"`
+	Type           string    `json:"type"`
+	OrderID        string    `json:"order_id,omitempty"`
+	MerchantID     string    `json:"merchant_id,omitempty"`
+	Title          string    `json:"title,omitempty"`
 	CustomerUID    int64     `json:"customer_uid"`
 	MerchantUID    int64     `json:"merchant_uid"`
 	RoomID         string    `json:"room_id"`
@@ -41,4 +48,12 @@ type ChatMessage struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	DeliveredAt    *time.Time `json:"delivered_at,omitempty"`
 	ReadAt         *time.Time `json:"read_at,omitempty"`
+}
+
+// ChatMember records membership in a merchant group conversation.
+type ChatMember struct {
+	ConversationID string    `json:"conversation_id"`
+	UserID         int64     `json:"user_id"`
+	Role           string    `json:"role"`
+	JoinedAt       time.Time `json:"joined_at"`
 }
